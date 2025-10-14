@@ -20,7 +20,7 @@ function App() {
     return window.matchMedia('(prefers-color-scheme: dark)').matches;
   });
   const [dateRange, setDateRange] = useState({
-    from: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(),
+    from: new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString(),
     to: new Date().toISOString()
   });
 
@@ -139,7 +139,7 @@ function App() {
               <div className="flex items-center gap-2">
                 <Calendar className="w-5 h-5 text-gray-400 dark:text-gray-500" />
                 <select
-                  defaultValue="30"
+                  defaultValue="14"
                   onChange={(e) => {
                     const days = parseInt(e.target.value);
                     setDateRange({
@@ -150,8 +150,7 @@ function App() {
                   className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
                 >
                   <option value="7">Last 7 days</option>
-                  <option value="30">Last 30 days</option>
-                  <option value="90">Last 90 days</option>
+                  <option value="14">Last 14 days</option>
                 </select>
               </div>
             </div>

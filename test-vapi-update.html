@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test VAPI API Update</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        button {
+            background: #4CAF50;
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            margin-right: 10px;
+        }
+        button:hover {
+            background: #45a049;
+        }
+        button:disabled {
+            background: #cccccc;
+            cursor: not-allowed;
+        }
+        .result {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 4px;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+        .success {
+            background: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+        }
+        .error {
+            background: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+        }
+        .info {
+            background: #d1ecf1;
+            border: 1px solid #bee5eb;
+            color: #0c5460;
+        }
+        h1 {
+            color: #333;
+        }
+        .config {
+            background: #f8f9fa;
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Test VAPI API Update</h1>
+
+        <div class="config">
+            <strong>Assistant ID:</strong> 1aafbb15-99de-48bf-87de-ce3b713d1816<br>
+            <strong>API Key:</strong> 672edc19-****-****-****-************ (hidden for security)
+        </div>
+
+        <h3>Test Actions:</h3>
+        <button onclick="getCurrentConfig()">1. Get Current Assistant Config</button>
+        <button onclick="updateSystemPrompt()">2. Update System Prompt (Small Change)</button>
+        <button onclick="verifyUpdate()">3. Verify Update</button>
+
+        <div id="result"></div>
+    </div>
+
+    <script>
+        const VAPI_BASE_URL = 'https://api.vapi.ai';
+        const ASSISTANT_ID = '1aafbb15-99de-48bf-87de-ce3b713d1816';
+        const API_KEY = '672edc19-e212-4782-b6cc-4f9520191754';
+
+        function showResult(message, type = 'info') {
+            const resultDiv = document.getElementById('result');
+            resultDiv.className = `result ${type}`;
+            resultDiv.textContent = message;
+        }
+
+        async function getCurrentConfig() {
+            showResult('Fetching current assistant configuration...', 'info');
+
+            try {
+                const response = await fetch(`${VAPI_BASE_URL}/assistant/${ASSISTANT_ID}`, {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Bearer ${API_KEY}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                if (!response.ok) {
+                    const error = await response.text();
+                    throw new Error(`API Error: ${response.status} - ${error}`);
+                }
+
+                const data = await response.json();
+
+                // Extract current system message
+                const currentSystemMessage = data.model?.messages?.[0]?.content || 'No system message found';
+
+                showResult(
+                    `✅ Successfully retrieved assistant configuration!\n\n` +
+                    `Name: ${data.name}\n` +
+                    `Voice: ${data.voice?.voiceId}\n` +
+                    `Model: ${data.model?.model}\n\n` +
+                    `Current System Message (first 200 chars):\n${currentSystemMessage.substring(0, 200)}...`,
+                    'success'
+                );
+
+                console.log('Full configuration:', data);
+
+            } catch (error) {
+                showResult(`❌ Error: ${error.message}`, 'error');
+                console.error('Full error:', error);
+            }
+        }
+
+        async function updateSystemPrompt() {
+            showResult('Updating system prompt with a small test change...', 'info');
+
+            const updatedSystemMessage = `# [Identity]
+You are an empathetic and professional Smart Cremation voice assistant who helps families with end-of-life arrangements.
+
+🔧 TEST UPDATE: This message was updated via browser API call.
+
+# [Style]
+- Maintain a compassionate and understanding tone
+- Be patient and speak gently
+- Keep responses concise and clear
+- Use professional and respectful language
+
+# [Data Collection Requirements]
+(Caller info + Deceased info same as earlier prompt)
+
+# [First Message]
+Thank you for contacting Smart Cremation. I'm truly sorry for your loss. I'm here to help guide you through this process. May I begin by getting your name?`;
+
+            try {
+                const response = await fetch(`${VAPI_BASE_URL}/assistant/${ASSISTANT_ID}`, {
+                    method: 'PATCH',
+                    headers: {
+                        'Authorization': `Bearer ${API_KEY}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        model: {
+                            messages: [
+                                {
+                                    role: "system",
+                                    content: updatedSystemMessage
+                                }
+                            ]
+                        }
+                    })
+                });
+
+                if (!response.ok) {
+                    const error = await response.text();
+                    throw new Error(`API Error: ${response.status} - ${error}`);
+                }
+
+                const data = await response.json();
+
+                showResult(
+                    `✅ Successfully updated system prompt!\n\n` +
+                    `Assistant: ${data.name}\n` +
+                    `Updated at: ${new Date().toLocaleString()}\n\n` +
+                    `New system message includes: "🔧 TEST UPDATE: This message was updated via browser API call."`,
+                    'success'
+                );
+
+                console.log('Updated configuration:', data);
+
+            } catch (error) {
+                showResult(`❌ Error: ${error.message}`, 'error');
+                console.error('Full error:', error);
+            }
+        }
+
+        async function verifyUpdate() {
+            showResult('Verifying the update was applied...', 'info');
+
+            try {
+                const response = await fetch(`${VAPI_BASE_URL}/assistant/${ASSISTANT_ID}`, {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Bearer ${API_KEY}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                if (!response.ok) {
+                    const error = await response.text();
+                    throw new Error(`API Error: ${response.status} - ${error}`);
+                }
+
+                const data = await response.json();
+                const systemMessage = data.model?.messages?.[0]?.content || '';
+
+                if (systemMessage.includes('🔧 TEST UPDATE')) {
+                    showResult(
+                        `✅ VERIFICATION SUCCESSFUL!\n\n` +
+                        `The update was successfully applied and is now live.\n\n` +
+                        `The system message now contains the test marker.\n\n` +
+                        `This confirms that:\n` +
+                        `- VAPI API is working correctly from the browser\n` +
+                        `- CORS is enabled (no CORS errors)\n` +
+                        `- Your credentials are valid\n` +
+                        `- Updates are being saved and retrieved properly`,
+                        'success'
+                    );
+                } else {
+                    showResult(
+                        `⚠️ Update may not have been applied.\n\n` +
+                        `Could not find the test marker in the system message.\n\n` +
+                        `Current message (first 200 chars):\n${systemMessage.substring(0, 200)}...`,
+                        'error'
+                    );
+                }
+
+                console.log('Verification data:', data);
+
+            } catch (error) {
+                showResult(`❌ Error: ${error.message}`, 'error');
+                console.error('Full error:', error);
+            }
+        }
+
+        // Auto-run first test on page load
+        window.addEventListener('load', () => {
+            showResult('Ready to test VAPI API. Click "1. Get Current Assistant Config" to start.', 'info');
+        });
+    </script>
+</body>
+</html>
