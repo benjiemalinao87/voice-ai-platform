@@ -12,6 +12,8 @@ import {
   X
 } from 'lucide-react';
 import { agentApi } from '../lib/api';
+import { VoiceTest } from './VoiceTest';
+import { vapiConfig } from '../lib/vapi';
 import type { Agent } from '../types';
 
 interface AgentConfigProps {
@@ -383,6 +385,16 @@ export function AgentConfig({ agentId }: AgentConfigProps) {
             </div>
           </div>
         </div>
+
+        {/* Voice Test Section */}
+        {vapiConfig.publicKey && (
+          <div className="mt-6">
+            <VoiceTest
+              assistantId={agent.id}
+              publicKey={vapiConfig.publicKey}
+            />
+          </div>
+        )}
       </div>
     </div>
   );
