@@ -1,9 +1,44 @@
-import { supabase } from './supabase';
+import { supabase, isDemo } from './supabase';
 import type { Agent, Call, MetricsSummary, DashboardMetrics, KeywordTrend } from '../types';
+
+// Mock data for demo mode
+const mockAgent: Agent = {
+  id: '1',
+  name: 'Sales Agent',
+  voice_id: 'en-US-neural-pro-1',
+  voice_name: 'Professional Female Voice',
+  tone: 'professional',
+  response_style: 'adaptive',
+  system_prompt: 'You are a helpful sales assistant for a voice AI company.',
+  conversation_prompt: 'Greet the caller and ask how you can help them today.',
+  is_active: true,
+  api_key: 'demo_api_key_12345',
+  created_at: new Date().toISOString(),
+  updated_at: new Date().toISOString()
+};
+
+const mockCalls: Call[] = Array.from({ length: 30 }, (_, i) => ({
+  id: `call-${i}`,
+  agent_id: '1',
+  call_date: new Date(Date.now() - i * 24 * 60 * 60 * 1000).toISOString(),
+  duration_seconds: 120 + Math.floor(Math.random() * 300),
+  was_answered: Math.random() > 0.15,
+  language: Math.random() > 0.3 ? 'en' : 'es',
+  summary_length: 150 + Math.floor(Math.random() * 200),
+  is_qualified_lead: Math.random() > 0.6,
+  has_appointment_intent: Math.random() > 0.7,
+  crm_lead_created: Math.random() > 0.5,
+  crm_sync_status: Math.random() > 0.2 ? 'success' : 'error',
+  sentiment_score: -0.5 + Math.random() * 1.5,
+  created_at: new Date().toISOString()
+}));
 
 export const agentApi = {
   async getAll(): Promise<Agent[]> {
-    const { data, error } = await supabase
+    if (isDemo) {
+      return Promise.resolve([mockAgent]);
+    }
+    const { data, error } = await supabase!
       .from('agents')
       .select('*')
       .order('created_at', { ascending: false });
@@ -13,7 +48,10 @@ export const agentApi = {
   },
 
   async getById(id: string): Promise<Agent | null> {
-    const { data, error } = await supabase
+    if (isDemo) {
+      return Promise.resolve(mockAgent);
+    }
+    const { data, error } = await supabase!
       .from('agents')
       .select('*')
       .eq('id', id)
@@ -24,7 +62,10 @@ export const agentApi = {
   },
 
   async update(id: string, updates: Partial<Agent>): Promise<Agent> {
-    const { data, error } = await supabase
+    if (isDemo) {
+      return Promise.resolve({ ...mockAgent, ...updates });
+    }
+    const { data, error } = await supabase!
       .from('agents')
       .update({ ...updates, updated_at: new Date().toISOString() })
       .eq('id', id)
@@ -36,7 +77,10 @@ export const agentApi = {
   },
 
   async create(agent: Omit<Agent, 'id' | 'created_at' | 'updated_at'>): Promise<Agent> {
-    const { data, error } = await supabase
+    if (isDemo) {
+      return Promise.resolve({ ...mockAgent, ...agent });
+    }
+    const { data, error } = await supabase!
       .from('agents')
       .insert([agent])
       .select()
@@ -49,7 +93,20 @@ export const agentApi = {
 
 export const callsApi = {
   async getAll(agentId?: string, dateFrom?: string, dateTo?: string): Promise<Call[]> {
-    let query = supabase.from('calls').select('*');
+    if (isDemo) {
+      let filteredCalls = [...mockCalls];
+
+      if (dateFrom) {
+        filteredCalls = filteredCalls.filter(c => c.call_date >= dateFrom);
+      }
+      if (dateTo) {
+        filteredCalls = filteredCalls.filter(c => c.call_date <= dateTo);
+      }
+
+      return Promise.resolve(filteredCalls);
+    }
+
+    let query = supabase!.from('calls').select('*');
 
     if (agentId) {
       query = query.eq('agent_id', agentId);
@@ -127,7 +184,17 @@ export const callsApi = {
   },
 
   async getKeywordTrends(agentId?: string, limit: number = 10): Promise<KeywordTrend[]> {
-    let query = supabase
+    if (isDemo) {
+      return Promise.resolve([
+        { keyword: 'appointment', count: 287 },
+        { keyword: 'pricing', count: 245 },
+        { keyword: 'schedule', count: 198 },
+        { keyword: 'availability', count: 176 },
+        { keyword: 'urgent', count: 142 }
+      ]);
+    }
+
+    let query = supabase!
       .from('call_keywords')
       .select('keyword, frequency');
 
@@ -154,10 +221,14 @@ export const callsApi = {
 
 export const metricsApi = {
   async getDailySummary(agentId?: string, days: number = 30): Promise<MetricsSummary[]> {
+    if (isDemo) {
+      return Promise.resolve([]);
+    }
+
     const dateFrom = new Date();
     dateFrom.setDate(dateFrom.getDate() - days);
 
-    let query = supabase
+    let query = supabase!
       .from('metrics_summary')
       .select('*')
       .gte('date', dateFrom.toISOString().split('T')[0]);
