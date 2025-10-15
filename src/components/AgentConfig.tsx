@@ -1,11 +1,9 @@
 import { useEffect, useState } from 'react';
 import {
-  Save,
   Volume2,
   MessageSquare,
   Settings,
   Key,
-  Play,
   Power,
   Edit3,
   Check,
@@ -38,7 +36,6 @@ export function AgentConfig({ agentId }: AgentConfigProps) {
   const [saving, setSaving] = useState(false);
   const [editMode, setEditMode] = useState<string | null>(null);
   const [formData, setFormData] = useState<Partial<Agent>>({});
-  const [testRunning, setTestRunning] = useState(false);
 
   useEffect(() => {
     loadAgent();
@@ -70,14 +67,6 @@ export function AgentConfig({ agentId }: AgentConfigProps) {
     } finally {
       setSaving(false);
     }
-  };
-
-  const handleTestCall = async () => {
-    setTestRunning(true);
-    setTimeout(() => {
-      setTestRunning(false);
-      alert('Test call simulation completed successfully!');
-    }, 2000);
   };
 
   const toggleActive = async () => {
@@ -127,16 +116,18 @@ export function AgentConfig({ agentId }: AgentConfigProps) {
               <Power className="w-4 h-4" />
               {agent.is_active ? 'Active' : 'Inactive'}
             </button>
-            <button
-              onClick={handleTestCall}
-              disabled={testRunning}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-600 dark:bg-blue-500 text-white rounded-lg hover:bg-blue-700 dark:hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              <Play className="w-4 h-4" />
-              {testRunning ? 'Testing...' : 'Test Call'}
-            </button>
           </div>
         </div>
+
+        {/* Voice Test Section - Moved to top for easy access */}
+        {vapiConfig.publicKey && (
+          <div className="mb-6">
+            <VoiceTest
+              assistantId={agent.id}
+              publicKey={vapiConfig.publicKey}
+            />
+          </div>
+        )}
 
         <div className="space-y-6">
           <div className="border-b border-gray-200 dark:border-gray-700 pb-6">
@@ -199,7 +190,6 @@ export function AgentConfig({ agentId }: AgentConfigProps) {
             ) : (
               <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-4">
                 <p className="text-sm font-medium text-gray-900 dark:text-gray-100">{agent.voice_name}</p>
-                <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Voice ID: {agent.voice_id}</p>
               </div>
             )}
           </div>
@@ -393,16 +383,6 @@ export function AgentConfig({ agentId }: AgentConfigProps) {
             </div>
           </div>
         </div>
-
-        {/* Voice Test Section */}
-        {vapiConfig.publicKey && (
-          <div className="mt-6">
-            <VoiceTest
-              assistantId={agent.id}
-              publicKey={vapiConfig.publicKey}
-            />
-          </div>
-        )}
       </div>
     </div>
   );
