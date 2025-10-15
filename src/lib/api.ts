@@ -118,7 +118,8 @@ export const agentApi = {
         const assistant = await vapiClient.getAssistant(id);
         return convertVapiAssistantToAgent(assistant);
       } catch (error) {
-        console.error('VAPI API error, falling back:', error);
+        console.error('VAPI API error:', error);
+        throw error;
       }
     }
 
@@ -155,7 +156,7 @@ export const agentApi = {
 
         if (updates.voice_id !== undefined || updates.voice_name !== undefined) {
           vapiUpdates.voice = {
-            ...currentAssistant.voice,
+            provider: 'vapi',
             voiceId: updates.voice_id || currentAssistant.voice?.voiceId
           };
         }
@@ -180,7 +181,8 @@ export const agentApi = {
         const assistant = await vapiClient.updateAssistant(id, vapiUpdates) as VapiAssistant;
         return convertVapiAssistantToAgent(assistant);
       } catch (error) {
-        console.error('VAPI API error, falling back:', error);
+        console.error('VAPI API error:', error);
+        throw error;
       }
     }
 
@@ -207,7 +209,10 @@ export const agentApi = {
       try {
         const vapiAgent = {
           name: agent.name,
-          voice: { voiceId: agent.voice_id },
+          voice: { 
+            provider: 'vapi',
+            voiceId: agent.voice_id 
+          },
           model: {
             provider: 'openai',
             model: 'gpt-4',

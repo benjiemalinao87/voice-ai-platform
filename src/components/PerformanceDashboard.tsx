@@ -174,7 +174,7 @@ export function PerformanceDashboard({ selectedAgentId, dateRange }: Performance
             <Globe className="w-5 h-5 text-gray-400 dark:text-gray-500" />
           </div>
           <div className="flex justify-center py-4">
-            <DonutChart data={languageData} size={180} innerSize={60} />
+            <DonutChart data={languageData} size={200} innerSize={70} />
           </div>
         </div>
       </div>

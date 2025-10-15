@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { BarChart } from './BarChart';
 import { TrendingUp, MessageSquare } from 'lucide-react';
 
@@ -17,6 +18,7 @@ const keywordsData = [
 ];
 
 export function SentimentKeywords() {
+  const [hoveredKeyword, setHoveredKeyword] = useState<number | null>(null);
   const totalSentiment = sentimentData.reduce((sum, item) => sum + item.value, 0);
 
   return (
@@ -36,7 +38,7 @@ export function SentimentKeywords() {
         </div>
 
         <div className="mb-6 flex-1">
-          <BarChart data={sentimentData} height={240} showValues={true} />
+          <BarChart data={sentimentData} height={240} showValues={true} showGridlines={true} />
         </div>
 
         {/* Sentiment Breakdown */}
@@ -97,35 +99,71 @@ export function SentimentKeywords() {
         </div>
 
         {/* Keywords List with Bars */}
-        <div className="space-y-4 flex-1">
+        <div className="space-y-5 flex-1">
           {keywordsData.map((keyword, index) => {
             const maxValue = Math.max(...keywordsData.map(k => k.value));
             const widthPercent = (keyword.value / maxValue) * 100;
+            const isHovered = hoveredKeyword === index;
 
             return (
-              <div key={index} className="space-y-2">
+              <div 
+                key={index} 
+                className="space-y-2 cursor-pointer transition-all duration-200"
+                style={{
+                  transform: isHovered ? 'translateX(4px)' : 'translateX(0)',
+                  opacity: hoveredKeyword !== null && !isHovered ? 0.5 : 1
+                }}
+                onMouseEnter={() => setHoveredKeyword(index)}
+                onMouseLeave={() => setHoveredKeyword(null)}
+              >
                 <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-3">
                     <div
-                      className="w-2 h-2 rounded-full"
-                      style={{ backgroundColor: keyword.color }}
+                      className="w-3 h-3 rounded-full transition-all duration-200"
+                      style={{ 
+                        backgroundColor: keyword.color,
+                        boxShadow: isHovered ? `0 0 12px ${keyword.color}` : 'none',
+                        transform: isHovered ? 'scale(1.2)' : 'scale(1)'
+                      }}
                     />
-                    <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                    <span className={`text-sm font-medium text-gray-700 dark:text-gray-300 transition-all duration-200 ${
+                      isHovered ? 'font-bold text-gray-900 dark:text-gray-100' : ''
+                    }`}>
                       {keyword.label}
                     </span>
                   </div>
-                  <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                  <span className={`text-sm font-semibold text-gray-900 dark:text-gray-100 transition-all duration-200 ${
+                    isHovered ? 'text-base font-bold' : ''
+                  }`}>
                     {keyword.value}
                   </span>
                 </div>
-                <div className="w-full h-2 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
+                <div className="relative w-full h-3 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
+                  {/* Background shimmer effect */}
+                  {isHovered && (
+                    <div 
+                      className="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent animate-shimmer"
+                      style={{
+                        animation: 'shimmer 1.5s infinite',
+                      }}
+                    />
+                  )}
+                  
+                  {/* Bar */}
                   <div
-                    className="h-full rounded-full transition-all duration-500"
+                    className="h-full rounded-full transition-all duration-500 relative overflow-hidden"
                     style={{
                       width: `${widthPercent}%`,
-                      backgroundColor: keyword.color
+                      backgroundColor: keyword.color,
+                      boxShadow: isHovered ? `0 2px 8px ${keyword.color}80` : 'none',
+                      filter: isHovered ? 'brightness(1.15)' : 'brightness(1)'
                     }}
-                  />
+                  >
+                    {/* Inner gradient highlight */}
+                    <div 
+                      className="absolute inset-0 bg-gradient-to-b from-white/20 to-transparent"
+                    />
+                  </div>
                 </div>
               </div>
             );

@@ -19,12 +19,72 @@ interface AgentConfigProps {
 }
 
 const VOICE_OPTIONS = [
-  { id: 'en-US-neural-pro-1', name: 'Professional Female Voice', language: 'English' },
-  { id: 'en-US-neural-pro-2', name: 'Professional Male Voice', language: 'English' },
-  { id: 'en-US-neural-casual-1', name: 'Friendly Female Voice', language: 'English' },
-  { id: 'en-US-neural-casual-2', name: 'Friendly Male Voice', language: 'English' },
-  { id: 'es-US-neural-1', name: 'Spanish Professional Voice', language: 'Spanish' },
-  { id: 'es-US-neural-2', name: 'Spanish Friendly Voice', language: 'Spanish' },
+  { 
+    id: 'Paige', 
+    name: 'Paige', 
+    description: '26 year old white female - Deeper tone, Calming, Professional',
+    tags: ['Professional', 'Calming', 'Deeper tone']
+  },
+  { 
+    id: 'Rohan', 
+    name: 'Rohan', 
+    description: '24 years old male - Indian american, Bright, Optimistic, Cheerful, Energetic',
+    tags: ['Optimistic', 'Cheerful', 'Energetic']
+  },
+  { 
+    id: 'Hana', 
+    name: 'Hana', 
+    description: '22 year old female - Asian, Soft, Soothing, Gentle',
+    tags: ['Soft', 'Soothing', 'Gentle']
+  },
+  { 
+    id: 'Elliot', 
+    name: 'Elliot', 
+    description: '25 years old male - Canadian, Soothing, Friendly, Professional',
+    tags: ['Soothing', 'Friendly', 'Professional']
+  },
+  { 
+    id: 'Cole', 
+    name: 'Cole', 
+    description: '22 year old white male - Deeper tone, Calming, Professional',
+    tags: ['Professional', 'Calming', 'Deeper tone']
+  },
+  { 
+    id: 'Harry', 
+    name: 'Harry', 
+    description: '24 year old white male - Clear, Energetic, Professional',
+    tags: ['Clear', 'Energetic', 'Professional']
+  },
+  { 
+    id: 'Spencer', 
+    name: 'Spencer', 
+    description: '26 year old female - Energetic, Quirky, Lighthearted, Cheeky, Amused',
+    tags: ['Energetic', 'Quirky', 'Lighthearted', 'Cheeky']
+  },
+  { 
+    id: 'Kylie', 
+    name: 'Kylie', 
+    description: 'Age 23, Female - American',
+    tags: ['Female', 'American']
+  },
+  { 
+    id: 'Lily', 
+    name: 'Lily', 
+    description: 'Female voice',
+    tags: ['Female']
+  },
+  { 
+    id: 'Neha', 
+    name: 'Neha', 
+    description: 'Female voice',
+    tags: ['Female']
+  },
+  { 
+    id: 'Savannah', 
+    name: 'Savannah', 
+    description: '25 years old female - American',
+    tags: ['Female', 'American']
+  },
 ];
 
 const TONE_OPTIONS = ['professional', 'friendly', 'casual'] as const;
@@ -59,11 +119,27 @@ export function AgentConfig({ agentId }: AgentConfigProps) {
 
     setSaving(true);
     try {
-      const updated = await agentApi.update(agent.id, formData);
+      // Only send changed fields
+      const updates: Partial<Agent> = {};
+      
+      if (editMode === 'voice') {
+        updates.voice_id = formData.voice_id;
+        updates.voice_name = formData.voice_name;
+      } else if (editMode === 'behavior') {
+        updates.tone = formData.tone;
+        updates.response_style = formData.response_style;
+      } else if (editMode === 'prompts') {
+        updates.system_prompt = formData.system_prompt;
+        updates.conversation_prompt = formData.conversation_prompt;
+      }
+      
+      const updated = await agentApi.update(agent.id, updates);
       setAgent(updated);
+      setFormData(updated);
       setEditMode(null);
     } catch (error) {
       console.error('Error saving agent:', error);
+      alert('Failed to save changes. Please check the console for details.');
     } finally {
       setSaving(false);
     }
@@ -162,7 +238,7 @@ export function AgentConfig({ agentId }: AgentConfigProps) {
                 >
                   {VOICE_OPTIONS.map((voice) => (
                     <option key={voice.id} value={voice.id}>
-                      {voice.name} ({voice.language})
+                      {voice.name} - {voice.description}
                     </option>
                   ))}
                 </select>
@@ -189,7 +265,32 @@ export function AgentConfig({ agentId }: AgentConfigProps) {
               </div>
             ) : (
               <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-4">
-                <p className="text-sm font-medium text-gray-900 dark:text-gray-100">{agent.voice_name}</p>
+                <div className="flex items-start justify-between">
+                  <div className="w-full">
+                    {agent.voice_id && (() => {
+                      const voice = VOICE_OPTIONS.find(v => v.id === agent.voice_id);
+                      if (voice) {
+                        return (
+                          <>
+                            <p className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-1">{voice.name}</p>
+                            <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">{voice.description}</p>
+                            <div className="flex flex-wrap gap-2">
+                              {voice.tags.map((tag) => (
+                                <span
+                                  key={tag}
+                                  className="px-2 py-1 text-xs font-medium bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded"
+                                >
+                                  {tag}
+                                </span>
+                              ))}
+                            </div>
+                          </>
+                        );
+                      }
+                      return <p className="text-sm text-gray-500 dark:text-gray-400">No voice selected</p>;
+                    })()}
+                  </div>
+                </div>
               </div>
             )}
           </div>
