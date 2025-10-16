@@ -175,7 +175,7 @@ export function MultiLineChart({
                       <circle
                         cx={point.x}
                         cy={point.y}
-                        r="12"
+                        r="18"
                         fill="transparent"
                         className="cursor-pointer"
                         onMouseEnter={() => {
@@ -192,11 +192,11 @@ export function MultiLineChart({
                       <circle
                         cx={point.x}
                         cy={point.y}
-                        r={isHovered ? "5" : isColumnHovered ? "4" : "3"}
+                        r={isHovered ? "7" : isColumnHovered ? "5" : "4.5"}
                         fill={s.color}
                         className="transition-all duration-200 pointer-events-none"
                         style={{
-                          filter: isHovered ? 'drop-shadow(0 2px 4px rgba(0,0,0,0.3))' : 'none'
+                          filter: isHovered ? 'drop-shadow(0 3px 6px rgba(0,0,0,0.4))' : 'drop-shadow(0 1px 2px rgba(0,0,0,0.2))'
                         }}
                       />
                       
@@ -205,10 +205,10 @@ export function MultiLineChart({
                         <circle
                           cx={point.x}
                           cy={point.y}
-                          r="5"
+                          r="7"
                           fill="none"
                           stroke="white"
-                          strokeWidth="2"
+                          strokeWidth="3"
                           className="pointer-events-none"
                         />
                       )}

@@ -3,13 +3,17 @@ import { BarChart3, Settings, Bot, Calendar, Moon, Sun, Mic } from 'lucide-react
 import { PerformanceDashboard } from './components/PerformanceDashboard';
 import { AgentConfig } from './components/AgentConfig';
 import { Recordings } from './components/Recordings';
+import { FlowBuilder } from './components/FlowBuilder';
 import { agentApi } from './lib/api';
 import type { Agent } from './types';
 
-type View = 'dashboard' | 'config' | 'recordings';
+type View = 'dashboard' | 'config' | 'recordings' | 'flow';
 
 function App() {
-  const [currentView, setCurrentView] = useState<View>('dashboard');
+  // Check URL for flow builder route
+  const isFlowBuilder = window.location.pathname === '/flow-builder';
+  
+  const [currentView, setCurrentView] = useState<View>(isFlowBuilder ? 'flow' : 'dashboard');
   const [agents, setAgents] = useState<Agent[]>([]);
   const [selectedAgentId, setSelectedAgentId] = useState<string | undefined>();
   const [darkMode, setDarkMode] = useState(() => {
@@ -56,9 +60,29 @@ function App() {
 
   const selectedAgent = agents.find(a => a.id === selectedAgentId);
 
+  // If flow builder route, render only that
+  if (isFlowBuilder) {
+    return (
+      <div className="h-screen bg-gray-50 dark:bg-gray-900">
+        <FlowBuilder />
+        
+        {/* Floating Dark Mode Toggle */}
+        <button
+          onClick={toggleDarkMode}
+          className="fixed bottom-6 right-6 p-3 rounded-full bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 shadow-lg hover:shadow-xl border border-gray-200 dark:border-gray-700 hover:scale-110 transition-all duration-200 z-50"
+          aria-label="Toggle dark mode"
+          type="button"
+        >
+          {darkMode ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
+        </button>
+      </div>
+    );
+  }
+
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
-      <nav className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
+    <div className="h-screen flex flex-col bg-gray-50 dark:bg-gray-900 overflow-hidden">
+      {/* Fixed Header */}
+      <nav className="flex-shrink-0 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 shadow-sm z-10">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between h-16">
             <div className="flex items-center gap-3">
@@ -125,7 +149,9 @@ function App() {
         </div>
       </nav>
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      {/* Scrollable Content Area */}
+      <main className="flex-1 overflow-y-auto">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {currentView === 'dashboard' && (
           <div className="space-y-6">
             <div className="flex items-center justify-between">
@@ -188,12 +214,13 @@ function App() {
             </p>
           </div>
         )}
+        </div>
       </main>
 
       {/* Floating Dark Mode Toggle */}
       <button
         onClick={toggleDarkMode}
-        className="fixed bottom-6 right-6 p-3 rounded-full bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 shadow-lg hover:shadow-xl border border-gray-200 dark:border-gray-700 hover:scale-110 transition-all duration-200"
+        className="fixed bottom-6 right-6 p-3 rounded-full bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 shadow-lg hover:shadow-xl border border-gray-200 dark:border-gray-700 hover:scale-110 transition-all duration-200 z-50"
         aria-label="Toggle dark mode"
         type="button"
       >
