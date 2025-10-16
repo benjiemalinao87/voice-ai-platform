@@ -4,8 +4,6 @@ const VAPI_BASE_URL = 'https://api.vapi.ai';
 const vapiPrivateKey = import.meta.env.VITE_VAPI_PRIVATE_KEY;
 const vapiPublicKey = import.meta.env.VITE_VAPI_PUBLIC_KEY;
 
-export const isVapiConfigured = !!vapiPrivateKey;
-
 class VapiClient {
   private privateKey: string;
 
@@ -113,17 +111,101 @@ class VapiClient {
 
     return calls;
   }
+
+  // Files (Knowledge Base)
+  async uploadFile(file: File) {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const response = await fetch(`${VAPI_BASE_URL}/file`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${this.privateKey}`,
+        // Don't set Content-Type - browser will set it with boundary
+      },
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const error = await response.text();
+      throw new Error(`VAPI API Error: ${response.status} - ${error}`);
+    }
+
+    return response.json();
+  }
+
+  async deleteFile(fileId: string) {
+    const response = await fetch(`${VAPI_BASE_URL}/file/${fileId}`, {
+      method: 'DELETE',
+      headers: {
+        'Authorization': `Bearer ${this.privateKey}`,
+      },
+    });
+
+    if (!response.ok) {
+      const error = await response.text();
+      throw new Error(`VAPI API Error: ${response.status} - ${error}`);
+    }
+
+    return response.json();
+  }
+
+  async listFiles() {
+    return this.request('/file', {
+      method: 'GET',
+    });
+  }
 }
 
-// Export singleton instance
-export const vapiClient = vapiPrivateKey ? new VapiClient(vapiPrivateKey) : null;
+// Helper to get credentials from localStorage or env
+// Note: With D1 auth, credentials are loaded through Settings component
+// This fallback checks localStorage for backward compatibility
+function getStoredCredentials() {
+  try {
+    // Check for old localStorage format (backward compatibility)
+    const saved = localStorage.getItem('vapi_credentials');
+    if (saved) {
+      return JSON.parse(atob(saved));
+    }
+  } catch (error) {
+    console.error('Error reading stored credentials:', error);
+  }
+  return null;
+}
+
+// Create VAPI client with stored or env credentials
+export function createVapiClient(): VapiClient | null {
+  const stored = getStoredCredentials();
+  const privateKey = stored?.privateKey || vapiPrivateKey;
+  return privateKey ? new VapiClient(privateKey) : null;
+}
+
+// Export singleton instance (will use stored credentials if available)
+export const vapiClient = createVapiClient();
+
+// Export the class so Settings can create temporary clients
+export { VapiClient };
 
 export const vapiConfig = {
-  publicKey: vapiPublicKey,
-  privateKey: vapiPrivateKey,
-  phoneNumberId: import.meta.env.VITE_VAPI_PHONE_NUMBER_ID,
-  assistantId: import.meta.env.VITE_VAPI_ASSISTANT_ID,
+  get publicKey() {
+    const stored = getStoredCredentials();
+    return stored?.publicKey || vapiPublicKey;
+  },
+  get privateKey() {
+    const stored = getStoredCredentials();
+    return stored?.privateKey || vapiPrivateKey;
+  },
+  get phoneNumberId() {
+    const saved = localStorage.getItem('vapi_selected_phone');
+    return saved || import.meta.env.VITE_VAPI_PHONE_NUMBER_ID;
+  },
+  get assistantId() {
+    const saved = localStorage.getItem('vapi_selected_assistant');
+    return saved || import.meta.env.VITE_VAPI_ASSISTANT_ID;
+  },
 };
+
+export const isVapiConfigured = !!vapiClient;
 
 // Type definitions for VAPI responses
 export interface VapiAssistant {

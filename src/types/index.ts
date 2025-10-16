@@ -87,3 +87,14 @@ export interface KeywordTrend {
   keyword: string;
   count: number;
 }
+
+export interface AgentKnowledgeFile {
+  id: string;
+  agent_id: string;
+  vapi_file_id: string;
+  file_name: string;
+  file_size: number;
+  status: 'uploading' | 'processing' | 'ready' | 'error';
+  created_at: string;
+  updated_at: string;
+}

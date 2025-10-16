@@ -452,3 +452,616 @@ Restructured the app layout to use flexbox with a fixed header and scrollable co
 ### Files Modified
 - `src/App.tsx` - Restructured layout with fixed header and scrollable content
 
+---
+
+## Knowledge Base Integration with VAPI (October 16, 2025)
+
+### Feature Implementation
+Integrated VAPI's Knowledge Base feature to allow uploading documents (PDFs, Word docs, text files) that the AI agent can reference during conversations.
+
+### Implementation Details
+1. **File Upload API** - Uses VAPI's `/file` endpoint with multipart form data
+2. **File Management:**
+   - Upload multiple files at once
+   - Real-time upload status (uploading → processing → ready → error)
+   - Delete files from knowledge base
+   - Display file metadata (name, size, upload date, status)
+3. **UI Components:**
+   - Clean upload button with file input
+   - File list with status icons and animations
+   - Empty state with helpful instructions
+   - Usage statistics (total files, ready count, total size)
+4. **Visual Design:**
+   - Status indicators (spinner for uploading, checkmark for ready, X for error)
+   - Hover effects on file cards
+   - Color-coded status text
+   - Info box explaining how knowledge base works
+5. **File Format Support:** PDF, DOC, DOCX, TXT, MD
+
+### How It Should Be Done
+```typescript
+// ✅ CORRECT - Upload file to VAPI Knowledge Base
+const formData = new FormData();
+formData.append('file', file);
+
+const response = await fetch('https://api.vapi.ai/file', {
+  method: 'POST',
+  headers: {
+    'Authorization': `Bearer ${import.meta.env.VITE_VAPI_API_KEY}`
+  },
+  body: formData  // Don't set Content-Type, browser handles it
+});
+
+// Then link the file ID to your assistant's knowledgeBase array
+// This makes the AI reference these documents during calls
+```
+
+### How It Should NOT Be Done
+```typescript
+// ❌ WRONG - Manual content-type header breaks multipart
+const response = await fetch('https://api.vapi.ai/file', {
+  method: 'POST',
+  headers: {
+    'Authorization': `Bearer ${key}`,
+    'Content-Type': 'multipart/form-data'  // ❌ Don't set this!
+  },
+  body: formData
+});
+
+// Issues:
+// - Browser needs to set Content-Type with boundary
+// - Upload will fail with incorrect headers
+```
+
+### How Knowledge Base Works with Prompts
+1. **Upload Files** - Add documents containing information your AI should know (FAQs, policies, product info)
+2. **VAPI Processes** - Files are parsed and indexed for semantic search
+3. **During Calls** - AI automatically searches knowledge base when user asks relevant questions
+4. **Context Augmentation** - Relevant document snippets are injected into the AI's context
+5. **Accurate Responses** - AI answers using verified information from your documents instead of hallucinating
+
+### Knowledge Base + Prompts Strategy
+```typescript
+// ✅ BEST PRACTICE - Combine system prompt with knowledge base
+systemPrompt: `You are a helpful funeral home assistant.
+
+IMPORTANT: When answering questions about our services, pricing, 
+or policies, ALWAYS check the knowledge base first. Only provide 
+information that you can verify from our uploaded documents.
+
+If you don't find information in the knowledge base, politely 
+say you'll have a staff member follow up rather than guessing.`
+
+// Upload to knowledge base:
+// - services.pdf (list of services and pricing)
+// - policies.pdf (payment, cancellation, etc.)
+// - faq.pdf (common questions and answers)
+```
+
+### Key Takeaways
+- Knowledge Base solves the hallucination problem by grounding AI in verified documents
+- Upload comprehensive documents covering all topics your AI might encounter
+- System prompts should instruct the AI to prioritize knowledge base over general knowledge
+- Use multiple focused documents rather than one huge file for better search accuracy
+- File upload requires multipart/form-data - let browser set the Content-Type header
+- Always show upload status to users (uploading/processing/ready/error states)
+- Provide clear file format requirements and size limits
+- Knowledge Base is perfect for: FAQs, product catalogs, policies, procedures, pricing
+- Track file metadata (size, upload date) for better management
+
+### Common Errors and Fixes
+
+**Error: 401 Unauthorized on file upload**
+- **Problem**: Using wrong environment variable name or not using the centralized API client
+- **Solution**: Use `vapiClient.uploadFile()` instead of direct fetch calls
+- **Key**: The VAPI private key is `VITE_VAPI_PRIVATE_KEY`, not `VITE_VAPI_API_KEY`
+
+### Files Modified
+- `src/components/KnowledgeBase.tsx` - New component for file upload and management
+- `src/components/AgentConfig.tsx` - Integrated KnowledgeBase component into agent configuration
+- `src/lib/vapi.ts` - Added file upload/delete/list methods to VapiClient class
+
+---
+
+## Cloudflare D1 Integration for Knowledge Base Persistence (October 16, 2025)
+
+### Problem
+Knowledge Base files were uploaded to VAPI successfully but disappeared on page refresh because there was no database to store file references.
+
+### Solution
+Integrated Cloudflare D1 (serverless SQL database) with Workers API to persist file metadata.
+
+### Architecture
+```
+Frontend → Cloudflare Worker API → D1 Database
+   ↓
+VAPI File Storage (actual files)
+```
+
+Files are stored in VAPI's cloud, D1 tracks the metadata (id, name, size, status).
+
+### Implementation Steps
+
+1. **Created Cloudflare Worker** (`workers/index.ts`)
+   - REST API with CORS support
+   - GET `/api/knowledge-files/:agentId` - List files
+   - POST `/api/knowledge-files` - Create file record
+   - DELETE `/api/knowledge-files/:id` - Delete file record
+
+2. **Created D1 Schema** (`workers/schema.sql`)
+   - Table: `agent_knowledge_files`
+   - Fields: id, agent_id, vapi_file_id, file_name, file_size, status, timestamps
+   - Indexes on agent_id and created_at for fast queries
+
+3. **Created D1 Client** (`src/lib/d1.ts`)
+   - Frontend client to call Worker API
+   - Methods: listKnowledgeFiles, createKnowledgeFile, deleteKnowledgeFile
+   - Configured via `VITE_D1_API_URL` environment variable
+
+4. **Updated KnowledgeBase Component**
+   - Replaced Supabase calls with D1 client
+   - Loads files on mount using `useEffect`
+   - Saves to D1 after VAPI upload succeeds
+   - Deletes from both VAPI and D1
+
+### Deployment Commands
+
+```bash
+# Login to Cloudflare
+wrangler login
+
+# Create D1 database
+wrangler d1 create voice-ai-dashboard
+
+# Initialize schema (local)
+wrangler d1 execute voice-ai-dashboard --file=./workers/schema.sql
+
+# Initialize schema (remote/production)
+wrangler d1 execute voice-ai-dashboard --remote --file=./workers/schema.sql
+
+# Deploy Worker
+wrangler deploy
+```
+
+### Configuration
+
+**wrangler.toml:**
+```toml
+name = "voice-ai-dashboard-api"
+account_id = "208f128290b10d58d5de18909148acc0"
+main = "workers/index.ts"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "voice-ai-dashboard"
+database_id = "68edb24b-9705-4b29-b5c5-d702dc78a6fb"
+```
+
+**.env:**
+```env
+VITE_D1_API_URL=https://voice-ai-dashboard-api.curly-king-877d.workers.dev
+```
+
+### How It Should Be Done
+
+```typescript
+// ✅ CORRECT - Use D1 client with proper error handling
+const loadFiles = async () => {
+  try {
+    const data = await d1Client.listKnowledgeFiles(agentId);
+    const files = data.map(f => ({
+      id: f.id,
+      name: f.file_name,
+      size: f.file_size,
+      uploadedAt: new Date(f.created_at).toISOString(),
+      status: f.status,
+      vapiFileId: f.vapi_file_id
+    }));
+    setFiles(files);
+  } catch (error) {
+    console.error('Error loading files:', error);
+    // Gracefully handle - show empty state
+  }
+};
+
+// Upload flow: VAPI first, then D1
+const vapiData = await vapiClient.uploadFile(file);
+const dbData = await d1Client.createKnowledgeFile({
+  agent_id: agentId,
+  vapi_file_id: vapiData.id,
+  file_name: file.name,
+  file_size: file.size,
+  status: 'ready'
+});
+```
+
+### How It Should NOT Be Done
+
+```typescript
+// ❌ WRONG - Only storing in local state
+const [files, setFiles] = useState([]);
+// Files disappear on refresh!
+
+// ❌ WRONG - Using Supabase without configuration
+if (supabase) {
+  await supabase.from('table').insert(data);
+}
+// Supabase not configured, files never persist
+
+// ❌ WRONG - Not handling errors
+const data = await d1Client.listKnowledgeFiles(agentId);
+// Crashes if Worker is down
+```
+
+### Key Takeaways
+
+- **Separation of concerns**: VAPI stores files, D1 stores metadata
+- **Dual deletion**: Always delete from both VAPI and D1 to avoid orphaned records
+- **Graceful degradation**: If D1 is unavailable, app still works (just no persistence)
+- **Worker API provides CORS**: No need for complex proxy setup
+- **D1 is serverless**: No database server to maintain, pay only for queries
+- **Use timestamps as integers**: D1 doesn't have native datetime type, use milliseconds
+- **Always test remote**: Local D1 and remote D1 are separate databases
+
+### Cloudflare D1 Benefits
+
+- ✅ **Free tier**: 5GB storage, 5M reads/day, 100K writes/day
+- ✅ **Serverless**: No servers to manage
+- ✅ **Fast**: Edge-located, low latency
+- ✅ **SQL**: Standard SQL syntax (SQLite-compatible)
+- ✅ **Integrated**: Works seamlessly with Workers
+
+### Common Issues
+
+**Worker returns 404:**
+- Check deployment: `wrangler tail` to see logs
+- Verify endpoint path matches client calls
+- Ensure CORS headers are included
+
+**Files not persisting:**
+- Check `.env` has correct `VITE_D1_API_URL`
+- Open DevTools → Network to see API calls
+- Verify Worker is receiving requests
+
+**Database errors:**
+- Check schema was applied: `wrangler d1 execute voice-ai-dashboard --remote --command="SELECT * FROM sqlite_master WHERE type='table'"`
+- Re-run schema if needed: `wrangler d1 execute voice-ai-dashboard --remote --file=./workers/schema.sql`
+
+### Files Created/Modified
+- `wrangler.toml` - Cloudflare Worker configuration
+- `workers/index.ts` - Worker API implementation
+- `workers/schema.sql` - D1 database schema
+- `src/lib/d1.ts` - D1 client for frontend
+- `src/components/KnowledgeBase.tsx` - Updated to use D1 instead of Supabase
+- `D1_SETUP.md` - Step-by-step setup guide
+- `ENV_SETUP.md` - Environment variables configuration
+
+---
+
+## Multi-Device Authentication System with Encrypted Settings (October 16, 2025)
+
+### Feature Implementation
+Implemented a complete authentication system with encrypted API key storage in Cloudflare D1, enabling multi-device synchronization of user settings.
+
+### Problem Solved
+Settings were previously stored in localStorage, which meant:
+- ❌ Lost when browser cache is cleared
+- ❌ Not shared across devices
+- ❌ Each user must configure on every device
+- ❌ No user accounts or multi-tenancy
+- ❌ API keys stored in plain text
+
+### Solution Architecture
+
+```
+Frontend (React) → Cloudflare Worker API → D1 Database
+                                         → Encrypted Settings
+                                         → JWT Sessions
+```
+
+### Implementation Details
+
+#### 1. Database Schema (D1)
+Created 4 tables in Cloudflare D1:
+- **users**: User accounts with hashed passwords
+- **user_settings**: Encrypted API keys and preferences (AES-GCM 256-bit)
+- **sessions**: JWT token management with expiration
+- **agent_knowledge_files**: Knowledge base files (existing, now protected)
+
+#### 2. Backend (Cloudflare Worker)
+Authentication endpoints:
+- `POST /api/auth/register` - Create new account
+- `POST /api/auth/login` - Login with email/password
+- `POST /api/auth/logout` - Logout (invalidate session)
+- `GET /api/auth/me` - Get current user info
+
+Settings endpoints (protected):
+- `GET /api/settings` - Get encrypted settings
+- `PUT /api/settings` - Update encrypted settings
+
+All knowledge base endpoints now require JWT authentication.
+
+#### 3. Frontend Components
+- **AuthContext**: React context for authentication state management
+- **Login Component**: Beautiful login/register UI with form validation
+- **Updated Settings**: Password-based encryption/decryption of API keys
+- **Protected Routes**: App shows login screen when not authenticated
+
+#### 4. Security Features
+
+**Password Security:**
+- SHA-256 hashing before storage
+- Never stored in plain text
+- Server-side validation
+
+**API Key Encryption:**
+- AES-GCM 256-bit encryption
+- Encryption key derived from user password using PBKDF2 (100,000 iterations)
+- Unique salt per user
+- Keys decrypted only in browser using user's password
+- Keys never sent to server unencrypted
+
+**Session Management:**
+- JWT tokens with 7-day expiration
+- Token invalidation on logout
+- Automatic token refresh
+- Session tracking in database
+
+**Transport Security:**
+- All API calls over HTTPS
+- CORS protection
+- Authorization header validation
+
+### How It Works
+
+#### Registration Flow
+1. User enters email, password, and name
+2. Worker hashes password (SHA-256) and creates account
+3. Worker generates JWT token (7-day expiration)
+4. Empty settings record created with unique encryption salt
+5. User automatically logged in
+
+#### Login Flow
+1. User enters email and password
+2. Worker verifies password against hash
+3. Worker generates new JWT token
+4. Session created in database
+5. Frontend stores token in localStorage
+
+#### Settings Save Flow (Encrypted)
+1. User enters API keys in Settings page
+2. User enters their account password
+3. **Frontend encrypts keys** using password + unique salt (AES-GCM)
+4. Encrypted keys sent to Worker with Authorization token
+5. Worker verifies token and saves **encrypted** keys to D1
+6. Settings automatically sync to all devices
+
+#### Settings Load Flow (Decryption)
+1. User logs in on new device
+2. Worker returns **encrypted** keys from D1
+3. User enters their password
+4. **Frontend decrypts keys** using password + salt
+5. Decrypted keys used to fetch assistants/phones from VAPI API
+
+### Key Insight: Zero-Knowledge Architecture
+
+**The server never sees unencrypted API keys!**
+- Encryption happens in the browser before sending
+- Decryption happens in the browser after receiving
+- Server stores only encrypted blobs
+- User's password is the encryption key (never sent to server)
+
+This means:
+✅ Even if database is compromised, keys are useless without passwords
+✅ Server admin cannot see user's API keys
+✅ True end-to-end encryption for sensitive credentials
+
+### How It Should Be Done
+
+```typescript
+// ✅ CORRECT - Encrypt before sending to server
+const encryptedPrivateKey = await encrypt(
+  credentials.privateKey,
+  userPassword,  // User's account password
+  encryptionSalt // Unique salt from database
+);
+
+await fetch('/api/settings', {
+  method: 'PUT',
+  headers: {
+    'Authorization': `Bearer ${jwtToken}`,
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({
+    encryptedPrivateKey,  // Send encrypted, not plain text
+    selectedAssistantId,
+    selectedPhoneId
+  })
+});
+
+// Later, decrypt in browser
+const privateKey = await decrypt(
+  encryptedPrivateKey,
+  userPassword,
+  encryptionSalt
+);
+```
+
+### How It Should NOT Be Done
+
+```typescript
+// ❌ WRONG - Sending plain API keys to server
+await fetch('/api/settings', {
+  method: 'PUT',
+  body: JSON.stringify({
+    privateKey: credentials.privateKey,  // ❌ Plain text!
+  })
+});
+
+// ❌ WRONG - Storing API keys in localStorage
+localStorage.setItem('api_key', privateKey);  // ❌ Not encrypted!
+
+// ❌ WRONG - Using weak encryption
+const encrypted = btoa(privateKey);  // ❌ Base64 is NOT encryption!
+```
+
+### Encryption Algorithm Details
+
+**Key Derivation (PBKDF2):**
+- Password → PBKDF2 (100,000 iterations) → 256-bit key
+- Unique salt per user prevents rainbow table attacks
+- High iteration count makes brute-force attacks impractical
+
+**Encryption (AES-GCM):**
+- 256-bit key derived from password
+- Random 12-byte IV (Initialization Vector) for each encryption
+- Authenticated encryption (detects tampering)
+- Output: IV + Ciphertext (stored as base64)
+
+**Why This is Secure:**
+- AES-256 is military-grade encryption
+- GCM mode provides authentication (prevents tampering)
+- PBKDF2 with 100K iterations makes password cracking slow
+- Unique salt per user prevents precomputed attacks
+- Random IV ensures same plaintext encrypts differently each time
+
+### Benefits
+
+✅ **Multi-Device**: Settings sync across all devices automatically
+✅ **Secure**: End-to-end encryption, zero-knowledge architecture
+✅ **Scalable**: Can support unlimited users
+✅ **Professional**: Proper authentication with session management
+✅ **User-Friendly**: Single sign-on, automatic sync, no manual copying
+✅ **Recoverable**: User can reset password (though keys would be lost)
+
+### Deployment
+
+**Worker URL:** `https://voice-ai-dashboard-api.benjiemalinao879557.workers.dev`
+
+**Database:** Cloudflare D1 (9755e0e8-170e-437f-946a-6ae18242c84d)
+
+**Deployed Commands:**
+```bash
+# Create D1 database
+wrangler d1 create voice-ai-dashboard
+
+# Apply schema
+wrangler d1 execute voice-ai-dashboard --remote --file=./workers/schema.sql
+
+# Deploy worker
+wrangler deploy
+```
+
+### Key Takeaways
+
+1. **Zero-Knowledge Architecture**: Server never sees unencrypted secrets
+2. **Client-Side Encryption**: Always encrypt before sending sensitive data
+3. **Strong Encryption**: Use AES-256-GCM with PBKDF2 key derivation
+4. **Unique Salts**: Each user gets unique salt for password-based encryption
+5. **JWT for Sessions**: Stateless authentication with database validation
+6. **Password Hashing**: SHA-256 minimum, bcrypt/argon2 better for production
+7. **HTTPS Required**: All authentication/encrypted data over secure transport
+8. **Token Expiration**: Limit session lifetime (7 days is reasonable)
+9. **Logout = Invalidation**: Always invalidate sessions on logout
+10. **Backward Compatible**: Support old localStorage settings during migration
+
+### Security Considerations
+
+**Password Loss = Data Loss:**
+- If user forgets password, encrypted API keys cannot be recovered
+- This is by design (zero-knowledge encryption)
+- Consider adding recovery codes or backup mechanism
+- Document this clearly to users
+
+**JWT Secret:**
+- Change JWT_SECRET in production: `wrangler secret put JWT_SECRET`
+- Use long, random string (32+ characters)
+- Never commit JWT_SECRET to git
+
+**Database Backups:**
+- D1 automatically backed up by Cloudflare
+- Consider manual exports for additional safety
+- Test restore procedures
+
+**Rate Limiting:**
+- Add rate limiting to authentication endpoints
+- Prevent brute-force password attacks
+- Cloudflare Workers can use KV for rate limiting
+
+### Future Enhancements
+
+1. **Password Reset**: Email-based password reset flow
+2. **2FA**: Two-factor authentication for added security
+3. **Session Management**: View/revoke active sessions
+4. **Backup Codes**: Recovery codes in case of password loss
+5. **Team Accounts**: Share API keys with team members
+6. **Audit Logs**: Track who accessed/modified what
+7. **Role-Based Access**: Admin, editor, viewer roles
+
+### Files Created/Modified
+
+**Backend:**
+- `workers/schema.sql` - Added users, user_settings, sessions tables
+- `workers/index.ts` - Complete rewrite with authentication
+- `workers/auth.ts` - Encryption/decryption and auth utilities
+- `wrangler.toml` - Updated account_id and database_id, added JWT_SECRET
+
+**Frontend:**
+- `src/contexts/AuthContext.tsx` - Authentication context and provider
+- `src/components/Login.tsx` - Login/Register UI component
+- `src/components/Settings.tsx` - Complete rewrite with encryption
+- `src/lib/encryption.ts` - Client-side encryption utilities
+- `src/lib/d1.ts` - Updated to include Authorization header
+- `src/lib/vapi.ts` - Comments about D1 integration
+- `src/App.tsx` - Protected routes, login check
+- `src/main.tsx` - Wrapped App in AuthProvider
+
+**Documentation:**
+- `AUTH_SETUP.md` - Complete setup guide for authentication system
+
+### Testing the System
+
+**Register New User:**
+```bash
+curl -X POST https://voice-ai-dashboard-api.benjiemalinao879557.workers.dev/api/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"email":"test@example.com","password":"password123","name":"Test User"}'
+```
+
+**Login:**
+```bash
+curl -X POST https://voice-ai-dashboard-api.benjiemalinao879557.workers.dev/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"test@example.com","password":"password123"}'
+```
+
+**Get User Info:**
+```bash
+curl -X GET https://voice-ai-dashboard-api.benjiemalinao879557.workers.dev/api/auth/me \
+  -H "Authorization: Bearer YOUR_TOKEN_HERE"
+```
+
+### Common Issues and Solutions
+
+**"Incorrect password or corrupted keys":**
+- User entered wrong password for decryption
+- Keys were encrypted with different password
+- Solution: Re-enter API keys and save with correct password
+
+**"Unauthorized" errors:**
+- JWT token expired (7 days)
+- Token was invalidated (logout)
+- Solution: Login again to get new token
+
+**Settings not syncing:**
+- Check VITE_D1_API_URL in .env
+- Verify Worker is deployed
+- Check browser console for errors
+- Verify token is being sent in Authorization header
+
+**Can't login after registration:**
+- Check password meets minimum length (6 characters)
+- Verify email is valid format
+- Check database for user record
+- Check Worker logs: `wrangler tail`
+

@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { agentApi } from '../lib/api';
 import { VoiceTest } from './VoiceTest';
+import { KnowledgeBase } from './KnowledgeBase';
 import { vapiConfig } from '../lib/vapi';
 import type { Agent } from '../types';
 
@@ -461,6 +462,11 @@ export function AgentConfig({ agentId }: AgentConfigProps) {
                 </div>
               </div>
             )}
+          </div>
+
+          {/* Knowledge Base Section */}
+          <div className="border-b border-gray-200 dark:border-gray-700 pb-6">
+            <KnowledgeBase agentId={agentId} />
           </div>
 
           <div>

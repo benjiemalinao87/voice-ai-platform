@@ -1,15 +1,20 @@
 import { useState, useEffect } from 'react';
-import { BarChart3, Settings, Bot, Calendar, Moon, Sun, Mic } from 'lucide-react';
+import { BarChart3, Settings as SettingsIcon, Bot, Calendar, Moon, Sun, Mic } from 'lucide-react';
 import { PerformanceDashboard } from './components/PerformanceDashboard';
 import { AgentConfig } from './components/AgentConfig';
 import { Recordings } from './components/Recordings';
 import { FlowBuilder } from './components/FlowBuilder';
+import { Settings } from './components/Settings';
+import { Login } from './components/Login';
+import { useAuth } from './contexts/AuthContext';
 import { agentApi } from './lib/api';
 import type { Agent } from './types';
 
-type View = 'dashboard' | 'config' | 'recordings' | 'flow';
+type View = 'dashboard' | 'config' | 'recordings' | 'settings' | 'flow';
 
 function App() {
+  const { isAuthenticated, isLoading } = useAuth();
+  
   // Check URL for flow builder route
   const isFlowBuilder = window.location.pathname === '/flow-builder';
   
@@ -60,6 +65,20 @@ function App() {
 
   const selectedAgent = agents.find(a => a.id === selectedAgentId);
 
+  // Show loading spinner while checking authentication
+  if (isLoading) {
+    return (
+      <div className="h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 dark:border-blue-400"></div>
+      </div>
+    );
+  }
+
+  // Show login if not authenticated
+  if (!isAuthenticated) {
+    return <Login />;
+  }
+
   // If flow builder route, render only that
   if (isFlowBuilder) {
     return (
@@ -87,8 +106,11 @@ function App() {
           <div className="flex justify-between h-16">
             <div className="flex items-center gap-3">
               <div className="flex items-center gap-2">
-                <Bot className="w-8 h-8 text-blue-600 dark:text-blue-400" />
-                <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100">CHAU Voice AI</h1>
+                <img
+                  src="https://channelautomation.com/wp-content/uploads/2022/11/logofooter2.png"
+                  alt="Channel Automation"
+                  className="h-8 w-auto object-contain"
+                />
               </div>
             </div>
 
@@ -140,8 +162,19 @@ function App() {
                       : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100'
                   }`}
                 >
-                  <Settings className="w-4 h-4" />
+                  <SettingsIcon className="w-4 h-4" />
                   Configuration
+                </button>
+                <button
+                  onClick={() => setCurrentView('settings')}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-md font-medium transition-colors ${
+                    currentView === 'settings'
+                      ? 'bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 shadow-sm'
+                      : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100'
+                  }`}
+                >
+                  <SettingsIcon className="w-4 h-4" />
+                  Settings
                 </button>
               </div>
             </div>
@@ -207,11 +240,24 @@ function App() {
 
         {currentView === 'config' && !selectedAgentId && (
           <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-12 text-center">
-            <Settings className="w-12 h-12 text-gray-400 dark:text-gray-500 mx-auto mb-4" />
+            <SettingsIcon className="w-12 h-12 text-gray-400 dark:text-gray-500 mx-auto mb-4" />
             <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-2">No Agent Selected</h3>
             <p className="text-gray-600 dark:text-gray-400">
               Please select an agent from the dropdown above to view and edit its configuration.
             </p>
+          </div>
+        )}
+
+        {currentView === 'settings' && (
+          <div className="space-y-6">
+            <div>
+              <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Settings</h2>
+              <p className="text-gray-600 dark:text-gray-400 mt-1">
+                Configure your API credentials and preferences
+              </p>
+            </div>
+
+            <Settings />
           </div>
         )}
         </div>
