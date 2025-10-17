@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
-import { Key, Save, Eye, EyeOff, AlertCircle, CheckCircle, Trash2, RefreshCw, LogOut, User, Settings as SettingsIcon, Plug } from 'lucide-react';
+import { Key, Save, Eye, EyeOff, AlertCircle, CheckCircle, Trash2, RefreshCw, LogOut, User, Settings as SettingsIcon, Plug, Webhook } from 'lucide-react';
 import { VapiClient } from '../lib/vapi';
 import { useAuth } from '../contexts/AuthContext';
 import { encrypt, decrypt } from '../lib/encryption';
 import { Integration } from './Integration';
+import { WebhookConfig } from './WebhookConfig';
 
 interface VapiCredentials {
   privateKey: string;
@@ -33,7 +34,7 @@ const API_URL = import.meta.env.VITE_D1_API_URL || 'http://localhost:8787';
 
 export function Settings() {
   const { user, token, logout } = useAuth();
-  const [activeTab, setActiveTab] = useState<'api' | 'integrations'>('api');
+  const [activeTab, setActiveTab] = useState<'api' | 'integrations' | 'webhooks'>('api');
   const [credentials, setCredentials] = useState<VapiCredentials>({
     privateKey: '',
     publicKey: ''
@@ -336,6 +337,19 @@ export function Settings() {
                 Integrations
               </div>
             </button>
+            <button
+              onClick={() => setActiveTab('webhooks')}
+              className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
+                activeTab === 'webhooks'
+                  ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                  : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <Webhook className="w-4 h-4" />
+                Webhooks
+              </div>
+            </button>
           </nav>
         </div>
 
@@ -603,6 +617,10 @@ export function Settings() {
 
           {activeTab === 'integrations' && (
             <Integration />
+          )}
+
+          {activeTab === 'webhooks' && (
+            <WebhookConfig />
           )}
         </div>
       </div>

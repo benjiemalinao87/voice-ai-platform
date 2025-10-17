@@ -1193,3 +1193,183 @@ Successfully implemented a comprehensive Intent Analysis dashboard with beautifu
 
 The Intent Analysis UI now matches the exact same smooth, professional aesthetic as the main dashboard with beautiful hover effects, smooth animations, and consistent visual design patterns.
 
+---
+
+## Integration Page with Tabbed Settings (January 15, 2025)
+
+### Feature Implementation
+Successfully created an Integration page under Settings with Microsoft Dynamics, Salesforce, and HubSpot integrations, implementing a tabbed interface for better organization.
+
+### Problem Solved
+Settings page was becoming cluttered with all configuration options in a single view. Users needed a dedicated space for third-party integrations separate from API configuration.
+
+### Implementation Details
+
+#### 1. Created Integration Component (`src/components/Integration.tsx`)
+- **Three Integration Cards:**
+  - **Microsoft Dynamics 365** - Purple branding, CRM features
+  - **Salesforce** - Blue branding, sales pipeline features  
+  - **HubSpot** - Orange branding, marketing automation features
+- **Interactive Features:**
+  - Connect/Configure buttons with loading states
+  - Status indicators (Connected/Not Connected/Error)
+  - Feature lists for each platform
+  - Configuration modal with sync settings
+  - Webhook URL display and copy functionality
+
+#### 2. Updated Settings Component with Tabs
+- **Tab Navigation:** API Configuration and Integrations tabs
+- **Tab Content:** Separated existing API config from new integrations
+- **Visual Design:** Consistent with existing dashboard styling
+- **State Management:** Added `activeTab` state for tab switching
+
+#### 3. UI/UX Features
+- **Responsive Grid Layout:** Cards adapt to different screen sizes
+- **Hover Effects:** Cards lift and show enhanced shadows on hover
+- **Status Indicators:** Color-coded connection status with icons
+- **Modal Configuration:** Detailed settings for connected integrations
+- **Loading States:** Animated spinners during connection process
+- **Dark Mode Support:** All components work in both themes
+
+### How It Should Be Done
+
+```typescript
+// ✅ CORRECT - Tabbed settings with proper state management
+const [activeTab, setActiveTab] = useState<'api' | 'integrations'>('api');
+
+// Tab navigation with proper styling
+<nav className="flex space-x-8 px-6">
+  <button
+    onClick={() => setActiveTab('api')}
+    className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
+      activeTab === 'api'
+        ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+        : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+    }`}
+  >
+    <div className="flex items-center gap-2">
+      <Key className="w-4 h-4" />
+      API Configuration
+    </div>
+  </button>
+  <button
+    onClick={() => setActiveTab('integrations')}
+    className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
+      activeTab === 'integrations'
+        ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+        : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+    }`}
+  >
+    <div className="flex items-center gap-2">
+      <Plug className="w-4 h-4" />
+      Integrations
+    </div>
+  </button>
+</nav>
+
+// Conditional content rendering
+{activeTab === 'api' && (
+  <div className="space-y-6">
+    {/* API Configuration content */}
+  </div>
+)}
+
+{activeTab === 'integrations' && (
+  <Integration />
+)}
+```
+
+### How It Should NOT Be Done
+
+```typescript
+// ❌ WRONG - Naming conflicts with imported icons
+import { Settings } from 'lucide-react';
+
+export function Settings() {  // ❌ Conflict!
+  // Component code
+}
+
+// ❌ WRONG - All content in single view without organization
+<div className="space-y-6">
+  {/* API Configuration */}
+  {/* Integration Cards */}
+  {/* Other Settings */}
+</div>
+
+// Issues:
+// - No visual separation between different types of settings
+// - Overwhelming single page with too much content
+// - Poor user experience for finding specific settings
+```
+
+### Key Fix: Naming Conflict Resolution
+
+**Problem:** Imported `Settings` icon from lucide-react conflicted with component name `Settings`.
+
+**Solution:** Renamed import to avoid conflict:
+```typescript
+// ✅ CORRECT - Renamed import to avoid conflict
+import { Settings as SettingsIcon, Plug } from 'lucide-react';
+
+// Use renamed icon in components
+<SettingsIcon className="w-8 h-8 text-blue-600 dark:text-blue-400" />
+```
+
+### Integration Features
+
+#### Microsoft Dynamics 365
+- **Color:** Purple branding (`bg-purple-500`)
+- **Features:** Customer Records, Sales Pipeline, Marketing Automation, Service Management
+- **Icon:** Users icon representing customer management
+
+#### Salesforce  
+- **Color:** Blue branding (`bg-blue-500`)
+- **Features:** Contact Sync, Lead Management, Opportunity Tracking, Custom Fields
+- **Icon:** Database icon representing CRM data
+
+#### HubSpot
+- **Color:** Orange branding (`bg-orange-500`) 
+- **Features:** Contact Management, Email Marketing, Sales Pipeline, Analytics
+- **Icon:** Mail icon representing marketing automation
+
+### Configuration Modal Features
+- **Sync Frequency:** Real-time, 15 minutes, hourly, daily options
+- **Data Selection:** Checkboxes for Contacts, Leads, Opportunities, Custom Fields
+- **Webhook URL:** Display and copy functionality for integration setup
+- **Status Display:** Connection status with appropriate messaging
+
+### Key Takeaways
+
+1. **Tab Organization:** Use tabs to separate different types of settings for better UX
+2. **Naming Conflicts:** Always rename imports when they conflict with component names
+3. **Consistent Styling:** Maintain the same visual design patterns across all components
+4. **Interactive States:** Provide clear feedback for all user interactions (hover, loading, success)
+5. **Modal Design:** Use modals for detailed configuration to avoid overwhelming the main interface
+6. **Status Indicators:** Always show connection status with appropriate colors and icons
+7. **Responsive Design:** Ensure all components work well on different screen sizes
+8. **Dark Mode:** Test all new components in both light and dark themes
+9. **Loading States:** Provide visual feedback during async operations
+10. **Feature Lists:** Clearly communicate what each integration offers
+
+### Design Patterns Used
+- **Card-based Layout:** Each integration is a self-contained card
+- **Tab Navigation:** Clean separation of different setting categories
+- **Status Indicators:** Visual feedback for connection states
+- **Modal Configuration:** Detailed settings without cluttering main view
+- **Hover Effects:** Consistent with existing dashboard components
+- **Color Coding:** Each integration has its own brand color
+- **Icon Language:** Meaningful icons that represent each platform's purpose
+
+### Files Created/Modified
+- `src/components/Integration.tsx` - New integration management component
+- `src/components/Settings.tsx` - Updated with tabbed interface and integration import
+- `lesson_learn.md` - Documented implementation and naming conflict fix
+
+### User Experience Benefits
+- **Better Organization:** Settings are now logically grouped into tabs
+- **Focused Interface:** Users can focus on one type of configuration at a time
+- **Professional Appearance:** Integration cards look polished and trustworthy
+- **Clear Status:** Users can immediately see which integrations are connected
+- **Easy Configuration:** Modal interface makes setup simple and non-overwhelming
+- **Consistent Design:** Matches existing dashboard aesthetic perfectly
+
