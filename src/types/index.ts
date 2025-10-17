@@ -98,3 +98,20 @@ export interface AgentKnowledgeFile {
   created_at: string;
   updated_at: string;
 }
+
+export interface CallIntent {
+  id: string;
+  call_id: string;
+  intent: string;
+  intent_reasoning: string;
+  mood: 'positive' | 'neutral' | 'negative';
+  mood_confidence: number;
+  mood_reasoning: string;
+  call_date: string;
+  duration_seconds: number;
+  language: 'en' | 'es';
+  was_answered: boolean;
+  transcript_excerpt: string;
+  customer_name?: string;
+  phone_number?: string;
+}

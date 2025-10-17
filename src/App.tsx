@@ -1,16 +1,17 @@
 import { useState, useEffect } from 'react';
-import { BarChart3, Settings as SettingsIcon, Bot, Calendar, Moon, Sun, Mic } from 'lucide-react';
+import { BarChart3, Settings as SettingsIcon, Bot, Calendar, Moon, Sun, Mic, Brain } from 'lucide-react';
 import { PerformanceDashboard } from './components/PerformanceDashboard';
 import { AgentConfig } from './components/AgentConfig';
 import { Recordings } from './components/Recordings';
 import { FlowBuilder } from './components/FlowBuilder';
 import { Settings } from './components/Settings';
 import { Login } from './components/Login';
+import { IntentDashboard } from './components/IntentDashboard';
 import { useAuth } from './contexts/AuthContext';
 import { agentApi } from './lib/api';
 import type { Agent } from './types';
 
-type View = 'dashboard' | 'config' | 'recordings' | 'settings' | 'flow';
+type View = 'dashboard' | 'config' | 'recordings' | 'settings' | 'flow' | 'intent';
 
 function App() {
   const { isAuthenticated, isLoading } = useAuth();
@@ -154,6 +155,17 @@ function App() {
                   Recordings
                 </button>
                 <button
+                  onClick={() => setCurrentView('intent')}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-md font-medium transition-colors ${
+                    currentView === 'intent'
+                      ? 'bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 shadow-sm'
+                      : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100'
+                  }`}
+                >
+                  <Brain className="w-4 h-4" />
+                  Intent Analysis
+                </button>
+                <button
                   onClick={() => setCurrentView('config')}
                   disabled={!selectedAgentId}
                   className={`flex items-center gap-2 px-4 py-2 rounded-md font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
@@ -223,6 +235,12 @@ function App() {
 
         {currentView === 'recordings' && (
           <Recordings />
+        )}
+
+        {currentView === 'intent' && (
+          <div className="space-y-6">
+            <IntentDashboard />
+          </div>
         )}
 
         {currentView === 'config' && selectedAgentId && (
