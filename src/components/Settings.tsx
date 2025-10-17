@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
-import { Key, Save, Eye, EyeOff, AlertCircle, CheckCircle, Trash2, RefreshCw, LogOut, User } from 'lucide-react';
+import { Key, Save, Eye, EyeOff, AlertCircle, CheckCircle, Trash2, RefreshCw, LogOut, User, Settings as SettingsIcon, Plug } from 'lucide-react';
 import { VapiClient } from '../lib/vapi';
 import { useAuth } from '../contexts/AuthContext';
 import { encrypt, decrypt } from '../lib/encryption';
+import { Integration } from './Integration';
 
 interface VapiCredentials {
   privateKey: string;
@@ -32,6 +33,7 @@ const API_URL = import.meta.env.VITE_D1_API_URL || 'http://localhost:8787';
 
 export function Settings() {
   const { user, token, logout } = useAuth();
+  const [activeTab, setActiveTab] = useState<'api' | 'integrations'>('api');
   const [credentials, setCredentials] = useState<VapiCredentials>({
     privateKey: '',
     publicKey: ''
@@ -304,12 +306,47 @@ export function Settings() {
         </div>
       </div>
 
-      {/* API Configuration Card */}
-      <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
-        <div className="flex items-center gap-2 mb-6">
-          <Key className="w-6 h-6 text-blue-600 dark:text-blue-400" />
-          <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">API Configuration</h2>
+      {/* Tab Navigation */}
+      <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+        <div className="border-b border-gray-200 dark:border-gray-700">
+          <nav className="flex space-x-8 px-6">
+            <button
+              onClick={() => setActiveTab('api')}
+              className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
+                activeTab === 'api'
+                  ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                  : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <Key className="w-4 h-4" />
+                API Configuration
+              </div>
+            </button>
+            <button
+              onClick={() => setActiveTab('integrations')}
+              className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
+                activeTab === 'integrations'
+                  ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                  : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <Plug className="w-4 h-4" />
+                Integrations
+              </div>
+            </button>
+          </nav>
         </div>
+
+        {/* Tab Content */}
+        <div className="p-6">
+          {activeTab === 'api' && (
+            <div className="space-y-6">
+              <div className="flex items-center gap-2 mb-6">
+                <Key className="w-6 h-6 text-blue-600 dark:text-blue-400" />
+                <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">API Configuration</h2>
+              </div>
 
         <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4 mb-6">
           <div className="flex items-start gap-3">
@@ -556,11 +593,18 @@ export function Settings() {
           </button>
         </div>
 
-        {loadingResources && (
-          <div className="mt-4 flex items-center justify-center">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 dark:border-blue-400"></div>
-          </div>
-        )}
+              {loadingResources && (
+                <div className="mt-4 flex items-center justify-center">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 dark:border-blue-400"></div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {activeTab === 'integrations' && (
+            <Integration />
+          )}
+        </div>
       </div>
     </div>
   );
