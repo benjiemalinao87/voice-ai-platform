@@ -38,6 +38,23 @@ export function IntentCard({ callIntent }: IntentCardProps) {
     }
   };
 
+  const getIntentColorValue = (intent: string) => {
+    switch (intent.toLowerCase()) {
+      case 'scheduling':
+        return '#2563eb';
+      case 'information':
+        return '#16a34a';
+      case 'complaint':
+        return '#dc2626';
+      case 'purchase':
+        return '#9333ea';
+      case 'support':
+        return '#ea580c';
+      default:
+        return '#6b7280';
+    }
+  };
+
   const getMoodIcon = (mood: string) => {
     switch (mood) {
       case 'positive':
@@ -76,103 +93,146 @@ export function IntentCard({ callIntent }: IntentCardProps) {
   };
 
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6 hover:shadow-lg transition-shadow duration-200">
+    <div 
+      className="group bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-6 transition-all duration-300 cursor-pointer overflow-hidden relative"
+      style={{
+        transform: isExpanded ? 'translateY(-2px)' : 'translateY(0)',
+        boxShadow: isExpanded 
+          ? '0 12px 24px -4px rgba(0, 0, 0, 0.12), 0 8px 16px -4px rgba(0, 0, 0, 0.08)' 
+          : '0 1px 3px 0 rgba(0, 0, 0, 0.1)',
+      }}
+    >
+      {/* Animated background gradient */}
+      <div 
+        className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500"
+        style={{
+          background: `linear-gradient(135deg, ${getIntentColorValue(callIntent.intent)}08 0%, transparent 50%)`,
+        }}
+      />
+
+      {/* Top border accent */}
+      <div 
+        className="absolute top-0 left-0 right-0 h-1 transition-all duration-300"
+        style={{
+          background: getIntentColorValue(callIntent.intent),
+          transform: isExpanded ? 'scaleX(1)' : 'scaleX(0)',
+          transformOrigin: 'left',
+        }}
+      />
       {/* Header */}
-      <div className="flex items-start justify-between mb-4">
+      <div className="flex items-start justify-between mb-4 relative">
         <div className="flex-1">
-          <div className="flex items-center gap-3 mb-2">
-            <div className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium border ${getIntentColor(callIntent.intent)}`}>
-              <Brain className="w-4 h-4 mr-1" />
+          <div className="flex items-center gap-3 mb-3">
+            <div className={`inline-flex items-center px-4 py-2 rounded-full text-sm font-semibold border transition-all duration-300 hover:scale-105 ${getIntentColor(callIntent.intent)}`}>
+              <Brain className="w-4 h-4 mr-2" />
               {callIntent.intent}
             </div>
-            <div className={`flex items-center gap-1 text-sm font-medium ${getMoodColor(callIntent.mood)}`}>
+            <div className={`flex items-center gap-2 text-sm font-semibold px-3 py-1 rounded-full transition-all duration-300 hover:scale-105 ${getMoodColor(callIntent.mood)} bg-opacity-10`}>
               {getMoodIcon(callIntent.mood)}
               <span className="capitalize">{callIntent.mood}</span>
-              <span className="text-xs opacity-75">({callIntent.mood_confidence}%)</span>
+              <span className="text-xs opacity-75 font-medium">({callIntent.mood_confidence}%)</span>
             </div>
           </div>
           
-          <div className="flex items-center gap-4 text-sm text-gray-600 dark:text-gray-400">
-            <div className="flex items-center gap-1">
+          <div className="flex items-center gap-6 text-sm text-gray-600 dark:text-gray-400">
+            <div className="flex items-center gap-2 px-3 py-1 rounded-lg bg-gray-50 dark:bg-gray-700/50 transition-all duration-300 hover:bg-gray-100 dark:hover:bg-gray-700">
               <Calendar className="w-4 h-4" />
-              {formatDate(callIntent.call_date)}
+              <span className="font-medium">{formatDate(callIntent.call_date)}</span>
             </div>
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-2 px-3 py-1 rounded-lg bg-gray-50 dark:bg-gray-700/50 transition-all duration-300 hover:bg-gray-100 dark:hover:bg-gray-700">
               <Clock className="w-4 h-4" />
-              {formatDuration(callIntent.duration_seconds)}
+              <span className="font-medium">{formatDuration(callIntent.duration_seconds)}</span>
             </div>
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-2 px-3 py-1 rounded-lg bg-gray-50 dark:bg-gray-700/50 transition-all duration-300 hover:bg-gray-100 dark:hover:bg-gray-700">
               <Globe className="w-4 h-4" />
-              {callIntent.language.toUpperCase()}
+              <span className="font-medium">{callIntent.language.toUpperCase()}</span>
             </div>
-            <div className="flex items-center gap-1">
+            <div className={`flex items-center gap-2 px-3 py-1 rounded-lg transition-all duration-300 hover:scale-105 ${
+              callIntent.was_answered 
+                ? 'bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400' 
+                : 'bg-gray-50 dark:bg-gray-700/50 text-gray-600 dark:text-gray-400'
+            }`}>
               {callIntent.was_answered ? (
-                <Phone className="w-4 h-4 text-green-500" />
+                <Phone className="w-4 h-4" />
               ) : (
-                <PhoneOff className="w-4 h-4 text-gray-400" />
+                <PhoneOff className="w-4 h-4" />
               )}
-              {callIntent.was_answered ? 'Answered' : 'Missed'}
+              <span className="font-medium">{callIntent.was_answered ? 'Answered' : 'Missed'}</span>
             </div>
           </div>
         </div>
         
         <button
           onClick={() => setIsExpanded(!isExpanded)}
-          className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+          className="p-3 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-xl transition-all duration-300 hover:scale-110 group"
         >
           {isExpanded ? (
-            <ChevronUp className="w-5 h-5 text-gray-400" />
+            <ChevronUp className="w-5 h-5 text-gray-400 group-hover:text-gray-600 dark:group-hover:text-gray-300 transition-colors" />
           ) : (
-            <ChevronDown className="w-5 h-5 text-gray-400" />
+            <ChevronDown className="w-5 h-5 text-gray-400 group-hover:text-gray-600 dark:group-hover:text-gray-300 transition-colors" />
           )}
         </button>
       </div>
 
       {/* Customer Info */}
       {callIntent.customer_name && (
-        <div className="flex items-center gap-2 mb-3 text-sm">
-          <User className="w-4 h-4 text-gray-400" />
-          <span className="text-gray-900 dark:text-gray-100 font-medium">{callIntent.customer_name}</span>
-          {callIntent.phone_number && (
-            <span className="text-gray-500 dark:text-gray-400">• {callIntent.phone_number}</span>
-          )}
+        <div className="flex items-center gap-3 mb-4 p-3 rounded-lg bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 border border-blue-100 dark:border-blue-800/30">
+          <div className="p-2 rounded-full bg-blue-100 dark:bg-blue-900/30">
+            <User className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+          </div>
+          <div>
+            <span className="text-gray-900 dark:text-gray-100 font-semibold">{callIntent.customer_name}</span>
+            {callIntent.phone_number && (
+              <span className="text-gray-500 dark:text-gray-400 ml-2 font-medium">• {callIntent.phone_number}</span>
+            )}
+          </div>
         </div>
       )}
 
       {/* Transcript Excerpt */}
-      <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-4 mb-4">
-        <div className="flex items-center gap-2 mb-2">
-          <MessageSquare className="w-4 h-4 text-gray-400" />
-          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Conversation Excerpt</span>
+      <div className="bg-gradient-to-r from-gray-50 to-gray-100 dark:from-gray-700 dark:to-gray-800 rounded-xl p-5 mb-4 border border-gray-200 dark:border-gray-600 transition-all duration-300 hover:shadow-md">
+        <div className="flex items-center gap-3 mb-3">
+          <div className="p-2 rounded-full bg-gray-200 dark:bg-gray-600">
+            <MessageSquare className="w-4 h-4 text-gray-600 dark:text-gray-300" />
+          </div>
+          <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">Conversation Excerpt</span>
         </div>
-        <p className="text-sm text-gray-600 dark:text-gray-400 italic">
+        <p className="text-sm text-gray-600 dark:text-gray-400 italic leading-relaxed pl-2 border-l-2 border-gray-300 dark:border-gray-500">
           "{callIntent.transcript_excerpt}"
         </p>
       </div>
 
       {/* Expanded Details */}
       {isExpanded && (
-        <div className="space-y-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+        <div className="space-y-6 pt-6 border-t border-gray-200 dark:border-gray-700 animate-in slide-in-from-top-2 duration-300">
           {/* Intent Analysis */}
-          <div>
-            <h4 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-2 flex items-center gap-2">
-              <Brain className="w-4 h-4" />
+          <div className="group">
+            <h4 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-3 flex items-center gap-3">
+              <div className="p-2 rounded-full bg-blue-100 dark:bg-blue-900/30 group-hover:scale-110 transition-transform duration-300">
+                <Brain className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+              </div>
               Intent Analysis
             </h4>
-            <p className="text-sm text-gray-600 dark:text-gray-400 bg-blue-50 dark:bg-blue-900/20 rounded-lg p-3">
-              {callIntent.intent_reasoning}
-            </p>
+            <div className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 rounded-xl p-4 border border-blue-100 dark:border-blue-800/30 transition-all duration-300 hover:shadow-md">
+              <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">
+                {callIntent.intent_reasoning}
+              </p>
+            </div>
           </div>
 
           {/* Mood Analysis */}
-          <div>
-            <h4 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-2 flex items-center gap-2">
-              <Heart className="w-4 h-4" />
+          <div className="group">
+            <h4 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-3 flex items-center gap-3">
+              <div className="p-2 rounded-full bg-green-100 dark:bg-green-900/30 group-hover:scale-110 transition-transform duration-300">
+                <Heart className="w-4 h-4 text-green-600 dark:text-green-400" />
+              </div>
               Mood Analysis
             </h4>
-            <p className="text-sm text-gray-600 dark:text-gray-400 bg-green-50 dark:bg-green-900/20 rounded-lg p-3">
-              {callIntent.mood_reasoning}
-            </p>
+            <div className="bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-900/20 dark:to-emerald-900/20 rounded-xl p-4 border border-green-100 dark:border-green-800/30 transition-all duration-300 hover:shadow-md">
+              <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">
+                {callIntent.mood_reasoning}
+              </p>
+            </div>
           </div>
         </div>
       )}
