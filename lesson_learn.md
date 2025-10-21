@@ -1373,3 +1373,275 @@ import { Settings as SettingsIcon, Plug } from 'lucide-react';
 - **Easy Configuration:** Modal interface makes setup simple and non-overwhelming
 - **Consistent Design:** Matches existing dashboard aesthetic perfectly
 
+---
+
+## Webhook System with Keyword Detection (January 15, 2025)
+
+### Feature Implementation
+Successfully designed and implemented a comprehensive webhook system that sends call data to external endpoints based on keyword detection and call events.
+
+### Problem Solved
+Users needed a way to automatically send call data to external systems (like Salesforce, Slack, custom APIs) when specific keywords are detected or when calls complete. This enables real-time integrations without manual data transfer.
+
+### Implementation Details
+
+#### 1. Created WebhookConfig Component (`src/components/WebhookConfig.tsx`)
+- **Webhook Management:**
+  - Add/edit/delete webhook endpoints
+  - Enable/disable webhooks individually
+  - Configure webhook URLs and secret keys
+  - Set up keyword triggers for each webhook
+  - Define trigger conditions (all calls, keyword match, call completed, call failed)
+
+- **Keyword Detection System:**
+  - Comma-separated keyword input
+  - Multiple keywords per webhook
+  - Case-insensitive matching (mock implementation)
+  - Visual keyword tags with color coding
+  - Matched keywords displayed in logs
+
+- **Webhook Testing:**
+  - Test button to send sample webhook requests
+  - Real-time loading states during tests
+  - Simulated API responses with success/failure states
+  - Response time tracking
+
+- **Activity Monitoring:**
+  - Real-time webhook activity log
+  - Status indicators (success, failed, pending)
+  - HTTP status codes and response times
+  - Matched keywords for each webhook call
+  - Detailed payload inspection
+  - Error message display for failed requests
+
+#### 2. UI/UX Features
+- **Webhook Cards:** Each webhook displayed as an expandable card showing:
+  - Webhook name and active/disabled status
+  - URL and secret key (with show/hide toggle)
+  - Configured keywords as colored tags
+  - Trigger conditions
+  - Action buttons (test, enable/disable, delete)
+
+- **Add Webhook Modal:**
+  - Clean form for webhook configuration
+  - URL validation
+  - Optional secret key for signature verification
+  - Keyword input with helpful placeholder
+  - Trigger condition checkboxes
+  - Form validation before submission
+
+- **Activity Log:**
+  - Recent webhook requests listed chronologically
+  - Click to view full request details
+  - Status icons (green check, red X, yellow clock)
+  - Response time and status code display
+  - Matched keywords highlighted
+
+- **Log Detail Modal:**
+  - Full payload sent to webhook endpoint
+  - JSON formatted with syntax highlighting
+  - Error messages for failed requests
+  - Timestamp and webhook name
+  - Customer information
+
+#### 3. Mock Data Implementation
+**Pre-configured Webhooks:**
+- **Salesforce Lead Sync:** Triggers on sales keywords (interested, pricing, purchase, schedule appointment)
+- **Slack Notifications:** Triggers on urgent keywords (complaint, urgent, emergency, dissatisfied)
+
+**Mock Webhook Logs:**
+- Successful webhook to Salesforce (200 OK, 245ms)
+- Successful webhook to Slack (200 OK, 180ms)
+- Failed webhook to Salesforce (500 error, timeout)
+
+### How It Should Be Done
+
+```typescript
+// ✅ CORRECT - Webhook configuration with keyword triggers
+interface WebhookEndpoint {
+  id: string;
+  name: string;
+  url: string;
+  secret?: string;
+  enabled: boolean;
+  keywords: string[];  // Keywords to detect
+  triggers: {
+    allCalls: boolean;           // Send for every call
+    keywordMatch: boolean;       // Send only when keywords match
+    callCompleted: boolean;      // Send when call succeeds
+    callFailed: boolean;         // Send when call fails
+  };
+}
+
+// Webhook payload example
+const payload = {
+  customer: 'Erin Farley',
+  phone: '+1 (316) 299-3145',
+  intent: 'scheduling',
+  confidence: 0.85,
+  keywords: ['schedule appointment', 'interested'],
+  transcript: '...',
+  timestamp: '2025-01-15T10:30:45Z',
+  callId: 'call_abc123'
+};
+
+// Send webhook with signature
+const signature = await generateHMAC(payload, webhook.secret);
+await fetch(webhook.url, {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+    'X-Webhook-Signature': signature
+  },
+  body: JSON.stringify(payload)
+});
+```
+
+### How It Should NOT Be Done
+
+```typescript
+// ❌ WRONG - No keyword filtering or trigger conditions
+const sendToWebhook = (callData) => {
+  fetch(webhookUrl, {
+    method: 'POST',
+    body: JSON.stringify(callData)  // Sends everything always
+  });
+};
+
+// Issues:
+// - No keyword filtering (spam)
+// - No trigger conditions (unnecessary requests)
+// - No error handling
+// - No activity logging
+// - No signature verification
+```
+
+### Webhook Trigger Logic
+
+**All Calls:**
+- Sends webhook for every single call regardless of content
+- Useful for comprehensive logging systems
+
+**Keyword Match:**
+- Scans call transcript for configured keywords
+- Only sends webhook if one or more keywords are detected
+- Case-insensitive matching
+- Perfect for sales lead qualification or support escalation
+
+**Call Completed:**
+- Sends webhook only when call ends successfully
+- Filters out incomplete or dropped calls
+- Best for post-call workflows
+
+**Call Failed:**
+- Sends webhook when call fails or is dropped
+- Useful for monitoring and alerting systems
+- Can trigger follow-up workflows
+
+### Use Cases
+
+#### 1. Salesforce Lead Sync
+**Keywords:** interested, pricing, purchase, schedule appointment, demo
+**Triggers:** Keyword Match + Call Completed
+**Use Case:** Automatically create leads in Salesforce when customers express interest
+
+#### 2. Slack Urgent Notifications
+**Keywords:** complaint, urgent, emergency, dissatisfied, angry, problem
+**Triggers:** Keyword Match (immediate)
+**Use Case:** Alert support team in real-time when customers have issues
+
+#### 3. Google Sheets Logging
+**Keywords:** (none)
+**Triggers:** All Calls + Call Completed
+**Use Case:** Log all completed calls to a spreadsheet for analysis
+
+#### 4. Zapier Integration
+**Keywords:** schedule, appointment, meeting, callback
+**Triggers:** Keyword Match + Call Completed
+**Use Case:** Automatically create calendar events when appointments are scheduled
+
+### Security Features
+
+**Secret Keys:**
+- Optional webhook secret for HMAC signature verification
+- Receivers can verify webhook authenticity
+- Prevents replay attacks and spoofing
+- Show/hide toggle for secret display
+
+**HTTPS Only:**
+- Webhook URLs should use HTTPS in production
+- Encrypted data transmission
+- Prevents man-in-the-middle attacks
+
+**Payload Signing:**
+- HMAC-SHA256 signature in X-Webhook-Signature header
+- Verifiable by receiver using shared secret
+- Ensures payload hasn't been tampered with
+
+### Key Takeaways
+
+1. **Keyword Filtering:** Essential for reducing noise and targeting specific intents
+2. **Trigger Conditions:** Multiple trigger types provide flexibility for different use cases
+3. **Activity Monitoring:** Always log webhook requests for debugging and analytics
+4. **Testing Feature:** Built-in testing saves time and prevents integration errors
+5. **Status Tracking:** Show real-time status (active/disabled) for each webhook
+6. **Secret Management:** Support optional secrets for secure verification
+7. **Error Handling:** Display clear error messages for failed webhook requests
+8. **Response Tracking:** Log status codes and response times for monitoring
+9. **Payload Inspection:** Allow users to view full payloads for troubleshooting
+10. **Mock Data:** Comprehensive mock data helps users understand functionality
+
+### Design Patterns Used
+
+- **Card-based Layout:** Each webhook is a self-contained card
+- **Modal Forms:** Add/edit webhooks in modals to keep main view clean
+- **Activity Feed:** Chronological log of webhook requests
+- **Status Indicators:** Color-coded status for quick visual scanning
+- **Show/Hide Toggles:** Protect sensitive data (secrets) with visibility toggles
+- **Test Mode:** Simulate webhooks without affecting real systems
+- **Expandable Details:** Click logs to view full payload details
+
+### Real-World Integration Example
+
+```typescript
+// Salesforce endpoint receiving webhook
+app.post('/webhooks/leads', async (req, res) => {
+  const { customer, phone, intent, keywords, confidence } = req.body;
+  
+  // Verify signature
+  const signature = req.headers['x-webhook-signature'];
+  if (!verifySignature(req.body, signature, SECRET)) {
+    return res.status(401).json({ error: 'Invalid signature' });
+  }
+  
+  // Only process high-confidence sales intents
+  if (confidence > 0.75 && intent === 'scheduling') {
+    await salesforce.leads.create({
+      firstName: customer.split(' ')[0],
+      lastName: customer.split(' ')[1],
+      phone: phone,
+      status: 'New',
+      source: 'Voice AI Call',
+      keywords: keywords.join(', ')
+    });
+  }
+  
+  res.status(200).json({ success: true });
+});
+```
+
+### Files Created/Modified
+- `src/components/WebhookConfig.tsx` - Complete webhook management system
+- `src/components/Settings.tsx` - Added Webhooks tab to settings
+- `lesson_learn.md` - Documented webhook system implementation
+
+### User Experience Benefits
+- **Automation:** Eliminates manual data entry to external systems
+- **Real-Time:** Webhooks fire immediately when conditions are met
+- **Flexible:** Keyword triggers allow precise control over when webhooks fire
+- **Transparent:** Activity log shows exactly what was sent and when
+- **Testable:** Built-in testing prevents integration errors
+- **Secure:** Optional secrets enable signature verification
+- **Debuggable:** Full payload inspection helps troubleshoot issues
+- **Scalable:** Add unlimited webhooks for different systems
+

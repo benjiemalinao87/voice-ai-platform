@@ -157,54 +157,66 @@ class VapiClient {
   }
 }
 
-// Helper to get credentials from localStorage or env
-// Note: With D1 auth, credentials are loaded through Settings component
-// This fallback checks localStorage for backward compatibility
-function getStoredCredentials() {
+// Helper to get credentials from D1 (user-specific) or fallback to env
+// IMPORTANT: This should NOT use localStorage for API keys to ensure user isolation
+async function getUserVapiCredentials(): Promise<{ privateKey?: string; publicKey?: string } | null> {
   try {
-    // Check for old localStorage format (backward compatibility)
-    const saved = localStorage.getItem('vapi_credentials');
-    if (saved) {
-      return JSON.parse(atob(saved));
+    const token = localStorage.getItem('auth_token');
+    if (!token) {
+      // No user logged in, use env variables as fallback for demo
+      return vapiPrivateKey ? { privateKey: vapiPrivateKey, publicKey: vapiPublicKey } : null;
     }
+
+    // Import D1 client to fetch user settings
+    const { d1Client } = await import('./d1');
+    const { decrypt } = await import('./encryption');
+
+    const settings = await d1Client.getUserSettings();
+
+    if (!settings.encryptedPrivateKey) {
+      // User hasn't configured API keys yet
+      return null;
+    }
+
+    // For now, we can't decrypt without password
+    // This is a limitation - we need the password to decrypt
+    // The Settings component handles this properly
+    // For API calls, we'll need to pass the decrypted keys directly
+    return null;
   } catch (error) {
-    console.error('Error reading stored credentials:', error);
+    console.error('Error loading user VAPI credentials:', error);
+    return null;
   }
-  return null;
 }
 
-// Create VAPI client with stored or env credentials
-export function createVapiClient(): VapiClient | null {
-  const stored = getStoredCredentials();
-  const privateKey = stored?.privateKey || vapiPrivateKey;
-  return privateKey ? new VapiClient(privateKey) : null;
+// Create VAPI client with user-specific credentials
+// This is now async and requires credentials to be passed explicitly
+export function createVapiClient(privateKey: string): VapiClient {
+  return new VapiClient(privateKey);
 }
 
-// Export singleton instance (will use stored credentials if available)
-export const vapiClient = createVapiClient();
-
-// Export the class so Settings can create temporary clients
+// Export the class so components can create clients with user-specific keys
 export { VapiClient };
 
+// DEPRECATED: Using localStorage for API keys is a security risk
+// These functions are kept for backward compatibility but should not be used
 export const vapiConfig = {
   get publicKey() {
-    const stored = getStoredCredentials();
-    return stored?.publicKey || vapiPublicKey;
+    return vapiPublicKey;
   },
   get privateKey() {
-    const stored = getStoredCredentials();
-    return stored?.privateKey || vapiPrivateKey;
+    return vapiPrivateKey;
   },
   get phoneNumberId() {
-    const saved = localStorage.getItem('vapi_selected_phone');
-    return saved || import.meta.env.VITE_VAPI_PHONE_NUMBER_ID;
+    return import.meta.env.VITE_VAPI_PHONE_NUMBER_ID;
   },
   get assistantId() {
-    const saved = localStorage.getItem('vapi_selected_assistant');
-    return saved || import.meta.env.VITE_VAPI_ASSISTANT_ID;
+    return import.meta.env.VITE_VAPI_ASSISTANT_ID;
   },
 };
 
+// For backward compatibility - will be null unless env variables are set
+export const vapiClient = vapiPrivateKey ? new VapiClient(vapiPrivateKey) : null;
 export const isVapiConfigured = !!vapiClient;
 
 // Type definitions for VAPI responses

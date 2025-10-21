@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { BarChart3, Settings as SettingsIcon, Bot, Calendar, Moon, Sun, Mic, Brain } from 'lucide-react';
+import { BarChart3, Settings as SettingsIcon, Calendar, Moon, Sun, Mic, Brain, Shield } from 'lucide-react';
 import { PerformanceDashboard } from './components/PerformanceDashboard';
 import { AgentConfig } from './components/AgentConfig';
 import { Recordings } from './components/Recordings';
@@ -7,11 +7,14 @@ import { FlowBuilder } from './components/FlowBuilder';
 import { Settings } from './components/Settings';
 import { Login } from './components/Login';
 import { IntentDashboard } from './components/IntentDashboard';
+import { LiveChat } from './components/LiveChat';
+import { BoardView } from './components/BoardView';
+import { AdminDashboard } from './components/AdminDashboard';
 import { useAuth } from './contexts/AuthContext';
 import { agentApi } from './lib/api';
 import type { Agent } from './types';
 
-type View = 'dashboard' | 'config' | 'recordings' | 'settings' | 'flow' | 'intent';
+type View = 'dashboard' | 'config' | 'recordings' | 'settings' | 'flow' | 'intent' | 'livechat' | 'board' | 'admin';
 
 function App() {
   const { isAuthenticated, isLoading } = useAuth();
@@ -28,6 +31,10 @@ function App() {
       return saved === 'true';
     }
     return window.matchMedia('(prefers-color-scheme: dark)').matches;
+  });
+  const [wideView, setWideView] = useState(() => {
+    const saved = localStorage.getItem('wideView');
+    return saved === 'true';
   });
   const [dateRange, setDateRange] = useState({
     from: new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString(),
@@ -132,62 +139,95 @@ function App() {
               )}
 
               <div className="flex items-center gap-2 bg-gray-100 dark:bg-gray-700 rounded-lg p-1">
-                <button
-                  onClick={() => setCurrentView('dashboard')}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-md font-medium transition-colors ${
-                    currentView === 'dashboard'
-                      ? 'bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 shadow-sm'
-                      : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100'
-                  }`}
-                >
-                  <BarChart3 className="w-4 h-4" />
-                  Dashboard
-                </button>
-                <button
-                  onClick={() => setCurrentView('recordings')}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-md font-medium transition-colors ${
-                    currentView === 'recordings'
-                      ? 'bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 shadow-sm'
-                      : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100'
-                  }`}
-                >
-                  <Mic className="w-4 h-4" />
-                  Recordings
-                </button>
-                <button
-                  onClick={() => setCurrentView('intent')}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-md font-medium transition-colors ${
-                    currentView === 'intent'
-                      ? 'bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 shadow-sm'
-                      : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100'
-                  }`}
-                >
-                  <Brain className="w-4 h-4" />
-                  Intent Analysis
-                </button>
-                <button
-                  onClick={() => setCurrentView('config')}
-                  disabled={!selectedAgentId}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-md font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
-                    currentView === 'config'
-                      ? 'bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 shadow-sm'
-                      : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100'
-                  }`}
-                >
-                  <SettingsIcon className="w-4 h-4" />
-                  Configuration
-                </button>
-                <button
-                  onClick={() => setCurrentView('settings')}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-md font-medium transition-colors ${
-                    currentView === 'settings'
-                      ? 'bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 shadow-sm'
-                      : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100'
-                  }`}
-                >
-                  <SettingsIcon className="w-4 h-4" />
-                  Settings
-                </button>
+                    <button
+                      onClick={() => setCurrentView('dashboard')}
+                      className={`flex items-center gap-2 px-4 py-2 rounded-md font-medium transition-colors ${
+                        currentView === 'dashboard'
+                          ? 'bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 shadow-sm'
+                          : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100'
+                      }`}
+                    >
+                      <BarChart3 className="w-4 h-4" />
+                      Dashboard
+                    </button>
+                    {/* <button
+                      onClick={() => setCurrentView('board')}
+                      className={`flex items-center gap-2 px-4 py-2 rounded-md font-medium transition-colors ${
+                        currentView === 'board'
+                          ? 'bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 shadow-sm'
+                          : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100'
+                      }`}
+                    >
+                      <Columns className="w-4 h-4" />
+                      Pipeline
+                    </button> */}
+                    <button
+                      onClick={() => setCurrentView('recordings')}
+                      className={`flex items-center gap-2 px-4 py-2 rounded-md font-medium transition-colors ${
+                        currentView === 'recordings'
+                          ? 'bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 shadow-sm'
+                          : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100'
+                      }`}
+                    >
+                      <Mic className="w-4 h-4" />
+                      Recordings
+                    </button>
+                    <button
+                      onClick={() => setCurrentView('intent')}
+                      className={`flex items-center gap-2 px-4 py-2 rounded-md font-medium transition-colors ${
+                        currentView === 'intent'
+                          ? 'bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 shadow-sm'
+                          : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100'
+                      }`}
+                    >
+                      <Brain className="w-4 h-4" />
+                      Intent Analysis
+                    </button>
+                    {/* <button
+                      onClick={() => setCurrentView('livechat')}
+                      className={`flex items-center gap-2 px-4 py-2 rounded-md font-medium transition-colors ${
+                        currentView === 'livechat'
+                          ? 'bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 shadow-sm'
+                          : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100'
+                      }`}
+                    >
+                      <MessageCircle className="w-4 h-4" />
+                      Live Chat
+                    </button> */}
+                    <button
+                      onClick={() => setCurrentView('config')}
+                      disabled={!selectedAgentId}
+                      className={`flex items-center gap-2 px-4 py-2 rounded-md font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                        currentView === 'config'
+                          ? 'bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 shadow-sm'
+                          : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100'
+                      }`}
+                    >
+                      <SettingsIcon className="w-4 h-4" />
+                      Configuration
+                    </button>
+                    <button
+                      onClick={() => setCurrentView('settings')}
+                      className={`flex items-center gap-2 px-4 py-2 rounded-md font-medium transition-colors ${
+                        currentView === 'settings'
+                          ? 'bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 shadow-sm'
+                          : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100'
+                      }`}
+                    >
+                      <SettingsIcon className="w-4 h-4" />
+                      Settings
+                    </button>
+                    <button
+                      onClick={() => setCurrentView('admin')}
+                      className={`flex items-center gap-2 px-4 py-2 rounded-md font-medium transition-colors ${
+                        currentView === 'admin'
+                          ? 'bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 shadow-sm'
+                          : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100'
+                      }`}
+                    >
+                      <Shield className="w-4 h-4" />
+                      Admin
+                    </button>
               </div>
             </div>
           </div>
@@ -196,7 +236,7 @@ function App() {
 
       {/* Scrollable Content Area */}
       <main className="flex-1 overflow-y-auto">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className={`${wideView ? 'w-full' : 'max-w-7xl'} mx-auto px-4 sm:px-6 lg:px-8 py-8 transition-all duration-300`}>
         {currentView === 'dashboard' && (
           <div className="space-y-6">
             <div className="flex items-center justify-between">
@@ -243,6 +283,14 @@ function App() {
           </div>
         )}
 
+        {currentView === 'livechat' && (
+          <LiveChat />
+        )}
+
+        {currentView === 'board' && (
+          <BoardView />
+        )}
+
         {currentView === 'config' && selectedAgentId && (
           <div className="space-y-6">
             <div>
@@ -275,8 +323,12 @@ function App() {
               </p>
             </div>
 
-            <Settings />
+            <Settings wideView={wideView} onWideViewChange={setWideView} />
           </div>
+        )}
+
+        {currentView === 'admin' && (
+          <AdminDashboard />
         )}
         </div>
       </main>

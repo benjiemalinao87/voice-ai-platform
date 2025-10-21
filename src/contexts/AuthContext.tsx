@@ -116,11 +116,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     setUser(null);
     setToken(null);
-    localStorage.removeItem('auth_token');
-    // Clear old localStorage settings
-    localStorage.removeItem('vapi_credentials');
-    localStorage.removeItem('vapi_selected_assistant');
-    localStorage.removeItem('vapi_selected_phone');
+
+    // Clear ALL localStorage to prevent data leakage between users
+    // IMPORTANT: This ensures no user-specific data remains in browser storage
+    localStorage.clear();
+
+    // Only restore non-sensitive preferences
+    const darkMode = document.documentElement.classList.contains('dark');
+    if (darkMode) {
+      localStorage.setItem('darkMode', 'true');
+    }
   };
 
   return (

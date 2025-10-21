@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Key, Save, Eye, EyeOff, AlertCircle, CheckCircle, Trash2, RefreshCw, LogOut, User, Settings as SettingsIcon, Plug, Webhook } from 'lucide-react';
+import { Key, Save, Eye, EyeOff, AlertCircle, CheckCircle, Trash2, RefreshCw, LogOut, User, Settings as SettingsIcon, Plug, Webhook, Maximize2 } from 'lucide-react';
 import { VapiClient } from '../lib/vapi';
 import { useAuth } from '../contexts/AuthContext';
 import { encrypt, decrypt } from '../lib/encryption';
@@ -32,9 +32,14 @@ interface UserSettings {
 
 const API_URL = import.meta.env.VITE_D1_API_URL || 'http://localhost:8787';
 
-export function Settings() {
+interface SettingsProps {
+  wideView?: boolean;
+  onWideViewChange?: (value: boolean) => void;
+}
+
+export function Settings({ wideView = false, onWideViewChange }: SettingsProps = {}) {
   const { user, token, logout } = useAuth();
-  const [activeTab, setActiveTab] = useState<'api' | 'integrations' | 'webhooks'>('api');
+  const [activeTab, setActiveTab] = useState<'api' | 'integrations' | 'webhooks' | 'preferences'>('api');
   const [credentials, setCredentials] = useState<VapiCredentials>({
     privateKey: '',
     publicKey: ''
@@ -350,6 +355,19 @@ export function Settings() {
                 Webhooks
               </div>
             </button>
+            <button
+              onClick={() => setActiveTab('preferences')}
+              className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
+                activeTab === 'preferences'
+                  ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                  : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <SettingsIcon className="w-4 h-4" />
+                Preferences
+              </div>
+            </button>
           </nav>
         </div>
 
@@ -621,6 +639,103 @@ export function Settings() {
 
           {activeTab === 'webhooks' && (
             <WebhookConfig />
+          )}
+
+          {activeTab === 'preferences' && (
+            <div className="space-y-6">
+              <div className="flex items-center gap-2 mb-6">
+                <Maximize2 className="w-6 h-6 text-blue-600 dark:text-blue-400" />
+                <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Display Preferences</h2>
+              </div>
+
+              <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4 mb-6">
+                <div className="flex items-start gap-3">
+                  <AlertCircle className="w-5 h-5 text-blue-600 dark:text-blue-400 flex-shrink-0 mt-0.5" />
+                  <div className="text-sm text-blue-900 dark:text-blue-100">
+                    <p className="font-medium mb-1">Wide View Mode</p>
+                    <p className="text-blue-700 dark:text-blue-300">
+                      Enable wide view to expand the dashboard content area across the full width of your screen for better visibility of charts and data.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Wide View Toggle */}
+              <div className="group bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-6 transition-all duration-300 hover:shadow-lg overflow-hidden relative">
+                <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20" />
+
+                <div className="relative flex items-center justify-between">
+                  <div className="flex items-center gap-4">
+                    <div className="p-3 bg-blue-100 dark:bg-blue-900/30 rounded-xl group-hover:scale-110 transition-transform duration-300">
+                      <Maximize2 className="w-6 h-6 text-blue-600 dark:text-blue-400" />
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-1">
+                        Wide View Mode
+                      </h3>
+                      <p className="text-sm text-gray-600 dark:text-gray-400">
+                        Expand content area to full screen width
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Toggle Switch */}
+                  <button
+                    onClick={() => {
+                      const newValue = !wideView;
+                      if (onWideViewChange) {
+                        onWideViewChange(newValue);
+                      }
+                      localStorage.setItem('wideView', String(newValue));
+                    }}
+                    className={`relative inline-flex h-8 w-14 items-center rounded-full transition-all duration-300 ${
+                      wideView
+                        ? 'bg-blue-600 dark:bg-blue-500'
+                        : 'bg-gray-300 dark:bg-gray-600'
+                    }`}
+                  >
+                    <span
+                      className={`inline-block h-6 w-6 transform rounded-full bg-white shadow-lg transition-transform duration-300 ${
+                        wideView ? 'translate-x-7' : 'translate-x-1'
+                      }`}
+                    />
+                  </button>
+                </div>
+
+                {/* Current Status */}
+                <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+                  <div className="flex items-center gap-2">
+                    <div className={`w-2 h-2 rounded-full ${wideView ? 'bg-green-500' : 'bg-gray-400'}`} />
+                    <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                      {wideView ? 'Wide view enabled' : 'Standard view (max-width: 1280px)'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Preview Info */}
+              <div className="bg-gray-50 dark:bg-gray-700/50 rounded-xl p-6 border border-gray-200 dark:border-gray-700">
+                <h4 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-3">What changes with Wide View?</h4>
+                <ul className="space-y-2 text-sm text-gray-600 dark:text-gray-400">
+                  <li className="flex items-start gap-2">
+                    <CheckCircle className="w-4 h-4 text-green-600 dark:text-green-400 mt-0.5 flex-shrink-0" />
+                    <span>Dashboard content expands to use full screen width</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <CheckCircle className="w-4 h-4 text-green-600 dark:text-green-400 mt-0.5 flex-shrink-0" />
+                    <span>Charts and graphs display with more detail</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <CheckCircle className="w-4 h-4 text-green-600 dark:text-green-400 mt-0.5 flex-shrink-0" />
+                    <span>Better visibility for data tables and analytics</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <CheckCircle className="w-4 h-4 text-green-600 dark:text-green-400 mt-0.5 flex-shrink-0" />
+                    <span>Preference saved automatically to your browser</span>
+                  </li>
+                </ul>
+              </div>
+            </div>
           )}
         </div>
       </div>

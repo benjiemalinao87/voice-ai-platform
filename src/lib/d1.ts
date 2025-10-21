@@ -69,6 +69,31 @@ class D1Client {
       method: 'DELETE',
     });
   }
+
+  // User Settings
+  async getUserSettings(): Promise<{
+    encryptedPrivateKey?: string;
+    encryptedPublicKey?: string;
+    selectedAssistantId?: string;
+    selectedPhoneId?: string;
+    encryptionSalt: string;
+  }> {
+    return this.request('/api/settings', {
+      method: 'GET',
+    });
+  }
+
+  async updateUserSettings(data: {
+    encryptedPrivateKey?: string;
+    encryptedPublicKey?: string;
+    selectedAssistantId?: string | null;
+    selectedPhoneId?: string | null;
+  }): Promise<{ message: string }> {
+    return this.request('/api/settings', {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
 }
 
 // Export singleton instance

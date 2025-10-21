@@ -1,5 +1,5 @@
 import { supabase, isDemo } from './supabase';
-import { vapiClient, isVapiConfigured, type VapiAssistant, type VapiCall } from './vapi';
+import { VapiClient, type VapiAssistant, type VapiCall } from './vapi';
 import type { Agent, Call, MetricsSummary, DashboardMetrics, KeywordTrend } from '../types';
 
 // Helper functions to convert VAPI data to our format
@@ -85,9 +85,9 @@ const mockCalls: Call[] = Array.from({ length: 30 }, (_, i) => ({
 }));
 
 export const agentApi = {
-  async getAll(): Promise<Agent[]> {
-    // Try VAPI first if configured
-    if (isVapiConfigured && vapiClient) {
+  async getAll(vapiClient?: VapiClient | null): Promise<Agent[]> {
+    // Try VAPI first if client is provided
+    if (vapiClient) {
       try {
         const assistants = await vapiClient.listAssistants();
         return assistants.map(convertVapiAssistantToAgent);
@@ -111,11 +111,11 @@ export const agentApi = {
     return Promise.resolve([mockAgent]);
   },
 
-  async getById(id: string): Promise<Agent | null> {
-    // Try VAPI first if configured
-    if (isVapiConfigured && vapiClient) {
+  async getById(id: string, vapiClient?: VapiClient | null): Promise<Agent | null> {
+    // Try VAPI first if client is provided
+    if (vapiClient) {
       try {
-        const assistant = await vapiClient.getAssistant(id);
+        const assistant = await vapiClient.getAssistant(id) as VapiAssistant;
         return convertVapiAssistantToAgent(assistant);
       } catch (error) {
         console.error('VAPI API error:', error);
@@ -139,9 +139,9 @@ export const agentApi = {
     return Promise.resolve(mockAgent);
   },
 
-  async update(id: string, updates: Partial<Agent>): Promise<Agent> {
-    // Try VAPI first if configured
-    if (isVapiConfigured && vapiClient) {
+  async update(id: string, updates: Partial<Agent>, vapiClient?: VapiClient | null): Promise<Agent> {
+    // Try VAPI first if client is provided
+    if (vapiClient) {
       try {
         // First get the current assistant to preserve all fields
         const currentAssistant = await vapiClient.getAssistant(id) as VapiAssistant;
@@ -203,15 +203,15 @@ export const agentApi = {
     return Promise.resolve({ ...mockAgent, ...updates });
   },
 
-  async create(agent: Omit<Agent, 'id' | 'created_at' | 'updated_at'>): Promise<Agent> {
-    // Try VAPI first if configured
-    if (isVapiConfigured && vapiClient) {
+  async create(agent: Omit<Agent, 'id' | 'created_at' | 'updated_at'>, vapiClient?: VapiClient | null): Promise<Agent> {
+    // Try VAPI first if client is provided
+    if (vapiClient) {
       try {
         const vapiAgent = {
           name: agent.name,
-          voice: { 
+          voice: {
             provider: 'vapi',
-            voiceId: agent.voice_id 
+            voiceId: agent.voice_id
           },
           model: {
             provider: 'openai',
@@ -220,7 +220,7 @@ export const agentApi = {
           },
           firstMessage: agent.conversation_prompt,
         };
-        const assistant = await vapiClient.createAssistant(vapiAgent);
+        const assistant = await vapiClient.createAssistant(vapiAgent) as VapiAssistant;
         return convertVapiAssistantToAgent(assistant);
       } catch (error) {
         console.error('VAPI API error, falling back:', error);
@@ -245,16 +245,16 @@ export const agentApi = {
 };
 
 export const callsApi = {
-  async getAll(agentId?: string, dateFrom?: string, dateTo?: string): Promise<Call[]> {
-    // Try VAPI first if configured
-    if (isVapiConfigured && vapiClient) {
+  async getAll(agentId?: string, dateFrom?: string, dateTo?: string, vapiClient?: VapiClient | null): Promise<Call[]> {
+    // Try VAPI first if client is provided
+    if (vapiClient) {
       try {
         const params: any = { limit: 1000 };
         if (agentId) params.assistantId = agentId;
         if (dateFrom) params.createdAtGt = dateFrom;
         if (dateTo) params.createdAtLt = dateTo;
 
-        const vapiCalls = await vapiClient.listCalls(params);
+        const vapiCalls = await vapiClient.listCalls(params) as VapiCall[];
         return vapiCalls.map(convertVapiCallToCall);
       } catch (error) {
         console.error('VAPI API error, falling back:', error);
@@ -296,8 +296,8 @@ export const callsApi = {
     return Promise.resolve(filteredCalls);
   },
 
-  async getMetrics(agentId?: string, dateFrom?: string, dateTo?: string): Promise<DashboardMetrics> {
-    const calls = await this.getAll(agentId, dateFrom, dateTo);
+  async getMetrics(agentId?: string, dateFrom?: string, dateTo?: string, vapiClient?: VapiClient | null): Promise<DashboardMetrics> {
+    const calls = await this.getAll(agentId, dateFrom, dateTo, vapiClient);
 
     const totalCalls = calls.length;
     const answeredCalls = calls.filter(c => c.was_answered).length;
