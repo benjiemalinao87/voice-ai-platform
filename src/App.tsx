@@ -11,6 +11,7 @@ import { LiveChat } from './components/LiveChat';
 import { BoardView } from './components/BoardView';
 import { AdminDashboard } from './components/AdminDashboard';
 import { useAuth } from './contexts/AuthContext';
+import { useVapi } from './contexts/VapiContext';
 import { agentApi } from './lib/api';
 import type { Agent } from './types';
 
@@ -18,10 +19,11 @@ type View = 'dashboard' | 'config' | 'recordings' | 'settings' | 'flow' | 'inten
 
 function App() {
   const { isAuthenticated, isLoading } = useAuth();
-  
+  const { vapiClient } = useVapi();
+
   // Check URL for flow builder route
   const isFlowBuilder = window.location.pathname === '/flow-builder';
-  
+
   const [currentView, setCurrentView] = useState<View>(isFlowBuilder ? 'flow' : 'dashboard');
   const [agents, setAgents] = useState<Agent[]>([]);
   const [selectedAgentId, setSelectedAgentId] = useState<string | undefined>();
@@ -41,9 +43,10 @@ function App() {
     to: new Date().toISOString()
   });
 
+  // Reload agents when VAPI client changes (user configures/decrypts API keys)
   useEffect(() => {
     loadAgents();
-  }, []);
+  }, [vapiClient]);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -61,7 +64,8 @@ function App() {
 
   const loadAgents = async () => {
     try {
-      const data = await agentApi.getAll();
+      // IMPORTANT: Pass user-specific vapiClient to ensure data isolation
+      const data = await agentApi.getAll(vapiClient);
       setAgents(data);
       if (data.length > 0 && !selectedAgentId) {
         setSelectedAgentId(data[0].id);
