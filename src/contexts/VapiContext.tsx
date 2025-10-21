@@ -6,9 +6,13 @@ import { useAuth } from './AuthContext';
 
 interface VapiContextType {
   vapiClient: VapiClient | null;
+  selectedOrgId: string | null;
+  nameFilter: string | null;
   isConfigured: boolean;
   isLoading: boolean;
   decryptAndLoadKeys: (password: string) => Promise<boolean>;
+  setSelectedOrgId: (orgId: string | null) => void;
+  setNameFilter: (pattern: string | null) => void;
   clearKeys: () => void;
 }
 
@@ -17,12 +21,14 @@ const VapiContext = createContext<VapiContextType | undefined>(undefined);
 export function VapiProvider({ children }: { children: ReactNode }) {
   const { user, token } = useAuth();
   const [vapiClient, setVapiClient] = useState<VapiClient | null>(null);
+  const [selectedOrgId, setSelectedOrgId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
   // Clear VAPI client when user logs out
   useEffect(() => {
     if (!user || !token) {
       setVapiClient(null);
+      setSelectedOrgId(null);
     }
   }, [user, token]);
 
@@ -53,6 +59,11 @@ export function VapiProvider({ children }: { children: ReactNode }) {
       const client = new VapiClient(privateKey);
       setVapiClient(client);
 
+      // Load selected org ID from settings (optional)
+      if (settings.selectedOrgId) {
+        setSelectedOrgId(settings.selectedOrgId);
+      }
+
       return true;
     } catch (error) {
       console.error('Failed to decrypt and load VAPI keys:', error);
@@ -64,15 +75,18 @@ export function VapiProvider({ children }: { children: ReactNode }) {
 
   const clearKeys = () => {
     setVapiClient(null);
+    setSelectedOrgId(null);
   };
 
   return (
     <VapiContext.Provider
       value={{
         vapiClient,
+        selectedOrgId,
         isConfigured: !!vapiClient,
         isLoading,
         decryptAndLoadKeys,
+        setSelectedOrgId,
         clearKeys,
       }}
     >

@@ -85,12 +85,28 @@ const mockCalls: Call[] = Array.from({ length: 30 }, (_, i) => ({
 }));
 
 export const agentApi = {
-  async getAll(vapiClient?: VapiClient | null): Promise<Agent[]> {
+  async getAll(vapiClient?: VapiClient | null, filterOptions?: { orgId?: string | null; namePattern?: string | null }): Promise<Agent[]> {
     // Try VAPI first if client is provided
     if (vapiClient) {
       try {
-        const assistants = await vapiClient.listAssistants();
-        return assistants.map(convertVapiAssistantToAgent);
+        const assistants = await vapiClient.listAssistants() as VapiAssistant[];
+
+        let filteredAssistants = assistants;
+
+        // Filter by organization if orgId is provided
+        if (filterOptions?.orgId) {
+          filteredAssistants = filteredAssistants.filter(a => a.orgId === filterOptions.orgId);
+        }
+
+        // Filter by name pattern if provided (case-insensitive partial match)
+        if (filterOptions?.namePattern) {
+          const pattern = filterOptions.namePattern.toLowerCase();
+          filteredAssistants = filteredAssistants.filter(a =>
+            a.name?.toLowerCase().includes(pattern)
+          );
+        }
+
+        return filteredAssistants.map(convertVapiAssistantToAgent);
       } catch (error) {
         console.error('VAPI API error, falling back:', error);
       }

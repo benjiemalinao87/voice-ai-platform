@@ -76,6 +76,7 @@ class D1Client {
     encryptedPublicKey?: string;
     selectedAssistantId?: string;
     selectedPhoneId?: string;
+    selectedOrgId?: string;
     encryptionSalt: string;
   }> {
     return this.request('/api/settings', {
@@ -88,6 +89,7 @@ class D1Client {
     encryptedPublicKey?: string;
     selectedAssistantId?: string | null;
     selectedPhoneId?: string | null;
+    selectedOrgId?: string | null;
   }): Promise<{ message: string }> {
     return this.request('/api/settings', {
       method: 'PUT',

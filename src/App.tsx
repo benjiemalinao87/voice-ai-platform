@@ -19,7 +19,7 @@ type View = 'dashboard' | 'config' | 'recordings' | 'settings' | 'flow' | 'inten
 
 function App() {
   const { isAuthenticated, isLoading } = useAuth();
-  const { vapiClient } = useVapi();
+  const { vapiClient, selectedOrgId } = useVapi();
 
   // Check URL for flow builder route
   const isFlowBuilder = window.location.pathname === '/flow-builder';
@@ -43,10 +43,10 @@ function App() {
     to: new Date().toISOString()
   });
 
-  // Reload agents when VAPI client changes (user configures/decrypts API keys)
+  // Reload agents when VAPI client or selected org changes
   useEffect(() => {
     loadAgents();
-  }, [vapiClient]);
+  }, [vapiClient, selectedOrgId]);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -64,8 +64,8 @@ function App() {
 
   const loadAgents = async () => {
     try {
-      // IMPORTANT: Pass user-specific vapiClient to ensure data isolation
-      const data = await agentApi.getAll(vapiClient);
+      // IMPORTANT: Pass user-specific vapiClient and selected org ID to ensure data isolation
+      const data = await agentApi.getAll(vapiClient, selectedOrgId);
       setAgents(data);
       if (data.length > 0 && !selectedAgentId) {
         setSelectedAgentId(data[0].id);

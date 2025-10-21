@@ -233,7 +233,7 @@ export default {
         }
 
         const settings = await env.DB.prepare(
-          'SELECT encrypted_private_key, encrypted_public_key, selected_assistant_id, selected_phone_id, encryption_salt FROM user_settings WHERE user_id = ?'
+          'SELECT encrypted_private_key, encrypted_public_key, selected_assistant_id, selected_phone_id, selected_org_id, encryption_salt FROM user_settings WHERE user_id = ?'
         ).bind(userId).first() as any;
 
         if (!settings) {
@@ -246,6 +246,7 @@ export default {
           encryptedPublicKey: settings.encrypted_public_key,
           selectedAssistantId: settings.selected_assistant_id,
           selectedPhoneId: settings.selected_phone_id,
+          selectedOrgId: settings.selected_org_id,
           encryptionSalt: settings.encryption_salt
         });
       }
@@ -261,18 +262,20 @@ export default {
           encryptedPrivateKey,
           encryptedPublicKey,
           selectedAssistantId,
-          selectedPhoneId
+          selectedPhoneId,
+          selectedOrgId
         } = await request.json() as any;
 
         const timestamp = now();
 
         await env.DB.prepare(
-          'UPDATE user_settings SET encrypted_private_key = ?, encrypted_public_key = ?, selected_assistant_id = ?, selected_phone_id = ?, updated_at = ? WHERE user_id = ?'
+          'UPDATE user_settings SET encrypted_private_key = ?, encrypted_public_key = ?, selected_assistant_id = ?, selected_phone_id = ?, selected_org_id = ?, updated_at = ? WHERE user_id = ?'
         ).bind(
           encryptedPrivateKey || null,
           encryptedPublicKey || null,
           selectedAssistantId || null,
           selectedPhoneId || null,
+          selectedOrgId || null,
           timestamp,
           userId
         ).run();
