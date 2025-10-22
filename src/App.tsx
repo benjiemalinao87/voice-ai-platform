@@ -64,8 +64,8 @@ function App() {
 
   const loadAgents = async () => {
     try {
-      // IMPORTANT: Pass user-specific vapiClient and selected org ID to ensure data isolation
-      const data = await agentApi.getAll(vapiClient, selectedOrgId);
+      // IMPORTANT: Pass user-specific vapiClient and filter options to ensure data isolation
+      const data = await agentApi.getAll(vapiClient, selectedOrgId ? { orgId: selectedOrgId } : undefined);
       setAgents(data);
       if (data.length > 0 && !selectedAgentId) {
         setSelectedAgentId(data[0].id);

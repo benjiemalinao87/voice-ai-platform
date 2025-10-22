@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Key, Save, Eye, EyeOff, AlertCircle, CheckCircle, Trash2, RefreshCw, LogOut, User, Settings as SettingsIcon, Plug, Webhook, Maximize2 } from 'lucide-react';
 import { VapiClient } from '../lib/vapi';
 import { useAuth } from '../contexts/AuthContext';
+import { useVapi } from '../contexts/VapiContext';
 import { encrypt, decrypt } from '../lib/encryption';
 import { Integration } from './Integration';
 import { WebhookConfig } from './WebhookConfig';
@@ -39,6 +40,7 @@ interface SettingsProps {
 
 export function Settings({ wideView = false, onWideViewChange }: SettingsProps = {}) {
   const { user, token, logout } = useAuth();
+  const { decryptAndLoadKeys } = useVapi();
   const [activeTab, setActiveTab] = useState<'api' | 'integrations' | 'webhooks' | 'preferences'>('api');
   const [credentials, setCredentials] = useState<VapiCredentials>({
     privateKey: '',
@@ -104,6 +106,16 @@ export function Settings({ wideView = false, onWideViewChange }: SettingsProps =
     if (!password || !userSettings) return;
 
     try {
+      // IMPORTANT: Call VapiContext's decryptAndLoadKeys to set the vapiClient globally
+      const success = await decryptAndLoadKeys(password);
+
+      if (!success) {
+        setErrorMessage('Failed to decrypt keys');
+        setStatus('error');
+        return;
+      }
+
+      // Decrypt keys locally for display and resource loading
       if (userSettings.encryptedPrivateKey) {
         const privateKey = await decrypt(
           userSettings.encryptedPrivateKey,
@@ -111,6 +123,9 @@ export function Settings({ wideView = false, onWideViewChange }: SettingsProps =
           userSettings.encryptionSalt
         );
         setCredentials(prev => ({ ...prev, privateKey }));
+
+        // Auto-load resources for Settings display
+        await loadVapiResources(privateKey);
       }
 
       if (userSettings.encryptedPublicKey) {
@@ -120,16 +135,6 @@ export function Settings({ wideView = false, onWideViewChange }: SettingsProps =
           userSettings.encryptionSalt
         );
         setCredentials(prev => ({ ...prev, publicKey }));
-      }
-
-      // Auto-load resources if we have keys
-      if (userSettings.encryptedPrivateKey) {
-        const privateKey = await decrypt(
-          userSettings.encryptedPrivateKey,
-          password,
-          userSettings.encryptionSalt
-        );
-        await loadVapiResources(privateKey);
       }
 
       setErrorMessage('');
