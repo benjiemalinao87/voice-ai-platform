@@ -2020,3 +2020,70 @@ routes = [
 ### Key Takeaway
 For Vite projects on Cloudflare Pages, environment variables prefixed with `VITE_` must be set both locally (`.env` file) and in production (Cloudflare dashboard) because they are compiled into the build at build-time, not runtime.
 
+
+---
+
+## VAPI Structured Data Priority for Appointments (October 24, 2025)
+
+### Problem
+Appointment date and time were coming from OpenAI analysis instead of VAPI's structured data. This meant that if VAPI already extracted appointment information through its own analysis, we were ignoring it and relying solely on OpenAI.
+
+### Root Cause
+The webhook processor was:
+1. Storing VAPI's `analysis.structuredData` in the database
+2. But then only using OpenAI to extract appointment data
+3. VAPI's structured data was being ignored completely for appointments
+
+### Solution
+Updated the webhook processor to prioritize VAPI's structured data for appointments:
+1. **First check** VAPI's `analysis.structuredData` for:
+   - `appointmentDate` / `appointment_date`
+   - `appointmentTime` / `appointment_time`
+   - `appointmentType` / `appointment_type`
+   - `customerName` / `customer_name`
+   - `customerEmail` / `customer_email`
+2. **Then use OpenAI** as a fallback if data is missing
+3. **Merge both sources**, prioritizing VAPI data when both exist
+
+### How It Should Be Done
+```typescript
+// ✅ CORRECT - Extract from VAPI first
+const structuredData = analysis.structuredData || {};
+let vapiAppointmentDate = structuredData.appointmentDate || structuredData.appointment_date || null;
+let vapiAppointmentTime = structuredData.appointmentTime || structuredData.appointment_time || null;
+
+// Then merge with OpenAI analysis
+const finalAppointmentDate = vapiAppointmentDate || analysisResult.appointment_date;
+const finalAppointmentTime = vapiAppointmentTime || analysisResult.appointment_time;
+```
+
+### How It Should NOT Be Done
+```typescript
+// ❌ WRONG - Only using OpenAI, ignoring VAPI data
+const finalAppointmentDate = analysisResult.appointment_date;
+const finalAppointmentTime = analysisResult.appointment_time;
+```
+
+### Priority Order for Appointment Data
+1. **VAPI structured data** (from `analysis.structuredData`)
+2. **OpenAI analysis** (from GPT-4 analysis of transcript)
+3. **Null** if neither source has the data
+
+### Edge Cases Handled
+1. **No OpenAI key configured**: Still saves VAPI appointment data
+2. **VAPI data incomplete**: OpenAI fills in the gaps
+3. **Both sources have data**: VAPI takes priority
+4. **Field name variations**: Supports both camelCase and snake_case
+
+### Files Modified
+- ✅ `workers/index.ts` - Updated webhook processor (lines 1267-1378)
+
+### Deployment
+```bash
+npx wrangler deploy
+```
+Deployed to: `api.voice-config.channelautomation.com`
+
+### Key Takeaway
+Always prioritize data that comes directly from the source (VAPI) over derived analysis (OpenAI), especially for structured data like appointments. Use AI analysis to fill gaps, not as the primary source when the platform already provides the data.
+

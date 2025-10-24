@@ -1264,6 +1264,14 @@ export default {
           ctx.waitUntil(
             (async () => {
               try {
+                // First, extract appointment data from VAPI's structured data
+                const structuredData = analysis.structuredData || {};
+                let vapiAppointmentDate = structuredData.appointmentDate || structuredData.appointment_date || null;
+                let vapiAppointmentTime = structuredData.appointmentTime || structuredData.appointment_time || null;
+                let vapiAppointmentType = structuredData.appointmentType || structuredData.appointment_type || null;
+                let vapiCustomerName = structuredData.customerName || structuredData.customer_name || null;
+                let vapiCustomerEmail = structuredData.customerEmail || structuredData.customer_email || null;
+
                 // Get user's OpenAI API key
                 const settings = await env.DB.prepare(
                   'SELECT openai_api_key FROM user_settings WHERE user_id = ?'
@@ -1281,11 +1289,18 @@ export default {
                   );
 
                   if (analysisResult) {
+                    // Prioritize VAPI structured data over OpenAI analysis for appointments
+                    const finalAppointmentDate = vapiAppointmentDate || analysisResult.appointment_date;
+                    const finalAppointmentTime = vapiAppointmentTime || analysisResult.appointment_time;
+                    const finalAppointmentType = vapiAppointmentType || analysisResult.appointment_type;
+                    const finalCustomerName = vapiCustomerName || analysisResult.customer_name;
+                    const finalCustomerEmail = vapiCustomerEmail || analysisResult.customer_email;
+
                     // Calculate appointment_datetime if both date and time are present
                     let appointmentDatetime: number | null = null;
-                    if (analysisResult.appointment_date && analysisResult.appointment_time) {
+                    if (finalAppointmentDate && finalAppointmentTime) {
                       try {
-                        const dateTimeStr = `${analysisResult.appointment_date} ${analysisResult.appointment_time}`;
+                        const dateTimeStr = `${finalAppointmentDate} ${finalAppointmentTime}`;
                         appointmentDatetime = Math.floor(new Date(dateTimeStr).getTime() / 1000);
                       } catch (e) {
                         console.error('Error parsing appointment datetime:', e);
@@ -1305,12 +1320,12 @@ export default {
                       analysisResult.intent,
                       analysisResult.sentiment,
                       analysisResult.outcome,
-                      analysisResult.customer_name,
-                      analysisResult.customer_email,
-                      analysisResult.appointment_date,
-                      analysisResult.appointment_time,
+                      finalCustomerName,
+                      finalCustomerEmail,
+                      finalAppointmentDate,
+                      finalAppointmentTime,
                       appointmentDatetime,
-                      analysisResult.appointment_type,
+                      finalAppointmentType,
                       analysisResult.appointment_notes,
                       now(),
                       callId
@@ -1321,10 +1336,45 @@ export default {
                     await cache.invalidateCallCache(webhook.user_id, callId);
 
                     // Trigger Scheduling Webhook if appointment was booked
-                    if (analysisResult.intent === 'Scheduling' && analysisResult.appointment_date && analysisResult.appointment_time) {
+                    if (analysisResult.intent === 'Scheduling' && finalAppointmentDate && finalAppointmentTime) {
                       await triggerSchedulingWebhook(env, webhook.user_id, callId);
                     }
                   }
+                } else if (vapiAppointmentDate && vapiAppointmentTime) {
+                  // No OpenAI API key, but we have VAPI appointment data
+                  let appointmentDatetime: number | null = null;
+                  try {
+                    const dateTimeStr = `${vapiAppointmentDate} ${vapiAppointmentTime}`;
+                    appointmentDatetime = Math.floor(new Date(dateTimeStr).getTime() / 1000);
+                  } catch (e) {
+                    console.error('Error parsing appointment datetime:', e);
+                  }
+
+                  // Update call with VAPI appointment data only
+                  await env.DB.prepare(
+                    `UPDATE webhook_calls
+                     SET customer_name = ?, customer_email = ?,
+                         appointment_date = ?, appointment_time = ?, appointment_datetime = ?,
+                         appointment_type = ?,
+                         analysis_completed = 1, analyzed_at = ?
+                     WHERE id = ?`
+                  ).bind(
+                    vapiCustomerName,
+                    vapiCustomerEmail,
+                    vapiAppointmentDate,
+                    vapiAppointmentTime,
+                    appointmentDatetime,
+                    vapiAppointmentType,
+                    now(),
+                    callId
+                  ).run();
+
+                  // Invalidate cache
+                  const cache = new VoiceAICache(env.CACHE);
+                  await cache.invalidateCallCache(webhook.user_id, callId);
+
+                  // Trigger Scheduling Webhook
+                  await triggerSchedulingWebhook(env, webhook.user_id, callId);
                 }
 
                 // Process addons (Enhanced Data, etc.)
