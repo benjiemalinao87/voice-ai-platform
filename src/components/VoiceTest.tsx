@@ -17,7 +17,7 @@ export function VoiceTest({ assistantId, publicKey }: VoiceTestProps) {
   const [volumeLevel, setVolumeLevel] = useState(0);
 
   useEffect(() => {
-    // Initialize VAPI
+    // Initialize Voice AI client
     const vapiInstance = new Vapi(publicKey);
     setVapi(vapiInstance);
 
@@ -46,7 +46,7 @@ export function VoiceTest({ assistantId, publicKey }: VoiceTestProps) {
     });
 
     vapiInstance.on('error', (error: any) => {
-      console.error('VAPI Error:', error);
+      console.error('CHAU Voice AI Error:', error);
       setCallStatus('error');
       setIsCallActive(false);
     });

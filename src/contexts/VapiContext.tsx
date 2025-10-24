@@ -46,7 +46,7 @@ export function VapiProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      console.log('Loading VAPI keys...');
+      console.log('Loading CHAU Voice AI keys...');
 
       // Create VAPI client with user's private key
       const client = new VapiClient(settings.privateKey);
@@ -62,9 +62,9 @@ export function VapiProvider({ children }: { children: ReactNode }) {
         setSelectedOrgId(settings.selectedOrgId);
       }
 
-      console.log('VAPI client initialized successfully');
+      console.log('CHAU Voice AI client initialized successfully');
     } catch (error) {
-      console.error('Failed to load VAPI keys:', error);
+      console.error('Failed to load CHAU Voice AI keys:', error);
     } finally {
       setIsLoading(false);
     }

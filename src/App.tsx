@@ -295,12 +295,12 @@ function App() {
           <BoardView />
         )}
 
-        {currentView === 'config' && selectedAgentId && (
+        {currentView === 'config' && selectedAgentId && selectedAgent && (
           <div className="space-y-6">
             <div>
               <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Agent Configuration</h2>
               <p className="text-gray-600 dark:text-gray-400 mt-1">
-                Configure voice, behavior, and prompts for your AI agent
+                Configure voice, behavior, and prompts for {selectedAgent.name}
               </p>
             </div>
 

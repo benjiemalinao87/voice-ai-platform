@@ -143,6 +143,7 @@ export interface WebhookCall {
   summary: string;
   structured_data: Record<string, any> | null;
   raw_payload?: string; // Not usually needed in frontend
+  enhanced_data?: Record<string, any> | null; // Phone enrichment data from addons
   created_at: number;
 }
 

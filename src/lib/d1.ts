@@ -158,6 +158,64 @@ class D1Client {
       method: 'GET',
     });
   }
+
+  // Addons
+  async getAddons(): Promise<{
+    addons: Array<{
+      addon_type: string;
+      is_enabled: number;
+      settings: string | null;
+    }>;
+  }> {
+    return this.request('/api/addons', {
+      method: 'GET',
+    });
+  }
+
+  async toggleAddon(addonType: string, enabled: boolean): Promise<{ message: string; enabled: boolean }> {
+    return this.request('/api/addons/toggle', {
+      method: 'POST',
+      body: JSON.stringify({ addonType, enabled }),
+    });
+  }
+
+  async getAddonResults(callId: string): Promise<{
+    results: Array<{
+      addon_type: string;
+      status: string;
+      result_data: string | null;
+      error_message: string | null;
+      execution_time_ms: number;
+      created_at: number;
+    }>;
+  }> {
+    return this.request(`/api/addon-results/${callId}`, {
+      method: 'GET',
+    });
+  }
+
+  // Intent Analysis (with KV caching)
+  async getIntentAnalysis(params?: {
+    limit?: number;
+    offset?: number;
+  }): Promise<{
+    calls: Array<any>;
+    stats: {
+      totalCalls: number;
+      answeredCalls: number;
+      avgConfidence: number;
+      intentDistribution: Array<{ intent: string; count: number }>;
+    };
+  }> {
+    const queryParams = new URLSearchParams();
+    if (params?.limit) queryParams.append('limit', params.limit.toString());
+    if (params?.offset) queryParams.append('offset', params.offset.toString());
+
+    const query = queryParams.toString();
+    return this.request(`/api/intent-analysis${query ? '?' + query : ''}`, {
+      method: 'GET',
+    });
+  }
 }
 
 // Export singleton instance

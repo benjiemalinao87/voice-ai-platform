@@ -68,10 +68,10 @@ export function KnowledgeBase({ agentId }: KnowledgeBaseProps) {
 
       try {
         if (!vapiClient) {
-          throw new Error('VAPI client not configured');
+          throw new Error('CHAU Voice AI client not configured');
         }
 
-        // Upload to VAPI Files API
+        // Upload to Voice AI Files API
         const vapiData = await vapiClient.uploadFile(file);
 
         // Save file reference to D1 database
@@ -120,12 +120,12 @@ export function KnowledgeBase({ agentId }: KnowledgeBaseProps) {
       const fileToDelete = files.find(f => f.id === fileId);
       if (!fileToDelete) return;
 
-      // Delete from VAPI if we have the VAPI file ID
+      // Delete from Voice AI if we have the Voice AI file ID
       if (vapiClient && fileToDelete.vapiFileId) {
         try {
           await vapiClient.deleteFile(fileToDelete.vapiFileId);
         } catch (error) {
-          console.error('VAPI delete error:', error);
+          console.error('CHAU Voice AI delete error:', error);
           // Continue anyway to delete from database
         }
       }

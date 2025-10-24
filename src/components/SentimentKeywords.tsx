@@ -2,22 +2,24 @@ import { useState } from 'react';
 import { BarChart } from './BarChart';
 import { TrendingUp, MessageSquare } from 'lucide-react';
 
-// Mock sentiment data
-const sentimentData = [
-  { label: 'Positive', value: 542, color: '#10b981' },
-  { label: 'Neutral', value: 268, color: '#3b82f6' },
-  { label: 'Negative', value: 95, color: '#ef4444' }
-];
+interface SentimentData {
+  label: string;
+  value: number;
+  color: string;
+}
 
-// Mock keywords data with colorful bars
-const keywordsData = [
-  { label: 'Support', value: 287, color: '#ec4899' },
-  { label: 'Membership', value: 245, color: '#8b5cf6' },
-  { label: 'Pricing', value: 198, color: '#3b82f6' },
-  { label: 'Appointment', value: 176, color: '#10b981' }
-];
+interface KeywordData {
+  label: string;
+  value: number;
+  color: string;
+}
 
-export function SentimentKeywords() {
+interface SentimentKeywordsProps {
+  sentimentData?: SentimentData[];
+  keywordsData?: KeywordData[];
+}
+
+export function SentimentKeywords({ sentimentData = [], keywordsData = [] }: SentimentKeywordsProps) {
   const [hoveredKeyword, setHoveredKeyword] = useState<number | null>(null);
   const totalSentiment = sentimentData.reduce((sum, item) => sum + item.value, 0);
 
@@ -37,9 +39,15 @@ export function SentimentKeywords() {
           </span>
         </div>
 
-        <div className="mb-6 flex-1">
-          <BarChart data={sentimentData} height={240} showValues={true} showGridlines={true} />
-        </div>
+        {sentimentData.length === 0 ? (
+          <div className="flex-1 flex items-center justify-center text-gray-500 dark:text-gray-400 text-sm">
+            No sentiment data available
+          </div>
+        ) : (
+          <>
+            <div className="mb-6 flex-1">
+              <BarChart data={sentimentData} height={240} showValues={true} showGridlines={true} />
+            </div>
 
         {/* Sentiment Breakdown */}
         <div className="space-y-3 mb-6">
@@ -70,21 +78,25 @@ export function SentimentKeywords() {
         </div>
 
         {/* Sentiment Insights */}
-        <div className="mt-auto">
-          <div className="p-4 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-800">
-            <div className="flex items-start gap-2">
-              <TrendingUp className="w-5 h-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
-              <div>
-                <h4 className="text-sm font-semibold text-green-900 dark:text-green-100 mb-1">
-                  Positive Trend
-                </h4>
-                <p className="text-xs text-green-700 dark:text-green-300">
-                  60% of calls have positive sentiment, up 8% from last month
-                </p>
+        {sentimentData.length > 0 && (
+          <div className="mt-auto">
+            <div className="p-4 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-800">
+              <div className="flex items-start gap-2">
+                <TrendingUp className="w-5 h-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
+                <div>
+                  <h4 className="text-sm font-semibold text-green-900 dark:text-green-100 mb-1">
+                    Sentiment Overview
+                  </h4>
+                  <p className="text-xs text-green-700 dark:text-green-300">
+                    {sentimentData.find(s => s.label === 'Positive')?.value || 0} positive calls out of {totalSentiment} total
+                  </p>
+                </div>
               </div>
             </div>
           </div>
-        </div>
+        )}
+          </>
+        )}
       </div>
 
       {/* Top Keywords Detected */}
@@ -98,8 +110,14 @@ export function SentimentKeywords() {
           </div>
         </div>
 
-        {/* Keywords List with Bars */}
-        <div className="space-y-5 flex-1">
+        {keywordsData.length === 0 ? (
+          <div className="flex-1 flex items-center justify-center text-gray-500 dark:text-gray-400 text-sm">
+            No keyword data available
+          </div>
+        ) : (
+          <>
+            {/* Keywords List with Bars */}
+            <div className="space-y-5 flex-1">
           {keywordsData.map((keyword, index) => {
             const maxValue = Math.max(...keywordsData.map(k => k.value));
             const widthPercent = (keyword.value / maxValue) * 100;
@@ -171,21 +189,25 @@ export function SentimentKeywords() {
         </div>
 
         {/* Keywords Insights */}
-        <div className="mt-auto pt-6">
-          <div className="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
-            <div className="flex items-start gap-2">
-              <MessageSquare className="w-5 h-5 text-blue-600 dark:text-blue-400 flex-shrink-0 mt-0.5" />
-              <div>
-                <h4 className="text-sm font-semibold text-blue-900 dark:text-blue-100 mb-1">
-                  Trending Topics
-                </h4>
-                <p className="text-xs text-blue-700 dark:text-blue-300">
-                  "Support" and "Membership" are the most discussed topics this week
-                </p>
+        {keywordsData.length > 0 && (
+          <div className="mt-auto pt-6">
+            <div className="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+              <div className="flex items-start gap-2">
+                <MessageSquare className="w-5 h-5 text-blue-600 dark:text-blue-400 flex-shrink-0 mt-0.5" />
+                <div>
+                  <h4 className="text-sm font-semibold text-blue-900 dark:text-blue-100 mb-1">
+                    Top Keywords
+                  </h4>
+                  <p className="text-xs text-blue-700 dark:text-blue-300">
+                    {keywordsData.length > 0 && `"${keywordsData[0].label}" is the most detected keyword`}
+                  </p>
+                </div>
               </div>
             </div>
           </div>
-        </div>
+        )}
+          </>
+        )}
       </div>
     </div>
   );

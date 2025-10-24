@@ -1,4 +1,4 @@
-// VAPI API Client
+// CHAU Voice AI API Client (VAPI White-label)
 const VAPI_BASE_URL = 'https://api.vapi.ai';
 
 const vapiPrivateKey = import.meta.env.VITE_VAPI_PRIVATE_KEY;
@@ -23,7 +23,7 @@ class VapiClient {
 
     if (!response.ok) {
       const error = await response.text();
-      throw new Error(`VAPI API Error: ${response.status} - ${error}`);
+      throw new Error(`CHAU Voice AI API Error: ${response.status} - ${error}`);
     }
 
     return response.json();
@@ -101,7 +101,7 @@ class VapiClient {
     startDate?: string;
     endDate?: string;
   }) {
-    // Note: This may need to be adjusted based on VAPI's actual analytics endpoints
+    // Note: This may need to be adjusted based on Voice AI's actual analytics endpoints
     const calls = await this.listCalls({
       assistantId: params?.assistantId,
       createdAtGt: params?.startDate,
@@ -128,7 +128,7 @@ class VapiClient {
 
     if (!response.ok) {
       const error = await response.text();
-      throw new Error(`VAPI API Error: ${response.status} - ${error}`);
+      throw new Error(`CHAU Voice AI API Error: ${response.status} - ${error}`);
     }
 
     return response.json();
@@ -144,7 +144,7 @@ class VapiClient {
 
     if (!response.ok) {
       const error = await response.text();
-      throw new Error(`VAPI API Error: ${response.status} - ${error}`);
+      throw new Error(`CHAU Voice AI API Error: ${response.status} - ${error}`);
     }
 
     return response.json();
@@ -184,12 +184,12 @@ async function getUserVapiCredentials(): Promise<{ privateKey?: string; publicKe
     // For API calls, we'll need to pass the decrypted keys directly
     return null;
   } catch (error) {
-    console.error('Error loading user VAPI credentials:', error);
+    console.error('Error loading user CHAU Voice AI credentials:', error);
     return null;
   }
 }
 
-// Create VAPI client with user-specific credentials
+// Create Voice AI client with user-specific credentials
 // This is now async and requires credentials to be passed explicitly
 export function createVapiClient(privateKey: string): VapiClient {
   return new VapiClient(privateKey);
@@ -219,7 +219,7 @@ export const vapiConfig = {
 export const vapiClient = vapiPrivateKey ? new VapiClient(vapiPrivateKey) : null;
 export const isVapiConfigured = !!vapiClient;
 
-// Type definitions for VAPI responses
+// Type definitions for Voice AI API responses
 export interface VapiAssistant {
   id: string;
   orgId: string;

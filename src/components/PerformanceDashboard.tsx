@@ -19,7 +19,7 @@ import { BarChart } from './BarChart';
 import { DonutChart } from './DonutChart';
 import { SentimentKeywords } from './SentimentKeywords';
 import { MultiLineChart } from './MultiLineChart';
-import { callsApi, metricsApi } from '../lib/api';
+import { d1Client } from '../lib/d1';
 import type { DashboardMetrics, Call, KeywordTrend } from '../types';
 
 interface PerformanceDashboardProps {
@@ -31,6 +31,7 @@ export function PerformanceDashboard({ selectedAgentId, dateRange }: Performance
   const [metrics, setMetrics] = useState<DashboardMetrics | null>(null);
   const [calls, setCalls] = useState<Call[]>([]);
   const [keywords, setKeywords] = useState<KeywordTrend[]>([]);
+  const [sentimentData, setSentimentData] = useState<Array<{ label: string; value: number; color: string }>>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -40,17 +41,102 @@ export function PerformanceDashboard({ selectedAgentId, dateRange }: Performance
   const loadData = async () => {
     setLoading(true);
     try {
-      const [metricsData, callsData, keywordsData] = await Promise.all([
-        callsApi.getMetrics(selectedAgentId, dateRange.from, dateRange.to),
-        callsApi.getAll(selectedAgentId, dateRange.from, dateRange.to),
-        callsApi.getKeywordTrends(selectedAgentId)
-      ]);
+      // Load webhook calls from D1
+      const webhookCalls = await d1Client.getWebhookCalls({ limit: 1000 });
+
+      // Convert webhook calls to Call format
+      const convertedCalls: Call[] = webhookCalls.map(call => ({
+        id: call.id,
+        agent_id: '',
+        call_date: new Date(call.created_at * 1000).toISOString(),
+        duration_seconds: 180, // Default duration
+        was_answered: !!call.recording_url,
+        language: 'en',
+        summary: call.summary || null,
+        summary_length: call.summary?.length || 0,
+        is_qualified_lead: call.outcome === 'Successful',
+        has_appointment_intent: call.intent === 'Scheduling',
+        crm_lead_created: false,
+        crm_sync_status: 'pending',
+        sentiment_score: call.sentiment === 'Positive' ? 0.7 : call.sentiment === 'Negative' ? -0.7 : 0,
+        phone_number: call.customer_number || call.phone_number || '',
+        customer_name: call.structured_data?.name || 'Unknown'
+      }));
+
+      // Calculate metrics from webhook calls
+      const totalCalls = convertedCalls.length;
+      const answeredCalls = convertedCalls.filter(c => c.was_answered).length;
+      const unansweredCalls = totalCalls - answeredCalls;
+      const answerRate = totalCalls > 0 ? (answeredCalls / totalCalls) * 100 : 0;
+
+      const qualifiedLeadsCount = convertedCalls.filter(c => c.is_qualified_lead).length;
+      const qualificationRate = answeredCalls > 0 ? (qualifiedLeadsCount / answeredCalls) * 100 : 0;
+
+      const appointmentsDetected = convertedCalls.filter(c => c.has_appointment_intent).length;
+      const appointmentDetectionRate = answeredCalls > 0 ? (appointmentsDetected / answeredCalls) * 100 : 0;
+
+      const avgHandlingTime = answeredCalls > 0
+        ? convertedCalls.filter(c => c.was_answered).reduce((sum, c) => sum + c.duration_seconds, 0) / answeredCalls
+        : 0;
+
+      const avgSummaryLength = convertedCalls.filter(c => c.summary_length > 0).length > 0
+        ? convertedCalls.filter(c => c.summary_length > 0).reduce((sum, c) => sum + c.summary_length, 0) / convertedCalls.filter(c => c.summary_length > 0).length
+        : 0;
+
+      const metricsData: DashboardMetrics = {
+        totalCalls,
+        answeredCalls,
+        unansweredCalls,
+        answerRate,
+        spanishCallsPercent: 0,
+        englishCallsPercent: 100,
+        avgSummaryLength,
+        qualifiedLeadsCount,
+        qualificationRate,
+        appointmentDetectionRate,
+        crmSuccessRate: 0,
+        avgSentiment: 0,
+        avgHandlingTime,
+        automationRate: answerRate
+      };
+
+      // Calculate sentiment breakdown
+      const positiveCalls = convertedCalls.filter(c => c.sentiment_score > 0.3).length;
+      const negativeCalls = convertedCalls.filter(c => c.sentiment_score < -0.3).length;
+      const neutralCalls = convertedCalls.length - positiveCalls - negativeCalls;
+
+      const sentimentBreakdown = [
+        { label: 'Positive', value: positiveCalls, color: '#10b981' },
+        { label: 'Neutral', value: neutralCalls, color: '#3b82f6' },
+        { label: 'Negative', value: negativeCalls, color: '#ef4444' }
+      ];
 
       setMetrics(metricsData);
-      setCalls(callsData);
-      setKeywords(keywordsData);
+      setCalls(convertedCalls);
+      setKeywords([]); // No keywords for now
+      setSentimentData(sentimentBreakdown);
     } catch (error) {
       console.error('Error loading dashboard data:', error);
+      // Set empty state on error
+      setMetrics({
+        totalCalls: 0,
+        answeredCalls: 0,
+        unansweredCalls: 0,
+        answerRate: 0,
+        spanishCallsPercent: 0,
+        englishCallsPercent: 0,
+        avgSummaryLength: 0,
+        qualifiedLeadsCount: 0,
+        qualificationRate: 0,
+        appointmentDetectionRate: 0,
+        crmSuccessRate: 0,
+        avgSentiment: 0,
+        avgHandlingTime: 0,
+        automationRate: 0
+      });
+      setCalls([]);
+      setKeywords([]);
+      setSentimentData([]);
     } finally {
       setLoading(false);
     }
@@ -90,14 +176,6 @@ export function PerformanceDashboard({ selectedAgentId, dateRange }: Performance
       color: '#ef4444' // Red
     }
   ];
-
-  const sentimentData = calls
-    .filter(c => c.was_answered)
-    .slice(-7)
-    .map((call, i) => ({
-      label: `Call ${i + 1}`,
-      value: (call.sentiment_score + 1) * 50
-    }));
 
   const languageData = [
     { label: 'English', value: Math.round(metrics?.englishCallsPercent || 0), color: '#3b82f6' },
@@ -203,7 +281,7 @@ export function PerformanceDashboard({ selectedAgentId, dateRange }: Performance
         />
       </div>
 
-      <SentimentKeywords />
+      <SentimentKeywords sentimentData={sentimentData} />
 
       <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
         <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Recent Calls</h3>

@@ -1,7 +1,7 @@
 import { VapiClient, type VapiAssistant, type VapiCall } from './vapi';
 import type { Agent, Call, MetricsSummary, DashboardMetrics, KeywordTrend } from '../types';
 
-// Helper functions to convert VAPI data to our format
+// Helper functions to convert Voice AI API data to our format
 function convertVapiAssistantToAgent(vapiAssistant: VapiAssistant): Agent {
   return {
     id: vapiAssistant.id,
@@ -40,7 +40,7 @@ function convertVapiCallToCall(vapiCall: VapiCall): Call {
     call_date: vapiCall.createdAt,
     duration_seconds: duration,
     was_answered: wasAnswered,
-    language: 'en', // VAPI doesn't expose this directly
+    language: 'en', // Voice AI API doesn't expose this directly
     summary: vapiCall.summary || null,
     summary_length: vapiCall.summary?.length || 0,
     is_qualified_lead: vapiCall.analysis?.successEvaluation === 'true' || false,
@@ -89,7 +89,7 @@ const mockCalls: Call[] = Array.from({ length: 30 }, (_, i) => ({
 
 export const agentApi = {
   async getAll(vapiClient?: VapiClient | null, filterOptions?: { orgId?: string | null; namePattern?: string | null }): Promise<Agent[]> {
-    // Try VAPI first if client is provided
+    // Try Voice AI API first if client is provided
     if (vapiClient) {
       try {
         const assistants = await vapiClient.listAssistants() as VapiAssistant[];
@@ -111,7 +111,7 @@ export const agentApi = {
 
         return filteredAssistants.map(convertVapiAssistantToAgent);
       } catch (error) {
-        console.error('VAPI API error, falling back to demo data:', error);
+        console.error('CHAU Voice AI API error, falling back to demo data:', error);
       }
     }
 
@@ -120,13 +120,13 @@ export const agentApi = {
   },
 
   async getById(id: string, vapiClient?: VapiClient | null): Promise<Agent | null> {
-    // Try VAPI first if client is provided
+    // Try Voice AI API first if client is provided
     if (vapiClient) {
       try {
         const assistant = await vapiClient.getAssistant(id) as VapiAssistant;
         return convertVapiAssistantToAgent(assistant);
       } catch (error) {
-        console.error('VAPI API error, falling back to demo data:', error);
+        console.error('CHAU Voice AI API error, falling back to demo data:', error);
       }
     }
 
@@ -135,7 +135,7 @@ export const agentApi = {
   },
 
   async update(id: string, updates: Partial<Agent>, vapiClient?: VapiClient | null): Promise<Agent> {
-    // Try VAPI first if client is provided
+    // Try Voice AI API first if client is provided
     if (vapiClient) {
       try {
         // First get the current assistant to preserve all fields
@@ -176,7 +176,7 @@ export const agentApi = {
         const assistant = await vapiClient.updateAssistant(id, vapiUpdates) as VapiAssistant;
         return convertVapiAssistantToAgent(assistant);
       } catch (error) {
-        console.error('VAPI API error:', error);
+        console.error('CHAU Voice AI API error:', error);
         throw error;
       }
     }
@@ -186,7 +186,7 @@ export const agentApi = {
   },
 
   async create(agent: Omit<Agent, 'id' | 'created_at' | 'updated_at'>, vapiClient?: VapiClient | null): Promise<Agent> {
-    // Try VAPI first if client is provided
+    // Try Voice AI API first if client is provided
     if (vapiClient) {
       try {
         const vapiAgent = {
@@ -205,7 +205,7 @@ export const agentApi = {
         const assistant = await vapiClient.createAssistant(vapiAgent) as VapiAssistant;
         return convertVapiAssistantToAgent(assistant);
       } catch (error) {
-        console.error('VAPI API error, falling back to demo data:', error);
+        console.error('CHAU Voice AI API error, falling back to demo data:', error);
       }
     }
 
@@ -216,7 +216,7 @@ export const agentApi = {
 
 export const callsApi = {
   async getAll(agentId?: string, dateFrom?: string, dateTo?: string, vapiClient?: VapiClient | null): Promise<Call[]> {
-    // Try VAPI first if client is provided
+    // Try Voice AI API first if client is provided
     if (vapiClient) {
       try {
         const params: any = { limit: 1000 };
@@ -227,7 +227,7 @@ export const callsApi = {
         const vapiCalls = await vapiClient.listCalls(params) as VapiCall[];
         return vapiCalls.map(convertVapiCallToCall);
       } catch (error) {
-        console.error('VAPI API error, falling back to demo data:', error);
+        console.error('CHAU Voice AI API error, falling back to demo data:', error);
       }
     }
 
@@ -302,7 +302,7 @@ export const callsApi = {
   },
 
   async getKeywordTrends(_agentId?: string, _limit: number = 10): Promise<KeywordTrend[]> {
-    // Return demo data (could be enhanced to extract from VAPI call summaries in the future)
+    // Return demo data (could be enhanced to extract from Voice AI call summaries in the future)
     return Promise.resolve([
       { keyword: 'appointment', count: 287 },
       { keyword: 'pricing', count: 245 },

@@ -134,9 +134,9 @@ export function WebhookConfig() {
           <div className="flex items-center gap-3">
             <Webhook className="w-8 h-8 text-blue-600 dark:text-blue-400" />
             <div>
-              <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">VAPI Webhook Integration</h2>
+              <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">CHAU Voice AI Webhook Integration</h2>
               <p className="text-gray-600 dark:text-gray-400">
-                Receive real-time call data from VAPI when calls end
+                Receive real-time call data from CHAU Voice AI when calls end
               </p>
             </div>
           </div>
@@ -157,9 +157,9 @@ export function WebhookConfig() {
               <ol className="text-blue-700 dark:text-blue-300 list-decimal list-inside space-y-1">
                 <li>Click "Generate Webhook" to create a new webhook endpoint</li>
                 <li>Copy the webhook URL</li>
-                <li>Go to VAPI Dashboard → Assistant → Server URL</li>
+                <li>Go to Voice AI Dashboard → Assistant → Server URL</li>
                 <li>Paste the webhook URL and save</li>
-                <li>VAPI will send call data to this endpoint when calls end</li>
+                <li>CHAU Voice AI will send call data to this endpoint when calls end</li>
               </ol>
             </div>
           </div>
@@ -230,7 +230,7 @@ export function WebhookConfig() {
                   target="_blank"
                   rel="noopener noreferrer"
                   className="p-2 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors"
-                  title="Open VAPI Dashboard"
+                  title="Open Voice AI Dashboard"
                 >
                   <ExternalLink className="w-5 h-5" />
                 </a>
@@ -253,7 +253,7 @@ export function WebhookConfig() {
               No Webhooks Generated
             </h3>
             <p className="text-gray-600 dark:text-gray-400 mb-4">
-              Generate your first webhook to start receiving call data from VAPI
+              Generate your first webhook to start receiving call data from CHAU Voice AI
             </p>
             <button
               onClick={() => setShowAddModal(true)}
@@ -368,7 +368,7 @@ export function WebhookConfig() {
 
                 <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-3">
                   <p className="text-xs text-gray-600 dark:text-gray-400">
-                    A unique webhook URL will be automatically generated. You'll use this URL in your VAPI Assistant settings.
+                    A unique webhook URL will be automatically generated. You'll use this URL in your Voice AI Assistant settings.
                   </p>
                 </div>
               </div>

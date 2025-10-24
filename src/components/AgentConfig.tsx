@@ -12,7 +12,6 @@ import {
 import { agentApi } from '../lib/api';
 import { VoiceTest } from './VoiceTest';
 import { KnowledgeBase } from './KnowledgeBase';
-import { vapiConfig } from '../lib/vapi';
 import { useVapi } from '../contexts/VapiContext';
 import type { Agent } from '../types';
 
@@ -152,7 +151,7 @@ export function AgentConfig({ agentId }: AgentConfigProps) {
     if (!agent) return;
 
     try {
-      const updated = await agentApi.update(agent.id, { is_active: !agent.is_active });
+      const updated = await agentApi.update(agent.id, { is_active: !agent.is_active }, vapiClient);
       setAgent(updated);
     } catch (error) {
       console.error('Error toggling agent status:', error);

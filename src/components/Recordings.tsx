@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
-import { Play, Pause, Phone, Clock, Calendar, User, MapPin, Download, MessageSquare } from 'lucide-react';
+import { Play, Pause, Phone, Clock, Calendar, User, MapPin, Download, MessageSquare, ChevronDown, ChevronUp } from 'lucide-react';
 import { d1Client } from '../lib/d1';
 import type { WebhookCall } from '../types';
+import { CustomerProfile } from './CustomerProfile';
 
 interface TranscriptMessage {
   role: 'assistant' | 'user';
@@ -23,6 +24,7 @@ interface Recording {
   wasAnswered: boolean;
   summary?: string;
   endedReason?: string;
+  enhancedData?: any;
 }
 
 // Mock recordings data
@@ -160,20 +162,35 @@ const mockRecordings: Recording[] = [
 export function Recordings() {
   const [recordings, setRecordings] = useState<Recording[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [playingId, setPlayingId] = useState<string | null>(null);
   const [currentTime, setCurrentTime] = useState<{ [key: string]: number }>({});
   const [hoveredId, setHoveredId] = useState<string | null>(null);
+  const [expandedProfiles, setExpandedProfiles] = useState<{ [key: string]: boolean }>({});
+  const [hasMore, setHasMore] = useState(true);
+  const [limit] = useState(10); // Show 10 at a time
+  const [offset, setOffset] = useState(0);
 
   useEffect(() => {
-    loadRecordings();
+    loadRecordings(true);
   }, []);
 
-  const loadRecordings = async () => {
+  const loadRecordings = async (reset: boolean = false) => {
     try {
-      setLoading(true);
-      const webhookCalls = await d1Client.getWebhookCalls({ limit: 50 });
+      if (reset) {
+        setLoading(true);
+        setOffset(0);
+      } else {
+        setLoadingMore(true);
+      }
 
-      // Convert webhook calls to Recording format
+      const currentOffset = reset ? 0 : offset;
+      const webhookCalls = await d1Client.getWebhookCalls({
+        limit,
+        offset: currentOffset
+      });
+
+      // Convert webhook calls to Recording format (enhanced data is already included!)
       const convertedRecordings: Recording[] = webhookCalls.map((call) => {
         // Parse raw_payload to extract transcript
         let transcript: TranscriptMessage[] = [];
@@ -193,7 +210,7 @@ export function Recordings() {
               transcript = [{
                 role: 'assistant',
                 text: transcriptText,
-                timestamp: new Date(call.created_at).toLocaleTimeString()
+                timestamp: new Date(call.created_at * 1000).toLocaleTimeString() // Convert Unix timestamp to milliseconds
               }];
             }
 
@@ -211,6 +228,9 @@ export function Recordings() {
           console.error('Error parsing webhook payload:', error);
         }
 
+        // Enhanced data is now included in the API response - no need for separate fetch!
+        const enhancedData = call.enhanced_data || null;
+
         // Calculate duration from recording if available
         const duration = 180; // Default, we don't have duration in webhook data yet
 
@@ -220,24 +240,44 @@ export function Recordings() {
           phone: call.phone_number || 'N/A',  // Business/AI agent phone
           customerPhone: call.customer_number || undefined,  // Customer's phone
           duration: duration,
-          date: new Date(call.created_at).toISOString(),
+          date: new Date(call.created_at * 1000).toISOString(), // Convert Unix timestamp (seconds) to milliseconds
           location: location,
           audioUrl: call.recording_url || '',
           transcript: transcript.length > 0 ? transcript : undefined,
           sentiment: 'neutral' as const, // We can add sentiment analysis later
           wasAnswered: !!call.recording_url, // If there's a recording, it was answered
           summary: call.summary || undefined,
-          endedReason: call.ended_reason
+          endedReason: call.ended_reason,
+          enhancedData: enhancedData
         };
       });
 
-      setRecordings(convertedRecordings);
+      // Check if we have more data
+      setHasMore(convertedRecordings.length === limit);
+
+      // Append or replace recordings based on reset flag
+      if (reset) {
+        setRecordings(convertedRecordings);
+        setOffset(limit); // Set offset to limit for next load
+      } else {
+        setRecordings(prev => [...prev, ...convertedRecordings]);
+        setOffset(prev => prev + limit); // Increment offset for next load
+      }
     } catch (error) {
       console.error('Error loading recordings:', error);
-      // Fallback to mock data on error
-      setRecordings(mockRecordings);
+      // Fallback to mock data on error (only on initial load)
+      if (reset) {
+        setRecordings(mockRecordings);
+      }
     } finally {
       setLoading(false);
+      setLoadingMore(false);
+    }
+  };
+
+  const handleLoadMore = () => {
+    if (!loadingMore && hasMore) {
+      loadRecordings(false);
     }
   };
 
@@ -311,38 +351,38 @@ export function Recordings() {
         </div>
       </div>
 
-      <div className="space-y-4">
+      <div className="space-y-3">
         {recordings.map((recording) => (
           <div
             key={recording.id}
-            className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6 hover:shadow-md transition-shadow"
+            className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4 hover:shadow-md transition-shadow"
           >
-            <div className="flex items-start gap-4">
+            <div className="flex items-start gap-3">
               {/* Play Button */}
               <button
                 onClick={() => recording.wasAnswered && handlePlayPause(recording.id)}
                 disabled={!recording.wasAnswered}
-                className={`flex-shrink-0 w-12 h-12 rounded-full flex items-center justify-center transition-colors ${
+                className={`flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center transition-colors ${
                   recording.wasAnswered
                     ? 'bg-blue-600 dark:bg-blue-500 hover:bg-blue-700 dark:hover:bg-blue-600 text-white'
                     : 'bg-gray-200 dark:bg-gray-700 text-gray-400 dark:text-gray-500 cursor-not-allowed'
                 }`}
               >
                 {playingId === recording.id ? (
-                  <Pause className="w-5 h-5" />
+                  <Pause className="w-4 h-4" />
                 ) : (
-                  <Play className="w-5 h-5 ml-0.5" />
+                  <Play className="w-4 h-4 ml-0.5" />
                 )}
               </button>
 
               {/* Recording Info */}
               <div className="flex-1 min-w-0">
-                <div className="flex items-start justify-between mb-2">
+                <div className="flex items-start justify-between mb-1">
                   <div>
-                    <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+                    <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">
                       {recording.caller}
                     </h3>
-                    <div className="flex items-center gap-4 mt-1 text-sm text-gray-600 dark:text-gray-400">
+                    <div className="flex items-center gap-3 mt-0.5 text-xs text-gray-600 dark:text-gray-400">
                       <span className="flex items-center gap-1">
                         <Phone className="w-4 h-4" />
                         {recording.customerPhone || recording.phone}
@@ -358,17 +398,17 @@ export function Recordings() {
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-2">
-                    <span className={`px-3 py-1 rounded-full text-xs font-medium ${getSentimentColor(recording.sentiment)}`}>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${getSentimentColor(recording.sentiment)}`}>
                       {recording.sentiment}
                     </span>
                     {recording.wasAnswered ? (
-                      <span className="flex items-center gap-1 text-sm text-gray-600 dark:text-gray-400">
-                        <Clock className="w-4 h-4" />
+                      <span className="flex items-center gap-1 text-xs text-gray-600 dark:text-gray-400">
+                        <Clock className="w-3.5 h-3.5" />
                         {formatDuration(recording.duration)}
                       </span>
                     ) : (
-                      <span className="px-3 py-1 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 rounded-full text-xs font-medium">
+                      <span className="px-2 py-0.5 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 rounded-full text-xs font-medium">
                         Missed
                       </span>
                     )}
@@ -377,7 +417,7 @@ export function Recordings() {
 
                 {/* Audio Progress Bar */}
                 {recording.wasAnswered && recording.audioUrl && (
-                  <div className="mb-3">
+                  <div className="mb-2">
                     <audio
                       id={`audio-${recording.id}`}
                       src={recording.audioUrl}
@@ -414,16 +454,16 @@ export function Recordings() {
 
                 {/* Call Summary */}
                 {recording.summary && (
-                  <div className="mb-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg p-3 border border-blue-100 dark:border-blue-800">
-                    <h4 className="text-sm font-semibold text-blue-900 dark:text-blue-200 mb-1 flex items-center gap-2">
-                      <MessageSquare className="w-4 h-4" />
+                  <div className="mb-2 bg-blue-50 dark:bg-blue-900/20 rounded-lg p-2.5 border border-blue-100 dark:border-blue-800">
+                    <h4 className="text-xs font-semibold text-blue-900 dark:text-blue-200 mb-1 flex items-center gap-1.5">
+                      <MessageSquare className="w-3.5 h-3.5" />
                       Call Summary
                     </h4>
-                    <p className="text-sm text-blue-800 dark:text-blue-300 leading-relaxed">
+                    <p className="text-xs text-blue-800 dark:text-blue-300 leading-relaxed">
                       {recording.summary}
                     </p>
                     {recording.endedReason && (
-                      <p className="text-xs text-blue-600 dark:text-blue-400 mt-2">
+                      <p className="text-xs text-blue-600 dark:text-blue-400 mt-1.5">
                         Ended: {recording.endedReason}
                       </p>
                     )}
@@ -438,9 +478,9 @@ export function Recordings() {
                     onMouseLeave={() => setHoveredId(null)}
                   >
                     <button
-                      className="flex items-center gap-2 text-sm text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 font-medium mb-2 px-3 py-1.5 rounded-lg bg-blue-50 dark:bg-blue-900/20 hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors"
+                      className="flex items-center gap-1.5 text-xs text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 font-medium px-2.5 py-1 rounded-lg bg-blue-50 dark:bg-blue-900/20 hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors"
                     >
-                      <MessageSquare className="w-4 h-4" />
+                      <MessageSquare className="w-3.5 h-3.5" />
                       View Transcript
                     </button>
                     
@@ -473,11 +513,37 @@ export function Recordings() {
                   </div>
                 )}
 
+                {/* Customer Insights (if enhanced data available) */}
+                {recording.enhancedData && (
+                  <div className="mt-2">
+                    <button
+                      onClick={() => setExpandedProfiles({
+                        ...expandedProfiles,
+                        [recording.id]: !expandedProfiles[recording.id]
+                      })}
+                      className="flex items-center gap-1.5 text-xs text-purple-600 dark:text-purple-400 hover:text-purple-700 dark:hover:text-purple-300 font-medium"
+                    >
+                      {expandedProfiles[recording.id] ? (
+                        <ChevronUp className="w-3.5 h-3.5" />
+                      ) : (
+                        <ChevronDown className="w-3.5 h-3.5" />
+                      )}
+                      Customer Insights
+                    </button>
+
+                    {expandedProfiles[recording.id] && (
+                      <div className="mt-2">
+                        <CustomerProfile enhancedData={recording.enhancedData} compact={true} />
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {/* Action Buttons */}
                 {recording.wasAnswered && (
-                  <div className="flex items-center gap-2 mt-3">
-                    <button className="flex items-center gap-1 px-3 py-1.5 text-sm bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors">
-                      <Download className="w-4 h-4" />
+                  <div className="flex items-center gap-2 mt-2">
+                    <button className="flex items-center gap-1 px-2.5 py-1 text-xs bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors">
+                      <Download className="w-3.5 h-3.5" />
                       Download
                     </button>
                   </div>
@@ -486,6 +552,38 @@ export function Recordings() {
             </div>
           </div>
         ))}
+
+        {/* Load More Button */}
+        {hasMore && !loading && (
+          <div className="flex justify-center mt-6">
+            <button
+              onClick={handleLoadMore}
+              disabled={loadingMore}
+              className="flex items-center gap-2 px-6 py-3 bg-blue-600 dark:bg-blue-500 text-white rounded-lg hover:bg-blue-700 dark:hover:bg-blue-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {loadingMore ? (
+                <>
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                  Loading...
+                </>
+              ) : (
+                <>
+                  <ChevronDown className="w-5 h-5" />
+                  Load More Recordings
+                </>
+              )}
+            </button>
+          </div>
+        )}
+
+        {/* No More Recordings Message */}
+        {!hasMore && recordings.length > 0 && (
+          <div className="flex justify-center mt-6">
+            <p className="text-sm text-gray-500 dark:text-gray-400">
+              No more recordings to load
+            </p>
+          </div>
+        )}
       </div>
     </div>
   );

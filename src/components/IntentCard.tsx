@@ -1,25 +1,31 @@
 import { useState } from 'react';
-import { 
-  Calendar, 
-  Clock, 
-  Phone, 
-  PhoneOff, 
-  Globe, 
-  ChevronDown, 
+import {
+  Calendar,
+  Clock,
+  Phone,
+  PhoneOff,
+  Globe,
+  ChevronDown,
   ChevronUp,
   User,
   MessageSquare,
   Brain,
-  Heart
+  Heart,
+  Sparkles
 } from 'lucide-react';
 import type { CallIntent } from '../types';
+import { CustomerProfile } from './CustomerProfile';
 
 interface IntentCardProps {
   callIntent: CallIntent;
+  enhancedData?: any;
 }
 
-export function IntentCard({ callIntent }: IntentCardProps) {
+type TabType = 'intent' | 'mood' | 'enhanced';
+
+export function IntentCard({ callIntent, enhancedData }: IntentCardProps) {
   const [isExpanded, setIsExpanded] = useState(false);
+  const [activeTab, setActiveTab] = useState<TabType>('intent');
 
   const getIntentColor = (intent: string) => {
     switch (intent.toLowerCase()) {
@@ -122,7 +128,7 @@ export function IntentCard({ callIntent }: IntentCardProps) {
       {/* Header */}
       <div className="flex items-start justify-between mb-4 relative">
         <div className="flex-1">
-          <div className="flex items-center gap-3 mb-3">
+          <div className="flex items-center gap-3 mb-3 flex-wrap">
             <div className={`inline-flex items-center px-4 py-2 rounded-full text-sm font-semibold border transition-all duration-300 hover:scale-105 ${getIntentColor(callIntent.intent)}`}>
               <Brain className="w-4 h-4 mr-2" />
               {callIntent.intent}
@@ -131,6 +137,57 @@ export function IntentCard({ callIntent }: IntentCardProps) {
               {getMoodIcon(callIntent.mood)}
               <span className="capitalize">{callIntent.mood}</span>
               <span className="text-xs opacity-75 font-medium">({callIntent.mood_confidence}%)</span>
+            </div>
+
+            {/* Tab Navigation in Header */}
+            <div className="flex gap-1 ml-auto">
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setActiveTab('intent');
+                  if (!isExpanded) setIsExpanded(true);
+                }}
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all duration-300 ${
+                  activeTab === 'intent' && isExpanded
+                    ? 'bg-blue-600 dark:bg-blue-500 text-white'
+                    : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'
+                }`}
+              >
+                <Brain className="w-3.5 h-3.5" />
+                Intent
+              </button>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setActiveTab('mood');
+                  if (!isExpanded) setIsExpanded(true);
+                }}
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all duration-300 ${
+                  activeTab === 'mood' && isExpanded
+                    ? 'bg-green-600 dark:bg-green-500 text-white'
+                    : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'
+                }`}
+              >
+                <Heart className="w-3.5 h-3.5" />
+                Mood
+              </button>
+              {enhancedData && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setActiveTab('enhanced');
+                    if (!isExpanded) setIsExpanded(true);
+                  }}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all duration-300 ${
+                    activeTab === 'enhanced' && isExpanded
+                      ? 'bg-purple-600 dark:bg-purple-500 text-white'
+                      : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'
+                  }`}
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  Enhanced
+                </button>
+              )}
             </div>
           </div>
           
@@ -204,35 +261,36 @@ export function IntentCard({ callIntent }: IntentCardProps) {
 
       {/* Expanded Details */}
       {isExpanded && (
-        <div className="space-y-6 pt-6 border-t border-gray-200 dark:border-gray-700 animate-in slide-in-from-top-2 duration-300">
-          {/* Intent Analysis */}
-          <div className="group">
-            <h4 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-3 flex items-center gap-3">
-              <div className="p-2 rounded-full bg-blue-100 dark:bg-blue-900/30 group-hover:scale-110 transition-transform duration-300">
-                <Brain className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+        <div className="pt-6 border-t border-gray-200 dark:border-gray-700 animate-in slide-in-from-top-2 duration-300">
+          {/* Tab Content */}
+          <div className="space-y-4">
+            {activeTab === 'intent' && (
+              <div className="group animate-in fade-in duration-300">
+                <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">Analyzed from call summary and transcript</p>
+                <div className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 rounded-xl p-4 border border-blue-100 dark:border-blue-800/30 transition-all duration-300">
+                  <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">
+                    {callIntent.intent_reasoning}
+                  </p>
+                </div>
               </div>
-              Intent Analysis
-            </h4>
-            <div className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 rounded-xl p-4 border border-blue-100 dark:border-blue-800/30 transition-all duration-300 hover:shadow-md">
-              <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">
-                {callIntent.intent_reasoning}
-              </p>
-            </div>
-          </div>
+            )}
 
-          {/* Mood Analysis */}
-          <div className="group">
-            <h4 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-3 flex items-center gap-3">
-              <div className="p-2 rounded-full bg-green-100 dark:bg-green-900/30 group-hover:scale-110 transition-transform duration-300">
-                <Heart className="w-4 h-4 text-green-600 dark:text-green-400" />
+            {activeTab === 'mood' && (
+              <div className="group animate-in fade-in duration-300">
+                <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">Determined from call analysis</p>
+                <div className="bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-900/20 dark:to-emerald-900/20 rounded-xl p-4 border border-green-100 dark:border-green-800/30 transition-all duration-300">
+                  <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">
+                    {callIntent.mood_reasoning}
+                  </p>
+                </div>
               </div>
-              Mood Analysis
-            </h4>
-            <div className="bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-900/20 dark:to-emerald-900/20 rounded-xl p-4 border border-green-100 dark:border-green-800/30 transition-all duration-300 hover:shadow-md">
-              <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">
-                {callIntent.mood_reasoning}
-              </p>
-            </div>
+            )}
+
+            {activeTab === 'enhanced' && enhancedData && (
+              <div className="animate-in fade-in duration-300">
+                <CustomerProfile enhancedData={enhancedData} />
+              </div>
+            )}
           </div>
         </div>
       )}

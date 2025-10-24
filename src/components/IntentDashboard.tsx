@@ -13,6 +13,11 @@ import { IntentCard } from './IntentCard';
 import { d1Client } from '../lib/d1';
 import type { CallIntent } from '../types';
 
+// Extend CallIntent to include enhanced data
+interface CallIntentWithEnhanced extends CallIntent {
+  enhancedData?: any;
+}
+
 // Mock data for 5 calls with intent analysis
 const mockCallIntents: CallIntent[] = [
   {
@@ -98,11 +103,12 @@ const mockCallIntents: CallIntent[] = [
 ];
 
 export function IntentDashboard() {
-  const [callIntents, setCallIntents] = useState<CallIntent[]>([]);
+  const [callIntents, setCallIntents] = useState<CallIntentWithEnhanced[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedIntent, setSelectedIntent] = useState<string>('all');
   const [selectedMood, setSelectedMood] = useState<string>('all');
+  const [selectedCall, setSelectedCall] = useState<CallIntentWithEnhanced | null>(null);
 
   useEffect(() => {
     loadCallIntents();
@@ -111,15 +117,15 @@ export function IntentDashboard() {
   const loadCallIntents = async () => {
     try {
       setLoading(true);
-      const webhookCalls = await d1Client.getWebhookCalls({ limit: 100 });
-
-      // Convert webhook calls to CallIntent format
-      const convertedIntents: CallIntent[] = webhookCalls
-        .filter(call => call.analysis_completed) // Only show analyzed calls
-        .map((call, index) => {
+      
+      // Use the new cached intent analysis endpoint
+      const intentData = await d1Client.getIntentAnalysis({ limit: 100 });
+      
+      // Convert to CallIntent format (enhanced data is already included!)
+      const convertedIntents: CallIntentWithEnhanced[] = intentData.calls.map((call, index) => {
           // Parse raw_payload for transcript
           let transcriptExcerpt = '';
-          let customerName = 'Unknown Customer';
+          let customerName = call.customer_name || 'Unknown Customer';
 
           try {
             if (call.raw_payload) {
@@ -130,15 +136,13 @@ export function IntentDashboard() {
               if (payload.message?.artifact?.transcript) {
                 transcriptExcerpt = payload.message.artifact.transcript.substring(0, 200) + '...';
               }
-
-              // Try to extract customer name from structured data
-              if (call.structured_data?.name) {
-                customerName = call.structured_data.name;
-              }
             }
           } catch (error) {
             console.error('Error parsing call data:', error);
           }
+
+          // Enhanced data is now included in the API response - no need for separate fetch!
+          const enhancedData = call.enhanced_data || null;
 
           return {
             id: call.id,
@@ -154,11 +158,11 @@ export function IntentDashboard() {
             was_answered: !!call.recording_url,
             transcript_excerpt: transcriptExcerpt || call.summary?.substring(0, 200) + '...' || 'No transcript available',
             customer_name: customerName,
-            phone_number: call.phone_number || 'N/A'
+            phone_number: call.phone_number || 'N/A',
+            enhancedData: enhancedData
           };
         });
 
-      // Don't fallback to mock data - show real data only
       setCallIntents(convertedIntents);
     } catch (error) {
       console.error('Error loading call intents:', error);
@@ -384,7 +388,11 @@ export function IntentDashboard() {
         ) : (
           <div className="space-y-6">
             {filteredCalls.map((callIntent) => (
-              <IntentCard key={callIntent.id} callIntent={callIntent} />
+              <IntentCard
+                key={callIntent.id}
+                callIntent={callIntent}
+                enhancedData={callIntent.enhancedData}
+              />
             ))}
           </div>
         )}

@@ -1,11 +1,13 @@
 import { useState, useEffect } from 'react';
-import { Key, Save, Eye, EyeOff, AlertCircle, CheckCircle, Trash2, RefreshCw, LogOut, User, Settings as SettingsIcon, Plug, Webhook, Maximize2 } from 'lucide-react';
+import { Key, Save, Eye, EyeOff, AlertCircle, CheckCircle, Trash2, RefreshCw, LogOut, User, Settings as SettingsIcon, Plug, Webhook, Maximize2, Zap, Calendar } from 'lucide-react';
 import { VapiClient } from '../lib/vapi';
 import { useAuth } from '../contexts/AuthContext';
 import { useVapi } from '../contexts/VapiContext';
 import { d1Client } from '../lib/d1';
 import { Integration } from './Integration';
 import { WebhookConfig } from './WebhookConfig';
+import { Addons } from './Addons';
+import { SchedulingTriggers } from './SchedulingTriggers';
 
 interface VapiCredentials {
   privateKey: string;
@@ -40,7 +42,7 @@ interface SettingsProps {
 
 export function Settings({ wideView = false, onWideViewChange }: SettingsProps = {}) {
   const { user, token, logout } = useAuth();
-  const [activeTab, setActiveTab] = useState<'api' | 'integrations' | 'webhooks' | 'preferences'>('api');
+  const [activeTab, setActiveTab] = useState<'api' | 'integrations' | 'webhooks' | 'addons' | 'scheduling' | 'preferences'>('api');
   const [credentials, setCredentials] = useState<VapiCredentials>({
     privateKey: '',
     publicKey: ''
@@ -294,6 +296,32 @@ export function Settings({ wideView = false, onWideViewChange }: SettingsProps =
               </div>
             </button>
             <button
+              onClick={() => setActiveTab('addons')}
+              className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
+                activeTab === 'addons'
+                  ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                  : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <Zap className="w-4 h-4" />
+                Addons
+              </div>
+            </button>
+            <button
+              onClick={() => setActiveTab('scheduling')}
+              className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
+                activeTab === 'scheduling'
+                  ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                  : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <Calendar className="w-4 h-4" />
+                Scheduling
+              </div>
+            </button>
+            <button
               onClick={() => setActiveTab('preferences')}
               className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
                 activeTab === 'preferences'
@@ -324,7 +352,7 @@ export function Settings({ wideView = false, onWideViewChange }: SettingsProps =
             <div className="text-sm text-blue-900 dark:text-blue-100">
               <p className="font-medium mb-1">API Configuration</p>
               <p className="text-blue-700 dark:text-blue-300">
-                Enter your VAPI API keys to connect your account. Your keys are securely stored and sync across your devices.
+                Enter your CHAU Voice AI API keys to connect your account. Your keys are securely stored and sync across your devices.
               </p>
             </div>
           </div>
@@ -540,6 +568,14 @@ export function Settings({ wideView = false, onWideViewChange }: SettingsProps =
 
           {activeTab === 'webhooks' && (
             <WebhookConfig />
+          )}
+
+          {activeTab === 'addons' && (
+            <Addons />
+          )}
+
+          {activeTab === 'scheduling' && (
+            <SchedulingTriggers />
           )}
 
           {activeTab === 'preferences' && (
