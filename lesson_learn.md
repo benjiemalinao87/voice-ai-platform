@@ -1941,3 +1941,82 @@ const stats = await cache.getCacheStats();
 ✅ **Cost Effective**: Reduces database query costs
 ✅ **User Friendly**: Seamless experience with no changes to UI
 
+
+---
+
+## Custom Domain Setup and CORS Fix (October 24, 2025)
+
+### Problem
+Frontend was getting CORS errors when trying to call the API. The browser console showed:
+- "Access to fetch at 'https://voice-ai-dashboard-api.curly-king-877d.workers.dev' from origin 'https://voice-config.channelautomation.com' has been blocked by CORS policy"
+- Frontend was calling the wrong workers.dev URL instead of the custom domain
+
+### Root Cause
+1. **Missing .env file**: The frontend was defaulting to the workers.dev URL because `VITE_D1_API_URL` environment variable was not set
+2. **Frontend using import.meta.env.VITE_D1_API_URL**: Multiple files (AuthContext.tsx, Settings.tsx, SchedulingTriggers.tsx, d1.ts) rely on this environment variable
+3. **Production environment variable not set**: Cloudflare Pages needs the environment variable set in the dashboard for production builds
+
+### Solution
+1. **Created .env file** in project root with:
+   ```
+   VITE_D1_API_URL=https://api.voice-config.channelautomation.com
+   ```
+2. **Updated wrangler.toml** to add `pages_build_output_dir = "dist"`
+3. **Deployed worker** with custom domain using `npx wrangler deploy`
+4. **Built and deployed frontend** using `npm run build` and `npx wrangler pages deploy dist --project-name=voice-ai-platform`
+5. **Set environment variable in Cloudflare Pages dashboard**:
+   - Navigate to Workers & Pages → voice-ai-platform → Settings → Environment variables
+   - Add: `VITE_D1_API_URL` = `https://api.voice-config.channelautomation.com`
+   - Apply to both Production and Preview environments
+   - Retry deployment to apply changes
+
+### Custom Domain Configuration
+
+**Worker (API)**:
+```toml
+# wrangler.toml
+routes = [
+  { pattern = "api.voice-config.channelautomation.com", custom_domain = true }
+]
+```
+
+**Pages (Frontend)**:
+- Custom domain: `voice-config.channelautomation.com`
+- Environment variable: `VITE_D1_API_URL=https://api.voice-config.channelautomation.com`
+
+### How It Should Be Done
+1. ✅ Create `.env` file for local development
+2. ✅ Configure custom domain in wrangler.toml with `custom_domain = true`
+3. ✅ Deploy worker using `npx wrangler deploy`
+4. ✅ Set environment variables in Cloudflare Pages dashboard (not just in .env)
+5. ✅ Build and deploy frontend after setting environment variables
+6. ✅ Add `pages_build_output_dir` to wrangler.toml for cleaner deployments
+
+### How It Should NOT Be Done
+1. ❌ Don't rely on `.env` file alone - it only works for local development
+2. ❌ Don't forget to set environment variables in Cloudflare Pages dashboard for production
+3. ❌ Don't use workers.dev URLs in production - always use custom domains
+4. ❌ Don't skip redeployment after changing environment variables
+5. ❌ Don't hardcode API URLs in code - always use environment variables
+
+### Files Modified
+- ✅ `.env` (created) - Local development configuration
+- ✅ `wrangler.toml` (updated) - Added pages_build_output_dir
+- ✅ `CUSTOM_DOMAIN_SETUP.md` (created) - Documentation
+
+### Files Using VITE_D1_API_URL
+- `src/contexts/AuthContext.tsx` - Authentication API calls
+- `src/components/Settings.tsx` - Settings API calls
+- `src/components/SchedulingTriggers.tsx` - Scheduling triggers API calls
+- `src/lib/d1.ts` - D1 client for all database operations
+
+### Testing Checklist
+- [ ] No CORS errors in browser console
+- [ ] Network tab shows calls to `api.voice-config.channelautomation.com`
+- [ ] Login works correctly
+- [ ] All API endpoints respond successfully
+- [ ] Both local development and production work with correct URLs
+
+### Key Takeaway
+For Vite projects on Cloudflare Pages, environment variables prefixed with `VITE_` must be set both locally (`.env` file) and in production (Cloudflare dashboard) because they are compiled into the build at build-time, not runtime.
+

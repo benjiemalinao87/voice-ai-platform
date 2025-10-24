@@ -8,6 +8,9 @@ routes = [
   { pattern = "api.voice-config.channelautomation.com", custom_domain = true }
 ]
 
+# Pages configuration
+pages_build_output_dir = "dist"
+
 # D1 Database binding
 [[d1_databases]]
 binding = "DB"
