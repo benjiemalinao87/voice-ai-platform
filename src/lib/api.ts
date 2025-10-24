@@ -1,4 +1,3 @@
-import { supabase, isDemo } from './supabase';
 import { VapiClient, type VapiAssistant, type VapiCall } from './vapi';
 import type { Agent, Call, MetricsSummary, DashboardMetrics, KeywordTrend } from '../types';
 
@@ -42,12 +41,14 @@ function convertVapiCallToCall(vapiCall: VapiCall): Call {
     duration_seconds: duration,
     was_answered: wasAnswered,
     language: 'en', // VAPI doesn't expose this directly
+    summary: vapiCall.summary || null,
     summary_length: vapiCall.summary?.length || 0,
     is_qualified_lead: vapiCall.analysis?.successEvaluation === 'true' || false,
     has_appointment_intent: vapiCall.summary?.toLowerCase().includes('appointment') || false,
     crm_lead_created: false,
     crm_sync_status: 'pending',
     sentiment_score: sentimentScore,
+    transcript: vapiCall.transcript || null,
     created_at: vapiCall.createdAt,
   };
 }
@@ -75,12 +76,14 @@ const mockCalls: Call[] = Array.from({ length: 30 }, (_, i) => ({
   duration_seconds: 120 + Math.floor(Math.random() * 300),
   was_answered: Math.random() > 0.15,
   language: Math.random() > 0.3 ? 'en' : 'es',
+  summary: 'Demo call summary - customer inquired about services and pricing options.',
   summary_length: 150 + Math.floor(Math.random() * 200),
   is_qualified_lead: Math.random() > 0.6,
   has_appointment_intent: Math.random() > 0.7,
   crm_lead_created: Math.random() > 0.5,
   crm_sync_status: Math.random() > 0.2 ? 'success' : 'error',
   sentiment_score: -0.5 + Math.random() * 1.5,
+  transcript: 'Demo transcript - This is a sample conversation between the agent and customer.',
   created_at: new Date().toISOString()
 }));
 
@@ -108,22 +111,11 @@ export const agentApi = {
 
         return filteredAssistants.map(convertVapiAssistantToAgent);
       } catch (error) {
-        console.error('VAPI API error, falling back:', error);
+        console.error('VAPI API error, falling back to demo data:', error);
       }
     }
 
-    // Fall back to Supabase
-    if (!isDemo && supabase) {
-      const { data, error } = await supabase
-        .from('agents')
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-      return data || [];
-    }
-
-    // Final fallback to demo data
+    // Fallback to demo data
     return Promise.resolve([mockAgent]);
   },
 
@@ -134,24 +126,11 @@ export const agentApi = {
         const assistant = await vapiClient.getAssistant(id) as VapiAssistant;
         return convertVapiAssistantToAgent(assistant);
       } catch (error) {
-        console.error('VAPI API error:', error);
-        throw error;
+        console.error('VAPI API error, falling back to demo data:', error);
       }
     }
 
-    // Fall back to Supabase
-    if (!isDemo && supabase) {
-      const { data, error } = await supabase
-        .from('agents')
-        .select('*')
-        .eq('id', id)
-        .maybeSingle();
-
-      if (error) throw error;
-      return data;
-    }
-
-    // Final fallback to demo data
+    // Fallback to demo data
     return Promise.resolve(mockAgent);
   },
 
@@ -202,20 +181,7 @@ export const agentApi = {
       }
     }
 
-    // Fall back to Supabase
-    if (!isDemo && supabase) {
-      const { data, error } = await supabase
-        .from('agents')
-        .update({ ...updates, updated_at: new Date().toISOString() })
-        .eq('id', id)
-        .select()
-        .single();
-
-      if (error) throw error;
-      return data;
-    }
-
-    // Final fallback to demo data
+    // Fallback to demo data
     return Promise.resolve({ ...mockAgent, ...updates });
   },
 
@@ -239,23 +205,11 @@ export const agentApi = {
         const assistant = await vapiClient.createAssistant(vapiAgent) as VapiAssistant;
         return convertVapiAssistantToAgent(assistant);
       } catch (error) {
-        console.error('VAPI API error, falling back:', error);
+        console.error('VAPI API error, falling back to demo data:', error);
       }
     }
 
-    // Fall back to Supabase
-    if (!isDemo && supabase) {
-      const { data, error } = await supabase
-        .from('agents')
-        .insert([agent])
-        .select()
-        .single();
-
-      if (error) throw error;
-      return data;
-    }
-
-    // Final fallback to demo data
+    // Fallback to demo data
     return Promise.resolve({ ...mockAgent, ...agent });
   }
 };
@@ -273,33 +227,11 @@ export const callsApi = {
         const vapiCalls = await vapiClient.listCalls(params) as VapiCall[];
         return vapiCalls.map(convertVapiCallToCall);
       } catch (error) {
-        console.error('VAPI API error, falling back:', error);
+        console.error('VAPI API error, falling back to demo data:', error);
       }
     }
 
-    // Fall back to Supabase
-    if (!isDemo && supabase) {
-      let query = supabase.from('calls').select('*');
-
-      if (agentId) {
-        query = query.eq('agent_id', agentId);
-      }
-
-      if (dateFrom) {
-        query = query.gte('call_date', dateFrom);
-      }
-
-      if (dateTo) {
-        query = query.lte('call_date', dateTo);
-      }
-
-      const { data, error } = await query.order('call_date', { ascending: false });
-
-      if (error) throw error;
-      return data || [];
-    }
-
-    // Final fallback to demo data
+    // Fallback to demo data
     let filteredCalls = [...mockCalls];
 
     if (dateFrom) {
@@ -369,63 +301,21 @@ export const callsApi = {
     };
   },
 
-  async getKeywordTrends(agentId?: string, limit: number = 10): Promise<KeywordTrend[]> {
-    if (isDemo) {
-      return Promise.resolve([
-        { keyword: 'appointment', count: 287 },
-        { keyword: 'pricing', count: 245 },
-        { keyword: 'schedule', count: 198 },
-        { keyword: 'availability', count: 176 },
-        { keyword: 'urgent', count: 142 }
-      ]);
-    }
-
-    let query = supabase!
-      .from('call_keywords')
-      .select('keyword, frequency');
-
-    if (agentId) {
-      query = query.eq('call_id', agentId);
-    }
-
-    const { data, error } = await query;
-
-    if (error) throw error;
-
-    const keywordMap = new Map<string, number>();
-    data?.forEach(item => {
-      const current = keywordMap.get(item.keyword) || 0;
-      keywordMap.set(item.keyword, current + item.frequency);
-    });
-
-    return Array.from(keywordMap.entries())
-      .map(([keyword, count]) => ({ keyword, count }))
-      .sort((a, b) => b.count - a.count)
-      .slice(0, limit);
+  async getKeywordTrends(_agentId?: string, _limit: number = 10): Promise<KeywordTrend[]> {
+    // Return demo data (could be enhanced to extract from VAPI call summaries in the future)
+    return Promise.resolve([
+      { keyword: 'appointment', count: 287 },
+      { keyword: 'pricing', count: 245 },
+      { keyword: 'schedule', count: 198 },
+      { keyword: 'availability', count: 176 },
+      { keyword: 'urgent', count: 142 }
+    ]);
   }
 };
 
 export const metricsApi = {
-  async getDailySummary(agentId?: string, days: number = 30): Promise<MetricsSummary[]> {
-    if (isDemo) {
-      return Promise.resolve([]);
-    }
-
-    const dateFrom = new Date();
-    dateFrom.setDate(dateFrom.getDate() - days);
-
-    let query = supabase!
-      .from('metrics_summary')
-      .select('*')
-      .gte('date', dateFrom.toISOString().split('T')[0]);
-
-    if (agentId) {
-      query = query.eq('agent_id', agentId);
-    }
-
-    const { data, error } = await query.order('date', { ascending: true });
-
-    if (error) throw error;
-    return data || [];
+  async getDailySummary(_agentId?: string, _days: number = 30): Promise<MetricsSummary[]> {
+    // Return empty array (metrics are calculated from calls data instead)
+    return Promise.resolve([]);
   }
 };

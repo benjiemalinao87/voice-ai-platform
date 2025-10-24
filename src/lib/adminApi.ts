@@ -8,23 +8,13 @@
 const ADMIN_API_BASE_URL = import.meta.env.VITE_ADMIN_API_URL || 'http://localhost:4000/api/admin';
 
 /**
- * Get JWT token from Supabase auth
+ * Get JWT token from auth context
  */
 const getAuthToken = async (): Promise<string | null> => {
   try {
-    // Check localStorage for Supabase session
-    const keys = Object.keys(localStorage);
-    const supabaseKey = keys.find(key => key.includes('supabase.auth.token'));
-
-    if (supabaseKey) {
-      const sessionData = localStorage.getItem(supabaseKey);
-      if (sessionData) {
-        const session = JSON.parse(sessionData);
-        return session.access_token || session.currentSession?.access_token || null;
-      }
-    }
-
-    return null;
+    // Check localStorage for auth token (set by AuthContext)
+    const token = localStorage.getItem('auth_token');
+    return token;
   } catch (error) {
     console.error('Error getting auth token:', error);
     return null;
