@@ -72,12 +72,12 @@ class D1Client {
 
   // User Settings
   async getUserSettings(): Promise<{
-    encryptedPrivateKey?: string;
-    encryptedPublicKey?: string;
+    privateKey?: string;
+    publicKey?: string;
     selectedAssistantId?: string;
     selectedPhoneId?: string;
     selectedOrgId?: string;
-    encryptionSalt: string;
+    openaiApiKey?: string;
   }> {
     return this.request('/api/settings', {
       method: 'GET',
@@ -85,15 +85,77 @@ class D1Client {
   }
 
   async updateUserSettings(data: {
-    encryptedPrivateKey?: string;
-    encryptedPublicKey?: string;
+    privateKey?: string;
+    publicKey?: string;
     selectedAssistantId?: string | null;
     selectedPhoneId?: string | null;
     selectedOrgId?: string | null;
+    openaiApiKey?: string | null;
   }): Promise<{ message: string }> {
     return this.request('/api/settings', {
       method: 'PUT',
       body: JSON.stringify(data),
+    });
+  }
+
+  // Webhooks
+  async createWebhook(name: string): Promise<{
+    id: string;
+    url: string;
+    name: string;
+    is_active: boolean;
+    created_at: number;
+  }> {
+    return this.request('/api/webhooks', {
+      method: 'POST',
+      body: JSON.stringify({ name }),
+    });
+  }
+
+  async listWebhooks(): Promise<Array<{
+    id: string;
+    webhook_url: string;
+    name: string;
+    is_active: boolean;
+    created_at: number;
+    call_count: number;
+  }>> {
+    return this.request('/api/webhooks', {
+      method: 'GET',
+    });
+  }
+
+  async deleteWebhook(webhookId: string): Promise<{ message: string }> {
+    return this.request(`/api/webhooks/${webhookId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async getWebhookCalls(params?: {
+    webhook_id?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<Array<{
+    id: string;
+    webhook_id: string;
+    vapi_call_id: string | null;
+    phone_number: string | null;
+    customer_number: string | null;
+    recording_url: string | null;
+    ended_reason: string;
+    summary: string;
+    structured_data: Record<string, any> | null;
+    raw_payload: any;
+    created_at: number;
+  }>> {
+    const queryParams = new URLSearchParams();
+    if (params?.webhook_id) queryParams.append('webhook_id', params.webhook_id);
+    if (params?.limit) queryParams.append('limit', params.limit.toString());
+    if (params?.offset) queryParams.append('offset', params.offset.toString());
+
+    const query = queryParams.toString();
+    return this.request(`/api/webhook-calls${query ? '?' + query : ''}`, {
+      method: 'GET',
     });
   }
 }

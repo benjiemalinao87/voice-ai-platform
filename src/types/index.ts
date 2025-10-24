@@ -115,3 +115,82 @@ export interface CallIntent {
   customer_name?: string;
   phone_number?: string;
 }
+
+// ============================================
+// WEBHOOK INTERFACES
+// ============================================
+
+export interface Webhook {
+  id: string;
+  user_id: string;
+  webhook_url: string;
+  name: string;
+  is_active: boolean;
+  created_at: number;
+  updated_at: number;
+  call_count?: number; // From JOIN with webhook_calls
+}
+
+export interface WebhookCall {
+  id: string;
+  webhook_id: string;
+  user_id: string;
+  vapi_call_id: string | null;
+  phone_number: string | null;
+  customer_number: string | null;
+  recording_url: string | null;
+  ended_reason: string;
+  summary: string;
+  structured_data: Record<string, any> | null;
+  raw_payload?: string; // Not usually needed in frontend
+  created_at: number;
+}
+
+export interface WebhookLog {
+  id: string;
+  webhook_id: string;
+  status: 'success' | 'error';
+  http_status: number | null;
+  payload_size: number | null;
+  error_message: string | null;
+  created_at: number;
+}
+
+// VAPI Webhook Payload Structure
+export interface VapiWebhookPayload {
+  message: {
+    type: 'end-of-call-report';
+    call: {
+      id: string;
+      assistantId?: string;
+      startedAt?: string;
+      endedAt?: string;
+      cost?: number;
+      costBreakdown?: Record<string, any>;
+    };
+    phoneNumber?: {
+      number: string;
+      country?: string;
+      carrier?: string;
+    };
+    customer?: {
+      number?: string;
+      name?: string;
+      email?: string;
+    };
+    artifact?: {
+      recordingUrl?: string;
+      transcript?: string;
+      stereoRecordingUrl?: string;
+    };
+    endedReason: 'hangup' | 'assistant-error' | 'pipeline-error' | 'assistant-request' | string;
+    summary?: string;
+    transcript?: string;
+    analysis?: {
+      structuredData?: Record<string, any>;
+      sentiment?: string;
+      intent?: string;
+      successEvaluation?: boolean;
+    };
+  };
+}

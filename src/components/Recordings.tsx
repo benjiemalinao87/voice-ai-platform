@@ -1,5 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Play, Pause, Phone, Clock, Calendar, User, MapPin, Download, MessageSquare } from 'lucide-react';
+import { d1Client } from '../lib/d1';
+import type { WebhookCall } from '../types';
 
 interface TranscriptMessage {
   role: 'assistant' | 'user';
@@ -11,6 +13,7 @@ interface Recording {
   id: string;
   caller: string;
   phone: string;
+  customerPhone?: string;
   duration: number;
   date: string;
   location: string;
@@ -18,6 +21,8 @@ interface Recording {
   transcript?: TranscriptMessage[];
   sentiment: 'positive' | 'neutral' | 'negative';
   wasAnswered: boolean;
+  summary?: string;
+  endedReason?: string;
 }
 
 // Mock recordings data
@@ -153,10 +158,88 @@ const mockRecordings: Recording[] = [
 ];
 
 export function Recordings() {
-  const [recordings] = useState<Recording[]>(mockRecordings);
+  const [recordings, setRecordings] = useState<Recording[]>([]);
+  const [loading, setLoading] = useState(true);
   const [playingId, setPlayingId] = useState<string | null>(null);
   const [currentTime, setCurrentTime] = useState<{ [key: string]: number }>({});
   const [hoveredId, setHoveredId] = useState<string | null>(null);
+
+  useEffect(() => {
+    loadRecordings();
+  }, []);
+
+  const loadRecordings = async () => {
+    try {
+      setLoading(true);
+      const webhookCalls = await d1Client.getWebhookCalls({ limit: 50 });
+
+      // Convert webhook calls to Recording format
+      const convertedRecordings: Recording[] = webhookCalls.map((call) => {
+        // Parse raw_payload to extract transcript
+        let transcript: TranscriptMessage[] = [];
+        let location = 'Unknown';
+        let callerName = 'Unknown Caller';
+
+        try {
+          if (call.raw_payload) {
+            const payload = typeof call.raw_payload === 'string'
+              ? JSON.parse(call.raw_payload)
+              : call.raw_payload;
+
+            // Extract transcript from artifact
+            if (payload.message?.artifact?.transcript) {
+              const transcriptText = payload.message.artifact.transcript;
+              // Simple parsing - you can enhance this to split by speaker
+              transcript = [{
+                role: 'assistant',
+                text: transcriptText,
+                timestamp: new Date(call.created_at).toLocaleTimeString()
+              }];
+            }
+
+            // Try to extract location from customer data if available
+            if (payload.message?.customer?.location) {
+              location = payload.message.customer.location;
+            }
+          }
+
+          // Extract caller name from structured_data if available
+          if (call.structured_data?.name) {
+            callerName = call.structured_data.name;
+          }
+        } catch (error) {
+          console.error('Error parsing webhook payload:', error);
+        }
+
+        // Calculate duration from recording if available
+        const duration = 180; // Default, we don't have duration in webhook data yet
+
+        return {
+          id: call.id,
+          caller: callerName,
+          phone: call.phone_number || 'N/A',  // Business/AI agent phone
+          customerPhone: call.customer_number || undefined,  // Customer's phone
+          duration: duration,
+          date: new Date(call.created_at).toISOString(),
+          location: location,
+          audioUrl: call.recording_url || '',
+          transcript: transcript.length > 0 ? transcript : undefined,
+          sentiment: 'neutral' as const, // We can add sentiment analysis later
+          wasAnswered: !!call.recording_url, // If there's a recording, it was answered
+          summary: call.summary || undefined,
+          endedReason: call.ended_reason
+        };
+      });
+
+      setRecordings(convertedRecordings);
+    } catch (error) {
+      console.error('Error loading recordings:', error);
+      // Fallback to mock data on error
+      setRecordings(mockRecordings);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const formatDuration = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -174,9 +257,21 @@ export function Recordings() {
   };
 
   const handlePlayPause = (recordingId: string) => {
+    const audio = document.getElementById(`audio-${recordingId}`) as HTMLAudioElement;
+
+    if (!audio) return;
+
     if (playingId === recordingId) {
+      audio.pause();
       setPlayingId(null);
     } else {
+      // Pause any currently playing audio
+      if (playingId) {
+        const currentAudio = document.getElementById(`audio-${playingId}`) as HTMLAudioElement;
+        if (currentAudio) currentAudio.pause();
+      }
+
+      audio.play();
       setPlayingId(recordingId);
     }
   };
@@ -191,6 +286,14 @@ export function Recordings() {
         return 'text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-gray-700';
     }
   };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 dark:border-blue-400"></div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -242,7 +345,7 @@ export function Recordings() {
                     <div className="flex items-center gap-4 mt-1 text-sm text-gray-600 dark:text-gray-400">
                       <span className="flex items-center gap-1">
                         <Phone className="w-4 h-4" />
-                        {recording.phone}
+                        {recording.customerPhone || recording.phone}
                       </span>
                       <span className="flex items-center gap-1">
                         <Calendar className="w-4 h-4" />
@@ -273,8 +376,22 @@ export function Recordings() {
                 </div>
 
                 {/* Audio Progress Bar */}
-                {recording.wasAnswered && (
+                {recording.wasAnswered && recording.audioUrl && (
                   <div className="mb-3">
+                    <audio
+                      id={`audio-${recording.id}`}
+                      src={recording.audioUrl}
+                      onTimeUpdate={(e) => {
+                        const audio = e.currentTarget;
+                        setCurrentTime({
+                          ...currentTime,
+                          [recording.id]: audio.currentTime
+                        });
+                      }}
+                      onEnded={() => setPlayingId(null)}
+                      onPlay={() => setPlayingId(recording.id)}
+                      onPause={() => setPlayingId(null)}
+                    />
                     <div className="flex items-center gap-2">
                       <div className="flex-1 h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
                         <div
@@ -282,14 +399,34 @@ export function Recordings() {
                             playingId === recording.id ? 'animate-pulse' : ''
                           }`}
                           style={{
-                            width: playingId === recording.id ? '45%' : '0%'
+                            width: playingId === recording.id
+                              ? `${((currentTime[recording.id] || 0) / recording.duration) * 100}%`
+                              : '0%'
                           }}
                         />
                       </div>
                       <span className="text-xs text-gray-500 dark:text-gray-400 w-12">
-                        {playingId === recording.id ? '1:50' : '0:00'}
+                        {formatDuration(Math.floor(currentTime[recording.id] || 0))}
                       </span>
                     </div>
+                  </div>
+                )}
+
+                {/* Call Summary */}
+                {recording.summary && (
+                  <div className="mb-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg p-3 border border-blue-100 dark:border-blue-800">
+                    <h4 className="text-sm font-semibold text-blue-900 dark:text-blue-200 mb-1 flex items-center gap-2">
+                      <MessageSquare className="w-4 h-4" />
+                      Call Summary
+                    </h4>
+                    <p className="text-sm text-blue-800 dark:text-blue-300 leading-relaxed">
+                      {recording.summary}
+                    </p>
+                    {recording.endedReason && (
+                      <p className="text-xs text-blue-600 dark:text-blue-400 mt-2">
+                        Ended: {recording.endedReason}
+                      </p>
+                    )}
                   </div>
                 )}
 

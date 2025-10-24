@@ -13,6 +13,7 @@ import { agentApi } from '../lib/api';
 import { VoiceTest } from './VoiceTest';
 import { KnowledgeBase } from './KnowledgeBase';
 import { vapiConfig } from '../lib/vapi';
+import { useVapi } from '../contexts/VapiContext';
 import type { Agent } from '../types';
 
 interface AgentConfigProps {
@@ -92,6 +93,7 @@ const TONE_OPTIONS = ['professional', 'friendly', 'casual'] as const;
 const STYLE_OPTIONS = ['concise', 'detailed', 'adaptive'] as const;
 
 export function AgentConfig({ agentId }: AgentConfigProps) {
+  const { vapiClient, publicKey } = useVapi();
   const [agent, setAgent] = useState<Agent | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -100,12 +102,12 @@ export function AgentConfig({ agentId }: AgentConfigProps) {
 
   useEffect(() => {
     loadAgent();
-  }, [agentId]);
+  }, [agentId, vapiClient]);
 
   const loadAgent = async () => {
     setLoading(true);
     try {
-      const data = await agentApi.getById(agentId);
+      const data = await agentApi.getById(agentId, vapiClient);
       setAgent(data);
       setFormData(data || {});
     } catch (error) {
@@ -122,7 +124,7 @@ export function AgentConfig({ agentId }: AgentConfigProps) {
     try {
       // Only send changed fields
       const updates: Partial<Agent> = {};
-      
+
       if (editMode === 'voice') {
         updates.voice_id = formData.voice_id;
         updates.voice_name = formData.voice_name;
@@ -133,8 +135,8 @@ export function AgentConfig({ agentId }: AgentConfigProps) {
         updates.system_prompt = formData.system_prompt;
         updates.conversation_prompt = formData.conversation_prompt;
       }
-      
-      const updated = await agentApi.update(agent.id, updates);
+
+      const updated = await agentApi.update(agent.id, updates, vapiClient);
       setAgent(updated);
       setFormData(updated);
       setEditMode(null);
@@ -197,11 +199,11 @@ export function AgentConfig({ agentId }: AgentConfigProps) {
         </div>
 
         {/* Voice Test Section - Moved to top for easy access */}
-        {vapiConfig.publicKey && (
+        {publicKey && (
           <div className="mb-6">
             <VoiceTest
               assistantId={agent.id}
-              publicKey={vapiConfig.publicKey}
+              publicKey={publicKey}
             />
           </div>
         )}

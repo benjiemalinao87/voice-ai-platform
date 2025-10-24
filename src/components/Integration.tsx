@@ -1,19 +1,21 @@
-import { useState } from 'react';
-import { 
-  Settings as SettingsIcon, 
-  CheckCircle, 
-  XCircle, 
-  ExternalLink, 
-  Key, 
-  Database, 
-  Users, 
+import { useState, useEffect } from 'react';
+import {
+  Settings as SettingsIcon,
+  CheckCircle,
+  XCircle,
+  ExternalLink,
+  Key,
+  Database,
+  Users,
   Mail,
   Phone,
   Calendar,
   FileText,
   AlertCircle,
-  RefreshCw
+  RefreshCw,
+  Brain
 } from 'lucide-react';
+import { d1Client } from '../lib/d1';
 
 interface Integration {
   id: string;
@@ -26,7 +28,16 @@ interface Integration {
   color: string;
 }
 
-const integrations: Integration[] = [
+const getInitialIntegrations = (): Integration[] => [
+  {
+    id: 'openai',
+    name: 'OpenAI',
+    description: 'Enable AI-powered intent analysis on call recordings to automatically categorize customer intents, sentiment, and call outcomes.',
+    icon: <Brain className="w-6 h-6" />,
+    status: 'disconnected',
+    features: ['Intent Analysis', 'Sentiment Detection', 'Call Categorization', 'Outcome Prediction'],
+    color: 'bg-green-600'
+  },
   {
     id: 'salesforce',
     name: 'Salesforce',
@@ -56,13 +67,50 @@ const integrations: Integration[] = [
   }
 ];
 
-export function Integration() {
+interface IntegrationProps {
+  onNavigateToApiConfig?: () => void;
+}
+
+export function Integration({ onNavigateToApiConfig }: IntegrationProps = {}) {
+  const [integrations, setIntegrations] = useState<Integration[]>(getInitialIntegrations());
   const [selectedIntegration, setSelectedIntegration] = useState<string | null>(null);
   const [isConnecting, setIsConnecting] = useState<string | null>(null);
 
+  useEffect(() => {
+    loadIntegrationStatus();
+  }, []);
+
+  const loadIntegrationStatus = async () => {
+    try {
+      const settings = await d1Client.getUserSettings();
+
+      // Update OpenAI status based on API key presence
+      setIntegrations(prev => prev.map(integration => {
+        if (integration.id === 'openai') {
+          return {
+            ...integration,
+            status: settings.openaiApiKey ? 'connected' : 'disconnected',
+            lastSync: settings.openaiApiKey ? 'Active' : undefined
+          };
+        }
+        return integration;
+      }));
+    } catch (error) {
+      console.error('Error loading integration status:', error);
+    }
+  };
+
   const handleConnect = async (integrationId: string) => {
+    if (integrationId === 'openai') {
+      // Navigate to API Configuration tab
+      if (onNavigateToApiConfig) {
+        onNavigateToApiConfig();
+      }
+      return;
+    }
+
     setIsConnecting(integrationId);
-    // Simulate connection process
+    // Simulate connection process for other integrations
     setTimeout(() => {
       setIsConnecting(null);
       // In a real app, this would update the integration status
@@ -192,16 +240,28 @@ export function Integration() {
             <div className="flex gap-2">
               {integration.status === 'connected' ? (
                 <>
-                  <button
-                    onClick={() => setSelectedIntegration(integration.id)}
+                  {integration.id === 'openai' ? (
+                    <button
+                      onClick={() => onNavigateToApiConfig && onNavigateToApiConfig()}
+                      className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+                    >
+                      <SettingsIcon className="w-4 h-4" />
+                      Manage API Key
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => setSelectedIntegration(integration.id)}
                     className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
                   >
-                    <SettingsIcon className="w-4 h-4" />
-                    Configure
-                  </button>
-                  <button className="flex items-center justify-center gap-2 px-3 py-2 bg-green-100 dark:bg-green-900/20 text-green-700 dark:text-green-400 rounded-lg hover:bg-green-200 dark:hover:bg-green-900/30 transition-colors">
-                    <RefreshCw className="w-4 h-4" />
-                  </button>
+                      <SettingsIcon className="w-4 h-4" />
+                      Configure
+                    </button>
+                  )}
+                  {integration.id !== 'openai' && (
+                    <button className="flex items-center justify-center gap-2 px-3 py-2 bg-green-100 dark:bg-green-900/20 text-green-700 dark:text-green-400 rounded-lg hover:bg-green-200 dark:hover:bg-green-900/30 transition-colors">
+                      <RefreshCw className="w-4 h-4" />
+                    </button>
+                  )}
                 </>
               ) : (
                 <button

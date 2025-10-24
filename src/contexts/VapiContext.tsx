@@ -1,18 +1,15 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { VapiClient } from '../lib/vapi';
 import { d1Client } from '../lib/d1';
-import { decrypt } from '../lib/encryption';
 import { useAuth } from './AuthContext';
 
 interface VapiContextType {
   vapiClient: VapiClient | null;
+  publicKey: string | null;
   selectedOrgId: string | null;
-  nameFilter: string | null;
   isConfigured: boolean;
   isLoading: boolean;
-  decryptAndLoadKeys: (password: string) => Promise<boolean>;
   setSelectedOrgId: (orgId: string | null) => void;
-  setNameFilter: (pattern: string | null) => void;
   clearKeys: () => void;
 }
 
@@ -21,53 +18,53 @@ const VapiContext = createContext<VapiContextType | undefined>(undefined);
 export function VapiProvider({ children }: { children: ReactNode }) {
   const { user, token } = useAuth();
   const [vapiClient, setVapiClient] = useState<VapiClient | null>(null);
+  const [publicKey, setPublicKey] = useState<string | null>(null);
   const [selectedOrgId, setSelectedOrgId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
-  // Clear VAPI client when user logs out
+  // Auto-load keys when user authenticates
   useEffect(() => {
-    if (!user || !token) {
+    if (user && token) {
+      loadKeys();
+    } else {
+      // Clear keys on logout
       setVapiClient(null);
+      setPublicKey(null);
       setSelectedOrgId(null);
     }
   }, [user, token]);
 
-  const decryptAndLoadKeys = async (password: string): Promise<boolean> => {
-    if (!token) {
-      console.error('No authentication token');
-      return false;
-    }
-
+  const loadKeys = async () => {
     setIsLoading(true);
     try {
-      // Load encrypted settings from D1
+      // Load settings from D1
       const settings = await d1Client.getUserSettings();
 
-      if (!settings.encryptedPrivateKey) {
-        console.error('No API keys configured');
-        return false;
+      if (!settings.privateKey) {
+        console.log('No API keys configured yet');
+        setIsLoading(false);
+        return;
       }
 
-      // Decrypt the private key
-      const privateKey = await decrypt(
-        settings.encryptedPrivateKey,
-        password,
-        settings.encryptionSalt
-      );
+      console.log('Loading VAPI keys...');
 
       // Create VAPI client with user's private key
-      const client = new VapiClient(privateKey);
+      const client = new VapiClient(settings.privateKey);
       setVapiClient(client);
 
-      // Load selected org ID from settings (optional)
+      // Store public key for VoiceTest component
+      if (settings.publicKey) {
+        setPublicKey(settings.publicKey);
+      }
+
+      // Load selected org ID from settings
       if (settings.selectedOrgId) {
         setSelectedOrgId(settings.selectedOrgId);
       }
 
-      return true;
+      console.log('VAPI client initialized successfully');
     } catch (error) {
-      console.error('Failed to decrypt and load VAPI keys:', error);
-      return false;
+      console.error('Failed to load VAPI keys:', error);
     } finally {
       setIsLoading(false);
     }
@@ -75,6 +72,7 @@ export function VapiProvider({ children }: { children: ReactNode }) {
 
   const clearKeys = () => {
     setVapiClient(null);
+    setPublicKey(null);
     setSelectedOrgId(null);
   };
 
@@ -82,10 +80,10 @@ export function VapiProvider({ children }: { children: ReactNode }) {
     <VapiContext.Provider
       value={{
         vapiClient,
+        publicKey,
         selectedOrgId,
         isConfigured: !!vapiClient,
         isLoading,
-        decryptAndLoadKeys,
         setSelectedOrgId,
         clearKeys,
       }}

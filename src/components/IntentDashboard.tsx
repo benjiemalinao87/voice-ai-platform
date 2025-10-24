@@ -1,15 +1,16 @@
-import { useState, useMemo } from 'react';
-import { 
-  Brain, 
-  Filter, 
-  Search, 
-  TrendingUp, 
-  Users, 
+import { useState, useMemo, useEffect } from 'react';
+import {
+  Brain,
+  Filter,
+  Search,
+  TrendingUp,
+  Users,
   Calendar,
   MessageSquare,
   BarChart3
 } from 'lucide-react';
 import { IntentCard } from './IntentCard';
+import { d1Client } from '../lib/d1';
 import type { CallIntent } from '../types';
 
 // Mock data for 5 calls with intent analysis
@@ -97,24 +98,90 @@ const mockCallIntents: CallIntent[] = [
 ];
 
 export function IntentDashboard() {
+  const [callIntents, setCallIntents] = useState<CallIntent[]>([]);
+  const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedIntent, setSelectedIntent] = useState<string>('all');
   const [selectedMood, setSelectedMood] = useState<string>('all');
 
-  // Get unique intents and moods for filter options
-  const intents = useMemo(() => {
-    const uniqueIntents = [...new Set(mockCallIntents.map(call => call.intent))];
-    return uniqueIntents;
+  useEffect(() => {
+    loadCallIntents();
   }, []);
 
+  const loadCallIntents = async () => {
+    try {
+      setLoading(true);
+      const webhookCalls = await d1Client.getWebhookCalls({ limit: 100 });
+
+      // Convert webhook calls to CallIntent format
+      const convertedIntents: CallIntent[] = webhookCalls
+        .filter(call => call.analysis_completed) // Only show analyzed calls
+        .map((call, index) => {
+          // Parse raw_payload for transcript
+          let transcriptExcerpt = '';
+          let customerName = 'Unknown Customer';
+
+          try {
+            if (call.raw_payload) {
+              const payload = typeof call.raw_payload === 'string'
+                ? JSON.parse(call.raw_payload)
+                : call.raw_payload;
+
+              if (payload.message?.artifact?.transcript) {
+                transcriptExcerpt = payload.message.artifact.transcript.substring(0, 200) + '...';
+              }
+
+              // Try to extract customer name from structured data
+              if (call.structured_data?.name) {
+                customerName = call.structured_data.name;
+              }
+            }
+          } catch (error) {
+            console.error('Error parsing call data:', error);
+          }
+
+          return {
+            id: call.id,
+            call_id: call.vapi_call_id || call.id,
+            intent: call.intent || 'Unknown',
+            intent_reasoning: `Analyzed from call summary and transcript`,
+            mood: call.sentiment?.toLowerCase() || 'neutral',
+            mood_confidence: 85,
+            mood_reasoning: `Determined from call analysis`,
+            call_date: new Date(call.created_at * 1000).toISOString(),
+            duration_seconds: 180, // We don't have duration yet
+            language: 'en',
+            was_answered: !!call.recording_url,
+            transcript_excerpt: transcriptExcerpt || call.summary?.substring(0, 200) + '...' || 'No transcript available',
+            customer_name: customerName,
+            phone_number: call.phone_number || 'N/A'
+          };
+        });
+
+      // Don't fallback to mock data - show real data only
+      setCallIntents(convertedIntents);
+    } catch (error) {
+      console.error('Error loading call intents:', error);
+      setCallIntents([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Get unique intents and moods for filter options
+  const intents = useMemo(() => {
+    const uniqueIntents = [...new Set(callIntents.map(call => call.intent))];
+    return uniqueIntents;
+  }, [callIntents]);
+
   const moods = useMemo(() => {
-    const uniqueMoods = [...new Set(mockCallIntents.map(call => call.mood))];
+    const uniqueMoods = [...new Set(callIntents.map(call => call.mood))];
     return uniqueMoods;
-  }, []);
+  }, [callIntents]);
 
   // Filter calls based on search and filters
   const filteredCalls = useMemo(() => {
-    return mockCallIntents.filter(call => {
+    return callIntents.filter(call => {
       const matchesSearch = searchTerm === '' || 
         call.customer_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
         call.intent.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -125,16 +192,18 @@ export function IntentDashboard() {
       
       return matchesSearch && matchesIntent && matchesMood;
     });
-  }, [searchTerm, selectedIntent, selectedMood]);
+  }, [callIntents, searchTerm, selectedIntent, selectedMood]);
 
   // Calculate summary statistics
   const stats = useMemo(() => {
-    const totalCalls = mockCallIntents.length;
-    const answeredCalls = mockCallIntents.filter(call => call.was_answered).length;
-    const avgConfidence = mockCallIntents.reduce((sum, call) => sum + call.mood_confidence, 0) / totalCalls;
+    const totalCalls = callIntents.length;
+    const answeredCalls = callIntents.filter(call => call.was_answered).length;
+    const avgConfidence = totalCalls > 0
+      ? callIntents.reduce((sum, call) => sum + call.mood_confidence, 0) / totalCalls
+      : 0;
     const intentDistribution = intents.map(intent => ({
       intent,
-      count: mockCallIntents.filter(call => call.intent === intent).length
+      count: callIntents.filter(call => call.intent === intent).length
     }));
 
     return {
@@ -143,7 +212,15 @@ export function IntentDashboard() {
       avgConfidence: Math.round(avgConfidence),
       intentDistribution
     };
-  }, [intents]);
+  }, [callIntents, intents]);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 dark:border-blue-400"></div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">

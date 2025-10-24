@@ -3,7 +3,7 @@ import { Key, Save, Eye, EyeOff, AlertCircle, CheckCircle, Trash2, RefreshCw, Lo
 import { VapiClient } from '../lib/vapi';
 import { useAuth } from '../contexts/AuthContext';
 import { useVapi } from '../contexts/VapiContext';
-import { encrypt, decrypt } from '../lib/encryption';
+import { d1Client } from '../lib/d1';
 import { Integration } from './Integration';
 import { WebhookConfig } from './WebhookConfig';
 
@@ -24,11 +24,11 @@ interface PhoneNumber {
 }
 
 interface UserSettings {
-  encryptedPrivateKey?: string;
-  encryptedPublicKey?: string;
+  privateKey?: string;
+  publicKey?: string;
   selectedAssistantId?: string;
   selectedPhoneId?: string;
-  encryptionSalt: string;
+  openaiApiKey?: string;
 }
 
 const API_URL = import.meta.env.VITE_D1_API_URL || 'http://localhost:8787';
@@ -40,16 +40,15 @@ interface SettingsProps {
 
 export function Settings({ wideView = false, onWideViewChange }: SettingsProps = {}) {
   const { user, token, logout } = useAuth();
-  const { decryptAndLoadKeys } = useVapi();
   const [activeTab, setActiveTab] = useState<'api' | 'integrations' | 'webhooks' | 'preferences'>('api');
   const [credentials, setCredentials] = useState<VapiCredentials>({
     privateKey: '',
     publicKey: ''
   });
-  const [password, setPassword] = useState(''); // User's password for encryption
   const [showPrivateKey, setShowPrivateKey] = useState(false);
   const [showPublicKey, setShowPublicKey] = useState(false);
-  const [showPassword, setShowPassword] = useState(false);
+  const [openaiApiKey, setOpenaiApiKey] = useState('');
+  const [showOpenaiKey, setShowOpenaiKey] = useState(false);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -87,11 +86,16 @@ export function Settings({ wideView = false, onWideViewChange }: SettingsProps =
       setUserSettings(settings);
       setSelectedAssistantId(settings.selectedAssistantId || '');
       setSelectedPhoneId(settings.selectedPhoneId || '');
+      setOpenaiApiKey(settings.openaiApiKey || '');
 
-      // If keys exist, user needs to enter password to decrypt them
-      if (settings.encryptedPrivateKey) {
-        setStatus('idle');
-        setErrorMessage('Enter your password to decrypt your API keys');
+      // Load plain keys directly
+      if (settings.privateKey) {
+        setCredentials({
+          privateKey: settings.privateKey,
+          publicKey: settings.publicKey || ''
+        });
+        // Auto-load resources
+        await loadVapiResources(settings.privateKey);
       }
     } catch (error: any) {
       console.error('Error loading settings:', error);
@@ -99,50 +103,6 @@ export function Settings({ wideView = false, onWideViewChange }: SettingsProps =
       setStatus('error');
     } finally {
       setLoading(false);
-    }
-  };
-
-  const decryptKeys = async () => {
-    if (!password || !userSettings) return;
-
-    try {
-      // IMPORTANT: Call VapiContext's decryptAndLoadKeys to set the vapiClient globally
-      const success = await decryptAndLoadKeys(password);
-
-      if (!success) {
-        setErrorMessage('Failed to decrypt keys');
-        setStatus('error');
-        return;
-      }
-
-      // Decrypt keys locally for display and resource loading
-      if (userSettings.encryptedPrivateKey) {
-        const privateKey = await decrypt(
-          userSettings.encryptedPrivateKey,
-          password,
-          userSettings.encryptionSalt
-        );
-        setCredentials(prev => ({ ...prev, privateKey }));
-
-        // Auto-load resources for Settings display
-        await loadVapiResources(privateKey);
-      }
-
-      if (userSettings.encryptedPublicKey) {
-        const publicKey = await decrypt(
-          userSettings.encryptedPublicKey,
-          password,
-          userSettings.encryptionSalt
-        );
-        setCredentials(prev => ({ ...prev, publicKey }));
-      }
-
-      setErrorMessage('');
-      setStatus('success');
-    } catch (error: any) {
-      console.error('Decryption error:', error);
-      setErrorMessage('Incorrect password or corrupted keys');
-      setStatus('error');
     }
   };
 
@@ -209,13 +169,7 @@ export function Settings({ wideView = false, onWideViewChange }: SettingsProps =
       return;
     }
 
-    if (!password) {
-      setErrorMessage('Password is required to encrypt your API keys');
-      setStatus('error');
-      return;
-    }
-
-    if (!token || !userSettings) {
+    if (!token) {
       setErrorMessage('You must be logged in');
       setStatus('error');
       return;
@@ -225,39 +179,18 @@ export function Settings({ wideView = false, onWideViewChange }: SettingsProps =
     setErrorMessage('');
 
     try {
-      // Encrypt keys
-      const encryptedPrivateKey = await encrypt(
-        credentials.privateKey,
-        password,
-        userSettings.encryptionSalt
-      );
-
-      const encryptedPublicKey = credentials.publicKey
-        ? await encrypt(credentials.publicKey, password, userSettings.encryptionSalt)
-        : undefined;
-
-      // Save to D1
-      const response = await fetch(`${API_URL}/api/settings`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          encryptedPrivateKey,
-          encryptedPublicKey,
-          selectedAssistantId: selectedAssistantId || null,
-          selectedPhoneId: selectedPhoneId || null,
-        }),
+      // Save to D1 using d1Client
+      await d1Client.updateUserSettings({
+        privateKey: credentials.privateKey,
+        publicKey: credentials.publicKey || null,
+        selectedAssistantId: selectedAssistantId || null,
+        selectedPhoneId: selectedPhoneId || null,
+        openaiApiKey: openaiApiKey || null,
       });
-
-      if (!response.ok) {
-        throw new Error('Failed to save settings');
-      }
 
       setStatus('success');
       setErrorMessage('Settings saved successfully! Reloading...');
-      
+
       // Reload after save
       setTimeout(() => {
         window.location.reload();
@@ -389,10 +322,9 @@ export function Settings({ wideView = false, onWideViewChange }: SettingsProps =
           <div className="flex items-start gap-3">
             <AlertCircle className="w-5 h-5 text-blue-600 dark:text-blue-400 flex-shrink-0 mt-0.5" />
             <div className="text-sm text-blue-900 dark:text-blue-100">
-              <p className="font-medium mb-1">Secure Multi-Device Sync</p>
+              <p className="font-medium mb-1">API Configuration</p>
               <p className="text-blue-700 dark:text-blue-300">
-                Your API keys are encrypted with your password before being stored. They sync across all your devices.
-                You'll need to enter your password to decrypt them.
+                Enter your VAPI API keys to connect your account. Your keys are securely stored and sync across your devices.
               </p>
             </div>
           </div>
@@ -428,40 +360,6 @@ export function Settings({ wideView = false, onWideViewChange }: SettingsProps =
           </div>
         )}
 
-        {/* Password Input for Decryption */}
-        {userSettings?.encryptedPrivateKey && !credentials.privateKey && (
-          <div className="mb-6 p-4 bg-gray-50 dark:bg-gray-700 rounded-lg">
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Your Password (to decrypt API keys)
-            </label>
-            <div className="flex gap-2">
-              <div className="relative flex-1">
-                <input
-                  type={showPassword ? 'text' : 'password'}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Enter your account password"
-                  className="w-full px-4 py-2 pr-10 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
-                  onKeyDown={(e) => e.key === 'Enter' && decryptKeys()}
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
-                >
-                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                </button>
-              </div>
-              <button
-                onClick={decryptKeys}
-                disabled={!password}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                Decrypt
-              </button>
-            </div>
-          </div>
-        )}
 
         {/* API Keys Input */}
         <div className="space-y-4 mb-6">
@@ -512,33 +410,31 @@ export function Settings({ wideView = false, onWideViewChange }: SettingsProps =
             </p>
           </div>
 
-          {/* Password for Encryption */}
-          {credentials.privateKey && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Your Password (for encryption) *
-              </label>
-              <div className="relative">
-                <input
-                  type={showPassword ? 'text' : 'password'}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Enter your account password"
-                  className="w-full px-4 py-2 pr-10 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
-                >
-                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                </button>
-              </div>
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                Your password encrypts your API keys before they're saved
-              </p>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              OpenAI API Key (optional)
+            </label>
+            <div className="relative">
+              <input
+                type={showOpenaiKey ? 'text' : 'password'}
+                value={openaiApiKey}
+                onChange={(e) => setOpenaiApiKey(e.target.value)}
+                placeholder="sk-proj-..."
+                className="w-full px-4 py-2 pr-10 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 font-mono text-sm"
+              />
+              <button
+                type="button"
+                onClick={() => setShowOpenaiKey(!showOpenaiKey)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+              >
+                {showOpenaiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
             </div>
-          )}
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+              Used for AI-powered Intent Analysis on call recordings
+            </p>
+          </div>
+
         </div>
 
         {/* Test Connection Button */}
@@ -622,11 +518,11 @@ export function Settings({ wideView = false, onWideViewChange }: SettingsProps =
 
           <button
             onClick={handleSave}
-            disabled={saving || !credentials.privateKey || !password}
+            disabled={saving || !credentials.privateKey}
             className="flex items-center gap-2 px-6 py-2 bg-blue-600 dark:bg-blue-500 text-white rounded-lg hover:bg-blue-700 dark:hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <Save className="w-4 h-4" />
-            {saving ? 'Saving...' : 'Save & Encrypt'}
+            {saving ? 'Saving...' : 'Save Settings'}
           </button>
         </div>
 
@@ -639,7 +535,7 @@ export function Settings({ wideView = false, onWideViewChange }: SettingsProps =
           )}
 
           {activeTab === 'integrations' && (
-            <Integration />
+            <Integration onNavigateToApiConfig={() => setActiveTab('api')} />
           )}
 
           {activeTab === 'webhooks' && (
