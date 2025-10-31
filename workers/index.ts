@@ -1146,12 +1146,18 @@ export default {
 
         const callId = url.pathname.split('/')[3];
 
+        console.log('[Call Control] End call request received:', {
+          callId,
+          userId
+        });
+
         // Verify the call belongs to this user
         const call = await env.DB.prepare(
           'SELECT vapi_call_id FROM active_calls WHERE vapi_call_id = ? AND user_id = ?'
         ).bind(callId, userId).first() as any;
 
         if (!call) {
+          console.log('[Call Control] Call not found or unauthorized:', callId);
           return jsonResponse({ error: 'Call not found or unauthorized' }, 404);
         }
 
@@ -1161,11 +1167,14 @@ export default {
         ).bind(userId).first() as any;
 
         if (!settings?.private_key) {
+          console.log('[Call Control] VAPI credentials not configured for user:', userId);
           return jsonResponse({ error: 'VAPI credentials not configured' }, 400);
         }
 
         // Call VAPI API to end the call
         try {
+          console.log('[Call Control] Calling VAPI to end call:', callId);
+
           const response = await fetch(`https://api.vapi.ai/call/${callId}`, {
             method: 'DELETE',
             headers: {
@@ -1176,14 +1185,23 @@ export default {
 
           if (!response.ok) {
             const error = await response.text();
-            console.error('VAPI end call error:', error);
+            console.error('[Call Control] VAPI end call error:', {
+              callId,
+              status: response.status,
+              error
+            });
             return jsonResponse({ error: 'Failed to end call' }, response.status);
           }
+
+          const result = await response.json();
+          console.log('[Call Control] VAPI response:', result);
 
           // Remove from active calls
           await env.DB.prepare(
             'DELETE FROM active_calls WHERE vapi_call_id = ? AND user_id = ?'
           ).bind(callId, userId).run();
+
+          console.log('[Call Control] Call ended successfully:', callId);
 
           // Invalidate cache
           const cache = new VoiceAICache(env.CACHE);
@@ -1191,7 +1209,10 @@ export default {
 
           return jsonResponse({ success: true, message: 'Call ended successfully' });
         } catch (error) {
-          console.error('Error ending call:', error);
+          console.error('[Call Control] Error ending call:', {
+            callId,
+            error: error instanceof Error ? error.message : String(error)
+          });
           return jsonResponse({ error: 'Failed to end call' }, 500);
         }
       }
@@ -1207,7 +1228,14 @@ export default {
         const body = await request.json() as any;
         const transferNumber = body.phoneNumber;
 
+        console.log('[Call Control] Transfer call request received:', {
+          callId,
+          userId,
+          transferNumber
+        });
+
         if (!transferNumber) {
+          console.log('[Call Control] Transfer number missing');
           return jsonResponse({ error: 'Transfer phone number required' }, 400);
         }
 
@@ -1217,6 +1245,7 @@ export default {
         ).bind(callId, userId).first() as any;
 
         if (!call) {
+          console.log('[Call Control] Call not found or unauthorized:', callId);
           return jsonResponse({ error: 'Call not found or unauthorized' }, 404);
         }
 
@@ -1226,35 +1255,59 @@ export default {
         ).bind(userId).first() as any;
 
         if (!settings?.private_key) {
+          console.log('[Call Control] VAPI credentials not configured for user:', userId);
           return jsonResponse({ error: 'VAPI credentials not configured' }, 400);
         }
 
         // Call VAPI API to transfer the call
         try {
+          const transferPayload = {
+            destination: {
+              type: 'number',
+              number: transferNumber,
+              message: 'Transferring your call...'
+            }
+          };
+
+          console.log('[Call Control] Calling VAPI to transfer call:', {
+            callId,
+            payload: transferPayload
+          });
+
           const response = await fetch(`https://api.vapi.ai/call/${callId}`, {
             method: 'PATCH',
             headers: {
               'Authorization': `Bearer ${settings.private_key}`,
               'Content-Type': 'application/json'
             },
-            body: JSON.stringify({
-              destination: {
-                type: 'number',
-                number: transferNumber,
-                message: 'Transferring your call...'
-              }
-            })
+            body: JSON.stringify(transferPayload)
           });
 
           if (!response.ok) {
             const error = await response.text();
-            console.error('VAPI transfer call error:', error);
+            console.error('[Call Control] VAPI transfer call error:', {
+              callId,
+              transferNumber,
+              status: response.status,
+              error
+            });
             return jsonResponse({ error: 'Failed to transfer call' }, response.status);
           }
 
+          const result = await response.json();
+          console.log('[Call Control] VAPI transfer response:', result);
+          console.log('[Call Control] Call transferred successfully:', {
+            callId,
+            transferNumber
+          });
+
           return jsonResponse({ success: true, message: 'Call transferred successfully' });
         } catch (error) {
-          console.error('Error transferring call:', error);
+          console.error('[Call Control] Error transferring call:', {
+            callId,
+            transferNumber,
+            error: error instanceof Error ? error.message : String(error)
+          });
           return jsonResponse({ error: 'Failed to transfer call' }, 500);
         }
       }
