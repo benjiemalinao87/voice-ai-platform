@@ -78,6 +78,8 @@ class D1Client {
     selectedPhoneId?: string;
     selectedOrgId?: string;
     openaiApiKey?: string;
+    twilioAccountSid?: string;
+    twilioAuthToken?: string;
   }> {
     return this.request('/api/settings', {
       method: 'GET',
@@ -91,6 +93,8 @@ class D1Client {
     selectedPhoneId?: string | null;
     selectedOrgId?: string | null;
     openaiApiKey?: string | null;
+    twilioAccountSid?: string | null;
+    twilioAuthToken?: string | null;
   }): Promise<{ message: string }> {
     return this.request('/api/settings', {
       method: 'PUT',

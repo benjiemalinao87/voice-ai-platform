@@ -575,7 +575,7 @@ export default {
         }
 
         const settings = await env.DB.prepare(
-          'SELECT private_key, public_key, selected_assistant_id, selected_phone_id, selected_org_id, openai_api_key FROM user_settings WHERE user_id = ?'
+          'SELECT private_key, public_key, selected_assistant_id, selected_phone_id, selected_org_id, openai_api_key, twilio_account_sid, twilio_auth_token FROM user_settings WHERE user_id = ?'
         ).bind(userId).first() as any;
 
         if (!settings) {
@@ -588,7 +588,9 @@ export default {
           selectedAssistantId: settings.selected_assistant_id,
           selectedPhoneId: settings.selected_phone_id,
           selectedOrgId: settings.selected_org_id,
-          openaiApiKey: settings.openai_api_key
+          openaiApiKey: settings.openai_api_key,
+          twilioAccountSid: settings.twilio_account_sid,
+          twilioAuthToken: settings.twilio_auth_token
         });
       }
 
@@ -605,13 +607,15 @@ export default {
           selectedAssistantId,
           selectedPhoneId,
           selectedOrgId,
-          openaiApiKey
+          openaiApiKey,
+          twilioAccountSid,
+          twilioAuthToken
         } = await request.json() as any;
 
         const timestamp = now();
 
         await env.DB.prepare(
-          'UPDATE user_settings SET private_key = ?, public_key = ?, selected_assistant_id = ?, selected_phone_id = ?, selected_org_id = ?, openai_api_key = ?, updated_at = ? WHERE user_id = ?'
+          'UPDATE user_settings SET private_key = ?, public_key = ?, selected_assistant_id = ?, selected_phone_id = ?, selected_org_id = ?, openai_api_key = ?, twilio_account_sid = ?, twilio_auth_token = ?, updated_at = ? WHERE user_id = ?'
         ).bind(
           privateKey || null,
           publicKey || null,
@@ -619,6 +623,8 @@ export default {
           selectedPhoneId || null,
           selectedOrgId || null,
           openaiApiKey || null,
+          twilioAccountSid || null,
+          twilioAuthToken || null,
           timestamp,
           userId
         ).run();

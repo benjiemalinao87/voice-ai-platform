@@ -39,6 +39,15 @@ const getInitialIntegrations = (): Integration[] => [
     color: 'bg-green-600'
   },
   {
+    id: 'twilio',
+    name: 'Twilio Lookup',
+    description: 'Enrich incoming calls with caller identification, carrier information, and phone number validation using Twilio\'s Lookup API.',
+    icon: <Phone className="w-6 h-6" />,
+    status: 'disconnected',
+    features: ['Caller Name Lookup', 'Carrier Detection', 'Line Type Info', 'Number Validation'],
+    color: 'bg-red-600'
+  },
+  {
     id: 'salesforce',
     name: 'Salesforce',
     description: 'Connect your Salesforce CRM to sync contacts, leads, and opportunities with your voice AI system.',
@@ -84,13 +93,20 @@ export function Integration({ onNavigateToApiConfig }: IntegrationProps = {}) {
     try {
       const settings = await d1Client.getUserSettings();
 
-      // Update OpenAI status based on API key presence
+      // Update integration status based on stored credentials
       setIntegrations(prev => prev.map(integration => {
         if (integration.id === 'openai') {
           return {
             ...integration,
             status: settings.openaiApiKey ? 'connected' : 'disconnected',
             lastSync: settings.openaiApiKey ? 'Active' : undefined
+          };
+        }
+        if (integration.id === 'twilio') {
+          return {
+            ...integration,
+            status: settings.twilioAccountSid && settings.twilioAuthToken ? 'connected' : 'disconnected',
+            lastSync: settings.twilioAccountSid && settings.twilioAuthToken ? 'Active' : undefined
           };
         }
         return integration;
@@ -101,7 +117,7 @@ export function Integration({ onNavigateToApiConfig }: IntegrationProps = {}) {
   };
 
   const handleConnect = async (integrationId: string) => {
-    if (integrationId === 'openai') {
+    if (integrationId === 'openai' || integrationId === 'twilio') {
       // Navigate to API Configuration tab
       if (onNavigateToApiConfig) {
         onNavigateToApiConfig();
@@ -240,13 +256,13 @@ export function Integration({ onNavigateToApiConfig }: IntegrationProps = {}) {
             <div className="flex gap-2">
               {integration.status === 'connected' ? (
                 <>
-                  {integration.id === 'openai' ? (
+                  {integration.id === 'openai' || integration.id === 'twilio' ? (
                     <button
                       onClick={() => onNavigateToApiConfig && onNavigateToApiConfig()}
                       className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
                     >
                       <SettingsIcon className="w-4 h-4" />
-                      Manage API Key
+                      {integration.id === 'twilio' ? 'Manage Twilio Keys' : 'Manage API Key'}
                     </button>
                   ) : (
                     <button
@@ -257,7 +273,7 @@ export function Integration({ onNavigateToApiConfig }: IntegrationProps = {}) {
                       Configure
                     </button>
                   )}
-                  {integration.id !== 'openai' && (
+                  {integration.id !== 'openai' && integration.id !== 'twilio' && (
                     <button className="flex items-center justify-center gap-2 px-3 py-2 bg-green-100 dark:bg-green-900/20 text-green-700 dark:text-green-400 rounded-lg hover:bg-green-200 dark:hover:bg-green-900/30 transition-colors">
                       <RefreshCw className="w-4 h-4" />
                     </button>
