@@ -10,6 +10,7 @@ import { IntentDashboard } from './components/IntentDashboard';
 import { LiveChat } from './components/LiveChat';
 import { BoardView } from './components/BoardView';
 import { AdminDashboard } from './components/AdminDashboard';
+import { LiveCallFeed } from './components/LiveCallFeed';
 import { useAuth } from './contexts/AuthContext';
 import { useVapi } from './contexts/VapiContext';
 import { agentApi } from './lib/api';
@@ -266,6 +267,8 @@ function App() {
                 </select>
               </div>
             </div>
+
+            <LiveCallFeed />
 
             <PerformanceDashboard
               selectedAgentId={selectedAgentId}

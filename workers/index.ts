@@ -1107,6 +1107,33 @@ export default {
       }
 
       // Get intent analysis with caching
+      // Get active calls
+      if (url.pathname === '/api/active-calls' && request.method === 'GET') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        // Fetch active calls from database
+        const { results } = await env.DB.prepare(
+          `SELECT
+            id,
+            vapi_call_id,
+            customer_number,
+            caller_name,
+            carrier_name,
+            line_type,
+            status,
+            started_at,
+            updated_at
+          FROM active_calls
+          WHERE user_id = ?
+          ORDER BY started_at DESC`
+        ).bind(userId).all();
+
+        return jsonResponse(results);
+      }
+
       if (url.pathname === '/api/intent-analysis' && request.method === 'GET') {
         const userId = await getUserFromToken(request, env);
         if (!userId) {
@@ -1266,14 +1293,85 @@ export default {
 
         // Extract fields from VAPI payload
         const message = payload.message || {};
+        const messageType = message.type || 'end-of-call-report';
         const call = message.call || {};
         const customer = call.customer || {};
         const phoneNumber = call.phoneNumber || {};
         const artifact = message.artifact || {};
         const analysis = message.analysis || {};
 
-        const callId = generateId();
         const timestamp = now();
+
+        // Handle status-update events (real-time call status)
+        if (messageType === 'status-update') {
+          const callStatus = message.status; // 'queued', 'ringing', 'in-progress', 'ended'
+          const vapiCallId = call.id;
+          const customerNumber = customer.number || null;
+
+          // Only track active calls (ringing or in-progress)
+          if (callStatus === 'ringing' || callStatus === 'in-progress') {
+            // Enrich caller data with Twilio Lookup
+            let twilioData: TwilioCallerInfo | null = null;
+            if (customerNumber) {
+              try {
+                const userSettings = await env.DB.prepare(
+                  'SELECT twilio_account_sid, twilio_auth_token FROM user_settings WHERE user_id = ?'
+                ).bind(webhook.user_id).first() as any;
+
+                if (userSettings?.twilio_account_sid && userSettings?.twilio_auth_token) {
+                  twilioData = await lookupCallerWithTwilio(
+                    customerNumber,
+                    userSettings.twilio_account_sid,
+                    userSettings.twilio_auth_token
+                  );
+                }
+              } catch (error) {
+                console.error('Error enriching caller data:', error);
+              }
+            }
+
+            // Insert or update active call
+            await env.DB.prepare(
+              `INSERT OR REPLACE INTO active_calls
+              (id, user_id, vapi_call_id, customer_number, caller_name, carrier_name, line_type, status, started_at, updated_at)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+            ).bind(
+              vapiCallId,
+              webhook.user_id,
+              vapiCallId,
+              customerNumber,
+              twilioData?.callerName || null,
+              twilioData?.carrierName || null,
+              twilioData?.lineType || null,
+              callStatus,
+              timestamp,
+              timestamp
+            ).run();
+
+            // Invalidate cache
+            const cache = new VoiceAICache(env.CACHE);
+            await cache.invalidateUserCache(webhook.user_id);
+
+            return jsonResponse({ success: true, message: 'Call status updated' });
+
+          } else if (callStatus === 'ended') {
+            // Remove from active calls
+            await env.DB.prepare(
+              'DELETE FROM active_calls WHERE vapi_call_id = ? AND user_id = ?'
+            ).bind(vapiCallId, webhook.user_id).run();
+
+            // Invalidate cache
+            const cache = new VoiceAICache(env.CACHE);
+            await cache.invalidateUserCache(webhook.user_id);
+
+            return jsonResponse({ success: true, message: 'Call ended, removed from active calls' });
+          }
+
+          return jsonResponse({ success: true, message: 'Status update received' });
+        }
+
+        // Handle end-of-call-report (existing logic)
+        const callId = generateId();
 
         // Enrich caller data with Twilio Lookup (if configured)
         let twilioData: TwilioCallerInfo | null = null;
