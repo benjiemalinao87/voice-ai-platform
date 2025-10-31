@@ -457,10 +457,11 @@ export default {
 
         // Create empty settings
         const settingsId = generateId();
+        const encryptionSalt = generateSalt();
 
         await env.DB.prepare(
-          'INSERT INTO user_settings (id, user_id, created_at, updated_at) VALUES (?, ?, ?, ?)'
-        ).bind(settingsId, userId, timestamp, timestamp).run();
+          'INSERT INTO user_settings (id, user_id, encryption_salt, created_at, updated_at) VALUES (?, ?, ?, ?, ?)'
+        ).bind(settingsId, userId, encryptionSalt, timestamp, timestamp).run();
 
         return jsonResponse({
           token,
