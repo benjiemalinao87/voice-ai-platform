@@ -621,7 +621,7 @@ export default {
         }
 
         const settings = await env.DB.prepare(
-          'SELECT private_key, public_key, selected_assistant_id, selected_phone_id, selected_org_id, openai_api_key, twilio_account_sid, twilio_auth_token FROM user_settings WHERE user_id = ?'
+          'SELECT private_key, public_key, selected_assistant_id, selected_phone_id, selected_org_id, openai_api_key, twilio_account_sid, twilio_auth_token, transfer_phone_number FROM user_settings WHERE user_id = ?'
         ).bind(userId).first() as any;
 
         if (!settings) {
@@ -636,7 +636,8 @@ export default {
           selectedOrgId: settings.selected_org_id,
           openaiApiKey: settings.openai_api_key,
           twilioAccountSid: settings.twilio_account_sid,
-          twilioAuthToken: settings.twilio_auth_token
+          twilioAuthToken: settings.twilio_auth_token,
+          transferPhoneNumber: settings.transfer_phone_number
         });
       }
 
@@ -655,13 +656,14 @@ export default {
           selectedOrgId,
           openaiApiKey,
           twilioAccountSid,
-          twilioAuthToken
+          twilioAuthToken,
+          transferPhoneNumber
         } = await request.json() as any;
 
         const timestamp = now();
 
         await env.DB.prepare(
-          'UPDATE user_settings SET private_key = ?, public_key = ?, selected_assistant_id = ?, selected_phone_id = ?, selected_org_id = ?, openai_api_key = ?, twilio_account_sid = ?, twilio_auth_token = ?, updated_at = ? WHERE user_id = ?'
+          'UPDATE user_settings SET private_key = ?, public_key = ?, selected_assistant_id = ?, selected_phone_id = ?, selected_org_id = ?, openai_api_key = ?, twilio_account_sid = ?, twilio_auth_token = ?, transfer_phone_number = ?, updated_at = ? WHERE user_id = ?'
         ).bind(
           privateKey || null,
           publicKey || null,
@@ -671,6 +673,7 @@ export default {
           openaiApiKey || null,
           twilioAccountSid || null,
           twilioAuthToken || null,
+          transferPhoneNumber || null,
           timestamp,
           userId
         ).run();
@@ -1132,6 +1135,128 @@ export default {
         ).bind(userId).all();
 
         return jsonResponse(results);
+      }
+
+      // End active call
+      if (url.pathname.startsWith('/api/calls/') && url.pathname.endsWith('/end') && request.method === 'POST') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        const callId = url.pathname.split('/')[3];
+
+        // Verify the call belongs to this user
+        const call = await env.DB.prepare(
+          'SELECT vapi_call_id FROM active_calls WHERE vapi_call_id = ? AND user_id = ?'
+        ).bind(callId, userId).first() as any;
+
+        if (!call) {
+          return jsonResponse({ error: 'Call not found or unauthorized' }, 404);
+        }
+
+        // Get user's VAPI credentials
+        const settings = await env.DB.prepare(
+          'SELECT private_key FROM user_settings WHERE user_id = ?'
+        ).bind(userId).first() as any;
+
+        if (!settings?.private_key) {
+          return jsonResponse({ error: 'VAPI credentials not configured' }, 400);
+        }
+
+        // Call VAPI API to end the call
+        try {
+          const response = await fetch(`https://api.vapi.ai/call/${callId}`, {
+            method: 'DELETE',
+            headers: {
+              'Authorization': `Bearer ${settings.private_key}`,
+              'Content-Type': 'application/json'
+            }
+          });
+
+          if (!response.ok) {
+            const error = await response.text();
+            console.error('VAPI end call error:', error);
+            return jsonResponse({ error: 'Failed to end call' }, response.status);
+          }
+
+          // Remove from active calls
+          await env.DB.prepare(
+            'DELETE FROM active_calls WHERE vapi_call_id = ? AND user_id = ?'
+          ).bind(callId, userId).run();
+
+          // Invalidate cache
+          const cache = new VoiceAICache(env.CACHE);
+          await cache.invalidateUserCache(userId);
+
+          return jsonResponse({ success: true, message: 'Call ended successfully' });
+        } catch (error) {
+          console.error('Error ending call:', error);
+          return jsonResponse({ error: 'Failed to end call' }, 500);
+        }
+      }
+
+      // Transfer active call
+      if (url.pathname.startsWith('/api/calls/') && url.pathname.endsWith('/transfer') && request.method === 'POST') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        const callId = url.pathname.split('/')[3];
+        const body = await request.json() as any;
+        const transferNumber = body.phoneNumber;
+
+        if (!transferNumber) {
+          return jsonResponse({ error: 'Transfer phone number required' }, 400);
+        }
+
+        // Verify the call belongs to this user
+        const call = await env.DB.prepare(
+          'SELECT vapi_call_id FROM active_calls WHERE vapi_call_id = ? AND user_id = ?'
+        ).bind(callId, userId).first() as any;
+
+        if (!call) {
+          return jsonResponse({ error: 'Call not found or unauthorized' }, 404);
+        }
+
+        // Get user's VAPI credentials
+        const settings = await env.DB.prepare(
+          'SELECT private_key FROM user_settings WHERE user_id = ?'
+        ).bind(userId).first() as any;
+
+        if (!settings?.private_key) {
+          return jsonResponse({ error: 'VAPI credentials not configured' }, 400);
+        }
+
+        // Call VAPI API to transfer the call
+        try {
+          const response = await fetch(`https://api.vapi.ai/call/${callId}`, {
+            method: 'PATCH',
+            headers: {
+              'Authorization': `Bearer ${settings.private_key}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              destination: {
+                type: 'number',
+                number: transferNumber,
+                message: 'Transferring your call...'
+              }
+            })
+          });
+
+          if (!response.ok) {
+            const error = await response.text();
+            console.error('VAPI transfer call error:', error);
+            return jsonResponse({ error: 'Failed to transfer call' }, response.status);
+          }
+
+          return jsonResponse({ success: true, message: 'Call transferred successfully' });
+        } catch (error) {
+          console.error('Error transferring call:', error);
+          return jsonResponse({ error: 'Failed to transfer call' }, 500);
+        }
       }
 
       if (url.pathname === '/api/intent-analysis' && request.method === 'GET') {

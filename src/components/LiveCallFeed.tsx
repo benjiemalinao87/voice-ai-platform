@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Phone, Clock, PhoneIncoming } from 'lucide-react';
+import { Phone, Clock, PhoneIncoming, PhoneOff, PhoneForwarded } from 'lucide-react';
 
 interface ActiveCall {
   id: string;
@@ -18,6 +18,9 @@ const API_URL = import.meta.env.VITE_D1_API_URL || 'http://localhost:8787';
 export function LiveCallFeed() {
   const [activeCalls, setActiveCalls] = useState<ActiveCall[]>([]);
   const [loading, setLoading] = useState(true);
+  const [transferNumber, setTransferNumber] = useState<string>('');
+  const [showTransferInput, setShowTransferInput] = useState<string | null>(null);
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
 
   const fetchActiveCalls = async () => {
     try {
@@ -52,6 +55,70 @@ export function LiveCallFeed() {
 
     return () => clearInterval(interval);
   }, []);
+
+  const handleEndCall = async (callId: string) => {
+    if (!confirm('Are you sure you want to end this call?')) return;
+
+    setActionLoading(callId);
+    try {
+      const token = localStorage.getItem('auth_token');
+      const response = await fetch(`${API_URL}/api/calls/${callId}/end`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to end call');
+      }
+
+      // Refresh active calls
+      await fetchActiveCalls();
+    } catch (error) {
+      console.error('Error ending call:', error);
+      alert(`Failed to end call: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleTransferCall = async (callId: string) => {
+    if (!transferNumber.trim()) {
+      alert('Please enter a phone number to transfer to');
+      return;
+    }
+
+    setActionLoading(callId);
+    try {
+      const token = localStorage.getItem('auth_token');
+      const response = await fetch(`${API_URL}/api/calls/${callId}/transfer`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ phoneNumber: transferNumber })
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to transfer call');
+      }
+
+      // Clear transfer input and refresh
+      setTransferNumber('');
+      setShowTransferInput(null);
+      await fetchActiveCalls();
+    } catch (error) {
+      console.error('Error transferring call:', error);
+      alert(`Failed to transfer call: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setActionLoading(null);
+    }
+  };
 
   const formatDuration = (startedAt: number) => {
     const now = Math.floor(Date.now() / 1000);
@@ -160,6 +227,64 @@ export function LiveCallFeed() {
                   <Clock className="w-4 h-4" />
                   <LiveTimer startedAt={call.started_at} />
                 </div>
+              </div>
+
+              {/* Call Control Actions */}
+              <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-600">
+                {showTransferInput === call.vapi_call_id ? (
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="tel"
+                      value={transferNumber}
+                      onChange={(e) => setTransferNumber(e.target.value)}
+                      placeholder="Enter phone number (e.g., +1234567890)"
+                      className="flex-1 px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+                      disabled={actionLoading === call.vapi_call_id}
+                    />
+                    <button
+                      onClick={() => handleTransferCall(call.vapi_call_id)}
+                      disabled={actionLoading === call.vapi_call_id}
+                      className="px-3 py-1.5 bg-blue-600 dark:bg-blue-500 text-white rounded-lg hover:bg-blue-700 dark:hover:bg-blue-600 transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      Transfer
+                    </button>
+                    <button
+                      onClick={() => {
+                        setShowTransferInput(null);
+                        setTransferNumber('');
+                      }}
+                      disabled={actionLoading === call.vapi_call_id}
+                      className="px-3 py-1.5 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setShowTransferInput(call.vapi_call_id)}
+                      disabled={actionLoading === call.vapi_call_id}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <PhoneForwarded className="w-4 h-4" />
+                      Transfer
+                    </button>
+                    <button
+                      onClick={() => handleEndCall(call.vapi_call_id)}
+                      disabled={actionLoading === call.vapi_call_id}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-400 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/50 transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <PhoneOff className="w-4 h-4" />
+                      End Call
+                    </button>
+                    {actionLoading === call.vapi_call_id && (
+                      <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600 dark:border-blue-400"></div>
+                        Processing...
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           ))}
