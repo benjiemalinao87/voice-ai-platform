@@ -1302,6 +1302,11 @@ export default {
 
         const timestamp = now();
 
+        // Log incoming webhook for debugging
+        console.log('[Webhook Debug] Message Type:', messageType);
+        console.log('[Webhook Debug] Call ID:', call.id);
+        console.log('[Webhook Debug] Status:', message.status);
+
         // Handle status-update events (real-time call status)
         if (messageType === 'status-update') {
           const callStatus = message.status; // 'queued', 'ringing', 'in-progress', 'ended'
@@ -1347,6 +1352,8 @@ export default {
               timestamp,
               timestamp
             ).run();
+
+            console.log('[Webhook Debug] Active call inserted/updated:', vapiCallId, 'Status:', callStatus, 'Caller:', twilioData?.callerName || 'Unknown');
 
             // Invalidate cache
             const cache = new VoiceAICache(env.CACHE);
