@@ -159,6 +159,52 @@ Only respond with the JSON object, no additional text.`
   }
 }
 
+// Helper: Lookup caller info using Twilio API
+interface TwilioCallerInfo {
+  callerName: string | null;
+  callerType: string | null;
+  carrierName: string | null;
+  lineType: string | null;
+}
+
+async function lookupCallerWithTwilio(
+  phoneNumber: string,
+  twilioAccountSid: string,
+  twilioAuthToken: string
+): Promise<TwilioCallerInfo | null> {
+  try {
+    // Twilio Lookup API requires phone number in E.164 format (+1234567890)
+    const cleanNumber = phoneNumber.replace(/[^\d+]/g, '');
+
+    const response = await fetch(
+      `https://lookups.twilio.com/v2/PhoneNumbers/${encodeURIComponent(cleanNumber)}?Fields=caller_name,line_type_intelligence`,
+      {
+        method: 'GET',
+        headers: {
+          'Authorization': 'Basic ' + btoa(`${twilioAccountSid}:${twilioAuthToken}`)
+        }
+      }
+    );
+
+    if (!response.ok) {
+      console.error('Twilio API error:', response.status, await response.text());
+      return null;
+    }
+
+    const data = await response.json() as any;
+
+    return {
+      callerName: data.caller_name?.caller_name || null,
+      callerType: data.caller_name?.caller_type || null,
+      carrierName: data.line_type_intelligence?.carrier_name || null,
+      lineType: data.line_type_intelligence?.type || null
+    };
+  } catch (error) {
+    console.error('Error looking up caller with Twilio:', error);
+    return null;
+  }
+}
+
 // Helper: Trigger scheduling webhook when appointment is booked
 async function triggerSchedulingWebhook(env: Env, userId: string, callId: string): Promise<void> {
   try {
@@ -1229,13 +1275,36 @@ export default {
         const callId = generateId();
         const timestamp = now();
 
+        // Enrich caller data with Twilio Lookup (if configured)
+        let twilioData: TwilioCallerInfo | null = null;
+        const customerNumber = customer.number || null;
+
+        if (customerNumber) {
+          try {
+            const userSettings = await env.DB.prepare(
+              'SELECT twilio_account_sid, twilio_auth_token FROM user_settings WHERE user_id = ?'
+            ).bind(webhook.user_id).first() as any;
+
+            if (userSettings?.twilio_account_sid && userSettings?.twilio_auth_token) {
+              twilioData = await lookupCallerWithTwilio(
+                customerNumber,
+                userSettings.twilio_account_sid,
+                userSettings.twilio_auth_token
+              );
+            }
+          } catch (error) {
+            console.error('Error enriching caller data with Twilio:', error);
+          }
+        }
+
         // Store call data
         try {
           await env.DB.prepare(
             `INSERT INTO webhook_calls (
               id, webhook_id, user_id, vapi_call_id, phone_number, customer_number,
-              recording_url, ended_reason, summary, structured_data, raw_payload, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+              recording_url, ended_reason, summary, structured_data, raw_payload, created_at,
+              caller_name, caller_type, carrier_name, line_type
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
           ).bind(
             callId,
             webhookId,
@@ -1248,7 +1317,11 @@ export default {
             analysis.summary || message.summary || '',
             JSON.stringify(analysis.structuredData || {}),
             JSON.stringify(payload),
-            timestamp
+            timestamp,
+            twilioData?.callerName || null,
+            twilioData?.callerType || null,
+            twilioData?.carrierName || null,
+            twilioData?.lineType || null
           ).run();
 
           // Log success

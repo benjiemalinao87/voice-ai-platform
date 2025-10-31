@@ -25,6 +25,9 @@ interface Recording {
   summary?: string;
   endedReason?: string;
   enhancedData?: any;
+  callerType?: string;
+  carrierName?: string;
+  lineType?: string;
 }
 
 // Mock recordings data
@@ -197,6 +200,11 @@ export function Recordings() {
         let location = 'Unknown';
         let callerName = 'Unknown Caller';
 
+        // Use Twilio enriched data first (if available)
+        if (call.caller_name) {
+          callerName = call.caller_name;
+        }
+
         try {
           if (call.raw_payload) {
             const payload = typeof call.raw_payload === 'string'
@@ -220,8 +228,8 @@ export function Recordings() {
             }
           }
 
-          // Extract caller name from structured_data if available
-          if (call.structured_data?.name) {
+          // Fallback to structured_data name if Twilio didn't provide it
+          if (!call.caller_name && call.structured_data?.name) {
             callerName = call.structured_data.name;
           }
         } catch (error) {
@@ -248,7 +256,10 @@ export function Recordings() {
           wasAnswered: !!call.recording_url, // If there's a recording, it was answered
           summary: call.summary || undefined,
           endedReason: call.ended_reason,
-          enhancedData: enhancedData
+          enhancedData: enhancedData,
+          callerType: call.caller_type || undefined,
+          carrierName: call.carrier_name || undefined,
+          lineType: call.line_type || undefined
         };
       });
 
@@ -387,6 +398,12 @@ export function Recordings() {
                         <Phone className="w-4 h-4" />
                         {recording.customerPhone || recording.phone}
                       </span>
+                      {recording.carrierName && (
+                        <span className="flex items-center gap-1 px-2 py-0.5 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 rounded">
+                          {recording.carrierName}
+                          {recording.lineType && ` • ${recording.lineType}`}
+                        </span>
+                      )}
                       <span className="flex items-center gap-1">
                         <Calendar className="w-4 h-4" />
                         {formatDate(recording.date)}
