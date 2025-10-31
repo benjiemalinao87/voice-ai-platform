@@ -67,9 +67,7 @@ function App() {
       // IMPORTANT: Pass user-specific vapiClient and filter options to ensure data isolation
       const data = await agentApi.getAll(vapiClient, selectedOrgId ? { orgId: selectedOrgId } : undefined);
       setAgents(data);
-      if (data.length > 0 && !selectedAgentId) {
-        setSelectedAgentId(data[0].id);
-      }
+      // Don't auto-select first agent - let users start with "All Agents"
     } catch (error) {
       console.error('Error loading agents:', error);
     }
@@ -129,8 +127,8 @@ function App() {
             <div className="flex items-center gap-4">
               {agents.length > 0 && (
                 <select
-                  value={selectedAgentId}
-                  onChange={(e) => setSelectedAgentId(e.target.value)}
+                  value={selectedAgentId || ""}
+                  onChange={(e) => setSelectedAgentId(e.target.value || undefined)}
                   className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
                 >
                   <option value="">All Agents</option>
@@ -200,8 +198,7 @@ function App() {
                     </button> */}
                     <button
                       onClick={() => setCurrentView('config')}
-                      disabled={!selectedAgentId}
-                      className={`flex items-center gap-2 px-4 py-2 rounded-md font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                      className={`flex items-center gap-2 px-4 py-2 rounded-md font-medium transition-colors ${
                         currentView === 'config'
                           ? 'bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 shadow-sm'
                           : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100'
@@ -308,13 +305,28 @@ function App() {
           </div>
         )}
 
-        {currentView === 'config' && !selectedAgentId && (
+        {currentView === 'config' && (!selectedAgentId || selectedAgentId === '') && (
           <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-12 text-center">
-            <SettingsIcon className="w-12 h-12 text-gray-400 dark:text-gray-500 mx-auto mb-4" />
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-2">No Agent Selected</h3>
-            <p className="text-gray-600 dark:text-gray-400">
-              Please select an agent from the dropdown above to view and edit its configuration.
+            <div className="flex items-center justify-center mb-4">
+              <div className="relative">
+                <SettingsIcon className="w-12 h-12 text-gray-400 dark:text-gray-500" />
+                <div className="absolute -top-1 -right-1 w-4 h-4 bg-blue-600 dark:bg-blue-500 rounded-full flex items-center justify-center">
+                  <span className="text-white text-xs">!</span>
+                </div>
+              </div>
+            </div>
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-2">Select an Agent to Configure</h3>
+            <p className="text-gray-600 dark:text-gray-400 mb-4">
+              To view and edit agent configuration, please select an agent from the dropdown menu in the header.
             </p>
+            <div className="inline-flex items-center gap-2 px-4 py-2 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+              <svg className="w-5 h-5 text-blue-600 dark:text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+              </svg>
+              <span className="text-sm font-medium text-blue-900 dark:text-blue-100">
+                Look for the agent selector at the top left
+              </span>
+            </div>
           </div>
         )}
 

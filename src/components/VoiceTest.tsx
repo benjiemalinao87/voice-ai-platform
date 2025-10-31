@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Phone, PhoneOff, Mic, MicOff, User } from 'lucide-react';
+import { Phone, PhoneOff, Mic, MicOff } from 'lucide-react';
 import Vapi from '@vapi-ai/web';
 
 interface VoiceTestProps {
@@ -12,8 +12,6 @@ export function VoiceTest({ assistantId, publicKey }: VoiceTestProps) {
   const [isCallActive, setIsCallActive] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [callStatus, setCallStatus] = useState<string>('idle');
-  const [userName, setUserName] = useState('');
-  const [showNamePrompt, setShowNamePrompt] = useState(false);
   const [volumeLevel, setVolumeLevel] = useState(0);
 
   useEffect(() => {
@@ -30,7 +28,6 @@ export function VoiceTest({ assistantId, publicKey }: VoiceTestProps) {
     vapiInstance.on('call-end', () => {
       setIsCallActive(false);
       setCallStatus('ended');
-      setShowNamePrompt(false);
     });
 
     vapiInstance.on('speech-start', () => {
@@ -60,8 +57,7 @@ export function VoiceTest({ assistantId, publicKey }: VoiceTestProps) {
   }, [publicKey]);
 
   const startCall = async () => {
-    if (!vapi || !userName.trim()) {
-      setShowNamePrompt(true);
+    if (!vapi) {
       return;
     }
 
@@ -69,12 +65,7 @@ export function VoiceTest({ assistantId, publicKey }: VoiceTestProps) {
       setCallStatus('connecting');
 
       // Start the call with the assistant
-      await vapi.start(assistantId || undefined, {
-        // Pass user name as metadata
-        metadata: {
-          userName: userName.trim()
-        }
-      });
+      await vapi.start(assistantId || undefined);
     } catch (error) {
       console.error('Error starting call:', error);
       setCallStatus('error');
@@ -97,13 +88,6 @@ export function VoiceTest({ assistantId, publicKey }: VoiceTestProps) {
         vapi.setMuted(true);
       }
       setIsMuted(!isMuted);
-    }
-  };
-
-  const handleStartWithName = () => {
-    if (userName.trim()) {
-      setShowNamePrompt(false);
-      startCall();
     }
   };
 
@@ -159,57 +143,6 @@ export function VoiceTest({ assistantId, publicKey }: VoiceTestProps) {
         </div>
       </div>
 
-      {/* Name Input Prompt */}
-      {showNamePrompt && !isCallActive && (
-        <div className="mb-6 p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
-          <div className="flex items-start gap-3">
-            <User className="w-5 h-5 text-blue-600 dark:text-blue-400 mt-0.5" />
-            <div className="flex-1">
-              <h4 className="text-sm font-medium text-blue-900 dark:text-blue-100 mb-2">
-                What's your name?
-              </h4>
-              <p className="text-xs text-blue-700 dark:text-blue-300 mb-3">
-                The AI will use your name during the conversation
-              </p>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={userName}
-                  onChange={(e) => setUserName(e.target.value)}
-                  onKeyPress={(e) => e.key === 'Enter' && handleStartWithName()}
-                  placeholder="Enter your name..."
-                  className="flex-1 px-3 py-2 border border-blue-300 dark:border-blue-700 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 text-sm"
-                  autoFocus
-                />
-                <button
-                  onClick={handleStartWithName}
-                  disabled={!userName.trim()}
-                  className="px-4 py-2 bg-blue-600 dark:bg-blue-500 text-white rounded-lg hover:bg-blue-700 dark:hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
-                >
-                  Start Call
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Saved Name Display */}
-      {userName && !showNamePrompt && (
-        <div className="mb-4 flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
-          <User className="w-4 h-4" />
-          <span>Testing as: <span className="font-medium text-gray-900 dark:text-gray-100">{userName}</span></span>
-          {!isCallActive && (
-            <button
-              onClick={() => setShowNamePrompt(true)}
-              className="text-blue-600 dark:text-blue-400 hover:underline text-xs ml-2"
-            >
-              Change
-            </button>
-          )}
-        </div>
-      )}
-
       {/* Volume Level Indicator */}
       {isCallActive && (
         <div className="mb-6">
@@ -230,7 +163,7 @@ export function VoiceTest({ assistantId, publicKey }: VoiceTestProps) {
       <div className="flex gap-3">
         {!isCallActive ? (
           <button
-            onClick={() => userName.trim() ? startCall() : setShowNamePrompt(true)}
+            onClick={startCall}
             disabled={callStatus === 'connecting'}
             className="flex-1 flex items-center justify-center gap-2 px-6 py-3 bg-green-600 dark:bg-green-500 text-white rounded-lg hover:bg-green-700 dark:hover:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium"
           >
