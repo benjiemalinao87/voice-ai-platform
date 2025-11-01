@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Phone, Clock, PhoneIncoming, PhoneOff, PhoneForwarded } from 'lucide-react';
+import { Phone, Clock, PhoneIncoming, PhoneOff, PhoneForwarded, Volume2 } from 'lucide-react';
 
 interface ActiveCall {
   id: string;
@@ -21,6 +21,39 @@ export function LiveCallFeed() {
   const [transferNumber, setTransferNumber] = useState<string>('');
   const [showTransferInput, setShowTransferInput] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [previousCallIds, setPreviousCallIds] = useState<Set<string>>(new Set());
+  const [isInitialLoad, setIsInitialLoad] = useState(true);
+
+  // Play notification sound for new calls
+  const playNotificationSound = () => {
+    try {
+      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+
+      // Create a pleasant notification tone (two beeps)
+      const playBeep = (frequency: number, startTime: number, duration: number) => {
+        const oscillator = audioContext.createOscillator();
+        const gainNode = audioContext.createGain();
+
+        oscillator.connect(gainNode);
+        gainNode.connect(audioContext.destination);
+
+        oscillator.frequency.value = frequency;
+        oscillator.type = 'sine';
+
+        gainNode.gain.setValueAtTime(0.3, audioContext.currentTime + startTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + startTime + duration);
+
+        oscillator.start(audioContext.currentTime + startTime);
+        oscillator.stop(audioContext.currentTime + startTime + duration);
+      };
+
+      // Two-tone notification (like a phone ring)
+      playBeep(800, 0, 0.15);
+      playBeep(600, 0.15, 0.15);
+    } catch (error) {
+      console.error('Error playing notification sound:', error);
+    }
+  };
 
   const fetchActiveCalls = async () => {
     try {
@@ -38,6 +71,23 @@ export function LiveCallFeed() {
       }
 
       const data = await response.json();
+
+      // Detect new calls and play notification
+      if (!isInitialLoad) {
+        const newCallIds = new Set(data.map((call: ActiveCall) => call.vapi_call_id));
+        const hasNewCalls = data.some((call: ActiveCall) => !previousCallIds.has(call.vapi_call_id));
+
+        if (hasNewCalls) {
+          playNotificationSound();
+        }
+
+        setPreviousCallIds(newCallIds);
+      } else {
+        // On initial load, just store the call IDs without playing sound
+        setPreviousCallIds(new Set(data.map((call: ActiveCall) => call.vapi_call_id)));
+        setIsInitialLoad(false);
+      }
+
       setActiveCalls(data);
       setLoading(false);
     } catch (error) {
@@ -180,9 +230,15 @@ export function LiveCallFeed() {
             </span>
           )}
         </h3>
-        <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
-          <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-          Live
+        <div className="flex items-center gap-3 text-xs text-gray-500 dark:text-gray-400">
+          <div className="flex items-center gap-1.5">
+            <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+            Live
+          </div>
+          <div className="flex items-center gap-1.5" title="Sound alerts enabled for new calls">
+            <Volume2 className="w-3.5 h-3.5" />
+            Sound
+          </div>
         </div>
       </div>
 
