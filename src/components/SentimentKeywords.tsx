@@ -117,7 +117,7 @@ export function SentimentKeywords({ sentimentData = [], keywordsData = [] }: Sen
         ) : (
           <>
             {/* Keywords List with Bars */}
-            <div className="space-y-5 flex-1">
+            <div className="space-y-5 flex-1 max-h-[400px] overflow-y-auto pr-2 scrollbar-thin">
           {keywordsData.map((keyword, index) => {
             const maxValue = Math.max(...keywordsData.map(k => k.value));
             const widthPercent = (keyword.value / maxValue) * 100;
