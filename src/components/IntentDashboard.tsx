@@ -10,6 +10,7 @@ import {
   BarChart3
 } from 'lucide-react';
 import { IntentCard } from './IntentCard';
+import { KeywordHeatMap } from './KeywordHeatMap';
 import { d1Client } from '../lib/d1';
 import type { CallIntent } from '../types';
 
@@ -109,6 +110,14 @@ export function IntentDashboard() {
   const [selectedIntent, setSelectedIntent] = useState<string>('all');
   const [selectedMood, setSelectedMood] = useState<string>('all');
   const [selectedCall, setSelectedCall] = useState<CallIntentWithEnhanced | null>(null);
+  const [keywords, setKeywords] = useState<Array<{
+    keyword: string;
+    count: number;
+    positive_count: number;
+    neutral_count: number;
+    negative_count: number;
+    avg_sentiment: number;
+  }>>([]);
 
   useEffect(() => {
     loadCallIntents();
@@ -164,9 +173,14 @@ export function IntentDashboard() {
         });
 
       setCallIntents(convertedIntents);
+
+      // Load keywords with sentiment
+      const keywordsData = await d1Client.getKeywords();
+      setKeywords(keywordsData);
     } catch (error) {
       console.error('Error loading call intents:', error);
       setCallIntents([]);
+      setKeywords([]);
     } finally {
       setLoading(false);
     }
@@ -366,6 +380,9 @@ export function IntentDashboard() {
           ))}
         </div>
       </div>
+
+      {/* Keyword Sentiment Heat Map */}
+      <KeywordHeatMap keywords={keywords} />
 
       {/* Call Intent Cards */}
       <div className="space-y-4">

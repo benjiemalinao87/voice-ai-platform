@@ -210,34 +210,78 @@ function extractKeywords(transcript: string): string[] {
   return keywords;
 }
 
-// Helper: Store keywords in database
+// Helper: Store keywords in database with sentiment tracking
 async function storeKeywords(
   keywords: string[],
   userId: string,
+  sentiment: string,
   db: D1Database
 ): Promise<void> {
   if (keywords.length === 0) return;
 
   const timestamp = Date.now();
 
+  // Convert sentiment string to numeric score for averaging
+  // Positive = 1, Neutral = 0, Negative = -1
+  let sentimentScore = 0;
+  if (sentiment === 'Positive') sentimentScore = 1;
+  else if (sentiment === 'Negative') sentimentScore = -1;
+
   for (const keyword of keywords) {
     try {
       // Check if keyword already exists for this user
       const existing = await db.prepare(
-        'SELECT id, count FROM call_keywords WHERE user_id = ? AND keyword = ?'
+        `SELECT id, count, positive_count, neutral_count, negative_count, avg_sentiment
+         FROM call_keywords WHERE user_id = ? AND keyword = ?`
       ).bind(userId, keyword).first() as any;
 
       if (existing) {
-        // Update count
+        // Calculate new counts
+        const newPositiveCount = existing.positive_count + (sentiment === 'Positive' ? 1 : 0);
+        const newNeutralCount = existing.neutral_count + (sentiment === 'Neutral' ? 1 : 0);
+        const newNegativeCount = existing.negative_count + (sentiment === 'Negative' ? 1 : 0);
+        const newTotalCount = existing.count + 1;
+
+        // Calculate new average sentiment
+        const newAvgSentiment = ((existing.avg_sentiment * existing.count) + sentimentScore) / newTotalCount;
+
+        // Update with new sentiment data
         await db.prepare(
-          'UPDATE call_keywords SET count = count + 1, last_detected_at = ? WHERE id = ?'
-        ).bind(timestamp, existing.id).run();
+          `UPDATE call_keywords
+           SET count = ?, positive_count = ?, neutral_count = ?, negative_count = ?,
+               avg_sentiment = ?, last_detected_at = ?
+           WHERE id = ?`
+        ).bind(
+          newTotalCount,
+          newPositiveCount,
+          newNeutralCount,
+          newNegativeCount,
+          newAvgSentiment,
+          timestamp,
+          existing.id
+        ).run();
       } else {
-        // Insert new keyword
+        // Insert new keyword with sentiment
+        const initialPositiveCount = sentiment === 'Positive' ? 1 : 0;
+        const initialNeutralCount = sentiment === 'Neutral' ? 1 : 0;
+        const initialNegativeCount = sentiment === 'Negative' ? 1 : 0;
+
         await db.prepare(
-          `INSERT INTO call_keywords (id, user_id, keyword, count, last_detected_at, created_at)
-           VALUES (?, ?, ?, 1, ?, ?)`
-        ).bind(generateId(), userId, keyword, timestamp, timestamp).run();
+          `INSERT INTO call_keywords
+           (id, user_id, keyword, count, positive_count, neutral_count, negative_count,
+            avg_sentiment, last_detected_at, created_at)
+           VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?)`
+        ).bind(
+          generateId(),
+          userId,
+          keyword,
+          initialPositiveCount,
+          initialNeutralCount,
+          initialNegativeCount,
+          sentimentScore,
+          timestamp,
+          timestamp
+        ).run();
       }
     } catch (error) {
       console.error('Error storing keyword:', keyword, error);
@@ -1230,16 +1274,20 @@ export default {
           return jsonResponse({ error: 'Unauthorized' }, 401);
         }
 
-        // Fetch top keywords from database (limit to top 10)
+        // Fetch top keywords from database with sentiment data (limit to top 20 for heat map)
         const { results } = await env.DB.prepare(
           `SELECT
             keyword,
             count,
+            positive_count,
+            neutral_count,
+            negative_count,
+            avg_sentiment,
             last_detected_at
           FROM call_keywords
           WHERE user_id = ?
           ORDER BY count DESC
-          LIMIT 10`
+          LIMIT 20`
         ).bind(userId).all();
 
         return jsonResponse(results);
@@ -1813,12 +1861,6 @@ export default {
                   const transcript = artifact.transcript || '';
                   const summary = analysis.summary || message.summary || '';
 
-                  // Extract and store keywords from transcript
-                  if (transcript) {
-                    const keywords = extractKeywords(transcript);
-                    await storeKeywords(keywords, webhook.user_id, env.DB);
-                  }
-
                   // Analyze with OpenAI
                   const analysisResult = await analyzeCallWithOpenAI(
                     summary,
@@ -1827,6 +1869,11 @@ export default {
                   );
 
                   if (analysisResult) {
+                    // Extract and store keywords from transcript with sentiment
+                    if (transcript) {
+                      const keywords = extractKeywords(transcript);
+                      await storeKeywords(keywords, webhook.user_id, analysisResult.sentiment, env.DB);
+                    }
                     // Prioritize VAPI structured data over OpenAI analysis for appointments
                     const finalAppointmentDate = vapiAppointmentDate || analysisResult.appointment_date;
                     const finalAppointmentTime = vapiAppointmentTime || analysisResult.appointment_time;

@@ -223,10 +223,14 @@ class D1Client {
     });
   }
 
-  // Get top keywords
+  // Get top keywords with sentiment
   async getKeywords(): Promise<Array<{
     keyword: string;
     count: number;
+    positive_count: number;
+    neutral_count: number;
+    negative_count: number;
+    avg_sentiment: number;
     last_detected_at: number;
   }>> {
     return this.request('/api/keywords', {
