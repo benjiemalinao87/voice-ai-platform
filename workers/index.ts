@@ -1586,13 +1586,154 @@ export default {
           LIMIT ? OFFSET ?`
         ).bind(userId, limit, offset).all();
 
+        // Get user email for demo data check
+        const userEmail = await env.DB.prepare(
+          'SELECT email FROM users WHERE id = ?'
+        ).bind(userId).first() as any;
+
+        // Helper function to generate mock enhanced data for demo
+        const generateMockEnhancedData = (index: number) => {
+          const mockProfiles = [
+            {
+              firstName: 'Sarah',
+              lastName: 'Johnson',
+              address: '4532 Maple Avenue',
+              city: 'San Francisco',
+              state: 'CA',
+              zip: '94102',
+              countyName: 'San Francisco',
+              gender: 'F',
+              age: 42,
+              phones: [{
+                phone: 4155551234,
+                carrier: 'AT&T Mobility',
+                phoneType: 1,
+                workPhone: false,
+                activityStatus: 'Active',
+                contactabilityScore: 'High'
+              }],
+              data: {
+                addressType: 'Single Family',
+                incomeLevel: '$75K-$100K',
+                creditRange: '720-780',
+                householdIncome: '$85,000-$95,000',
+                homeOwnership: 'Owner',
+                homePrice: 875000,
+                homeValue: 920000,
+                age: 42
+              },
+              properties: [{
+                propertyType: 'Single Family Residence',
+                value: 920000,
+                estimatedValue: 920000,
+                yearBuilt: 1998,
+                bedrooms: '3',
+                rooms: '7',
+                saleDate: '2019-05-15',
+                saleAmount: 785000
+              }]
+            },
+            {
+              firstName: 'Michael',
+              lastName: 'Rodriguez',
+              address: '1847 Oak Street',
+              city: 'Portland',
+              state: 'OR',
+              zip: '97201',
+              countyName: 'Multnomah',
+              gender: 'M',
+              age: 35,
+              phones: [{
+                phone: 5035559876,
+                carrier: 'Verizon',
+                phoneType: 1,
+                workPhone: false,
+                activityStatus: 'Active',
+                contactabilityScore: 'Medium'
+              }],
+              data: {
+                addressType: 'Condominium',
+                incomeLevel: '$100K-$150K',
+                creditRange: '680-720',
+                householdIncome: '$110,000-$125,000',
+                homeOwnership: 'Owner',
+                homePrice: 425000,
+                homeValue: 465000,
+                age: 35
+              },
+              properties: [{
+                propertyType: 'Condominium',
+                value: 465000,
+                estimatedValue: 465000,
+                yearBuilt: 2015,
+                bedrooms: '2',
+                rooms: '5',
+                saleDate: '2021-03-22',
+                saleAmount: 410000
+              }]
+            },
+            {
+              firstName: 'Jennifer',
+              lastName: 'Chen',
+              address: '2315 Pine Ridge Drive',
+              city: 'Seattle',
+              state: 'WA',
+              zip: '98101',
+              countyName: 'King',
+              gender: 'F',
+              age: 52,
+              phones: [{
+                phone: 2065557890,
+                carrier: 'T-Mobile',
+                phoneType: 1,
+                workPhone: false,
+                activityStatus: 'Active',
+                contactabilityScore: 'Very High'
+              }],
+              data: {
+                addressType: 'Single Family',
+                incomeLevel: '$150K+',
+                creditRange: '780-850',
+                householdIncome: '$175,000+',
+                homeOwnership: 'Owner',
+                homePrice: 1200000,
+                homeValue: 1350000,
+                age: 52
+              },
+              properties: [{
+                propertyType: 'Single Family Residence',
+                value: 1350000,
+                estimatedValue: 1350000,
+                yearBuilt: 2005,
+                bedrooms: '4',
+                rooms: '9',
+                saleDate: '2018-11-08',
+                saleAmount: 1050000
+              }]
+            }
+          ];
+
+          return {
+            identities: [mockProfiles[index % mockProfiles.length]]
+          };
+        };
+
         // Parse structured_data, raw_payload, and enhanced_data JSON for each result
-        const parsedResults = (results || []).map((row: any) => ({
-          ...row,
-          structured_data: row.structured_data ? JSON.parse(row.structured_data) : null,
-          raw_payload: row.raw_payload ? JSON.parse(row.raw_payload) : null,
-          enhanced_data: row.enhanced_data ? JSON.parse(row.enhanced_data) : null
-        }));
+        const parsedResults = (results || []).map((row: any, index: number) => {
+          let enhancedData = row.enhanced_data ? JSON.parse(row.enhanced_data) : null;
+
+          // Inject mock enhanced data for vic@channelautomation.com
+          if (userEmail?.email === 'vic@channelautomation.com' && !enhancedData) {
+            enhancedData = generateMockEnhancedData(index);
+          }
+
+          return {
+            ...row,
+            structured_data: row.structured_data ? JSON.parse(row.structured_data) : null,
+            raw_payload: row.raw_payload ? JSON.parse(row.raw_payload) : null,
+            enhanced_data: enhancedData
+          };
+        });
 
         // Calculate summary statistics
         const totalCalls = parsedResults.length;
