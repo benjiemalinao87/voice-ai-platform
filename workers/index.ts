@@ -1207,6 +1207,11 @@ export default {
             wc.outcome,
             wc.analysis_completed,
             wc.analyzed_at,
+            wc.customer_name,
+            wc.caller_name,
+            wc.caller_type,
+            wc.carrier_name,
+            wc.line_type,
             wc.created_at,
             ar.result_data as enhanced_data
           FROM webhook_calls wc
@@ -1766,6 +1771,227 @@ export default {
         }
 
         return jsonResponse(summaryData);
+      }
+
+      // Generate demo data for vic@channelautomation.com
+      if (url.pathname === '/api/generate-demo-data' && request.method === 'POST') {
+        const currentUserId = await getUserFromToken(request, env);
+        if (!currentUserId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        // Use vic's userId for demo data
+        const vicUser = await env.DB.prepare(
+          'SELECT id FROM users WHERE email = ?'
+        ).bind('vic@channelautomation.com').first() as any;
+
+        if (!vicUser) {
+          return jsonResponse({ error: 'Demo account not found' }, 404);
+        }
+
+        const userId = vicUser.id;
+
+        // Get or create webhook for this user
+        let webhook = await env.DB.prepare(
+          'SELECT id FROM webhooks WHERE user_id = ? LIMIT 1'
+        ).bind(userId).first() as any;
+
+        if (!webhook) {
+          const webhookId = generateId();
+          await env.DB.prepare(
+            'INSERT INTO webhooks (id, user_id, webhook_url, name, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, 1, ?, ?)'
+          ).bind(webhookId, userId, `https://api.voice-config.channelautomation.com/webhooks/${webhookId}`, 'Demo Webhook', Date.now(), Date.now()).run();
+          webhook = { id: webhookId };
+        }
+
+        const timestamp = Date.now();
+        const demoCalls = [
+          {
+            id: 'demo_001_' + timestamp,
+            name: 'Sarah Johnson',
+            phone: '+14155551234',
+            intent: 'Scheduling',
+            sentiment: 'Positive',
+            outcome: 'Successful',
+            summary: 'Customer called to schedule a window replacement consultation. Showed strong interest in energy-efficient options.',
+            transcript: 'AI: Thank you for calling EcoView Windows and Doors. This is James. Customer: Hi, this is Sarah Johnson. I am interested in getting some windows replaced. AI: Great! Are you looking for a consultation? Customer: Yes, I am particularly interested in energy-efficient windows. AI: Perfect! Let me schedule that for you.',
+            appointmentDate: new Date(Date.now() + 5 * 86400000).toISOString().split('T')[0],
+            appointmentTime: '2:00 PM',
+            days_ago: 1
+          },
+          {
+            id: 'demo_002_' + timestamp,
+            name: 'Michael Rodriguez',
+            phone: '+15035559876',
+            intent: 'Information',
+            sentiment: 'Neutral',
+            outcome: 'Follow-up Required',
+            summary: 'Customer inquired about pricing for sliding glass doors. Asked about installation timeline and warranty.',
+            transcript: 'AI: Thank you for calling EcoView. This is Alex. Customer: Hi, I am interested in learning about sliding glass doors. Can you tell me about pricing? AI: Our doors range from $2,500 to $8,000. Customer: How long does installation take? AI: Usually one full day. Customer: I need to think about it.',
+            appointmentDate: null,
+            appointmentTime: null,
+            days_ago: 2
+          },
+          {
+            id: 'demo_003_' + timestamp,
+            name: 'Jennifer Chen',
+            phone: '+12065557890',
+            intent: 'Scheduling',
+            sentiment: 'Positive',
+            outcome: 'Successful',
+            summary: 'Existing customer scheduling installation of bay window. Very satisfied with previous service.',
+            transcript: 'AI: Thank you for calling EcoView. This is Maria. Customer: Hi Maria, this is Jennifer Chen. I ordered a bay window last month and want to schedule installation. AI: Of course! When works for you? Customer: Thursday morning around 10 AM. AI: Perfect! You are all set.',
+            appointmentDate: new Date(Date.now() + 3 * 86400000).toISOString().split('T')[0],
+            appointmentTime: '10:00 AM',
+            days_ago: 3
+          },
+          {
+            id: 'demo_004_' + timestamp,
+            name: 'Robert Martinez',
+            phone: '+13105554321',
+            intent: 'Support',
+            sentiment: 'Negative',
+            outcome: 'Follow-up Required',
+            summary: 'Customer reported condensation between window panes. Escalated to warranty department.',
+            transcript: 'AI: EcoView support. This is Tom. Customer: I have condensation between my window panes. AI: That indicates a seal failure. When were they installed? Customer: About 3 years ago. Is this covered? AI: Yes, fully covered. We will replace at no cost.',
+            appointmentDate: null,
+            appointmentTime: null,
+            days_ago: 4
+          },
+          {
+            id: 'demo_005_' + timestamp,
+            name: 'Amanda Foster',
+            phone: '+14085556789',
+            intent: 'Information',
+            sentiment: 'Positive',
+            outcome: 'Successful',
+            summary: 'Customer asking about French doors. Requested free estimate.',
+            transcript: 'AI: Good afternoon! This is Jessica. Customer: Hi! I am looking to replace my patio door with French doors. AI: Yes we offer those! Are you looking for inswing or outswing? Customer: What do you recommend? AI: For patios, outswing is better. Customer: How do I get an estimate? AI: We can schedule a free consultation.',
+            appointmentDate: null,
+            appointmentTime: null,
+            days_ago: 5
+          },
+          {
+            id: 'demo_006_' + timestamp,
+            name: 'David Thompson',
+            phone: '+16195553456',
+            intent: 'Scheduling',
+            sentiment: 'Neutral',
+            outcome: 'Successful',
+            summary: 'Customer rescheduling consultation due to work conflict.',
+            transcript: 'AI: Scheduling department. This is Rachel. Customer: I need to reschedule my Wednesday appointment. AI: No problem! When works better? Customer: Friday afternoon around 3:30? AI: Perfect! You are all set for Friday at 3:30.',
+            appointmentDate: new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0],
+            appointmentTime: '3:30 PM',
+            days_ago: 6
+          },
+          {
+            id: 'demo_007_' + timestamp,
+            name: 'Lisa Anderson',
+            phone: '+14155557777',
+            intent: 'Purchase',
+            sentiment: 'Positive',
+            outcome: 'Successful',
+            summary: 'Customer ready for full house window replacement. Placing deposit.',
+            transcript: 'AI: Good morning! This is Brandon. Customer: I received my quote last week and I am ready to move forward! AI: Fantastic! Let me process your deposit. Customer: Can I pay with credit card? AI: Absolutely. You are making a great investment!',
+            appointmentDate: null,
+            appointmentTime: null,
+            days_ago: 7
+          },
+          {
+            id: 'demo_008_' + timestamp,
+            name: 'James Wilson',
+            phone: '+15035558888',
+            intent: 'Information',
+            sentiment: 'Neutral',
+            outcome: 'Follow-up Required',
+            summary: 'Customer comparing window brands and prices.',
+            transcript: 'AI: Thank you for calling EcoView. This is Sarah. Customer: I am getting quotes from several companies. What brands do you carry? AI: We install Milgard and Pella. Customer: How do your prices compare? AI: We are very competitive. Customer: I am still getting other quotes.',
+            appointmentDate: null,
+            appointmentTime: null,
+            days_ago: 8
+          },
+          {
+            id: 'demo_009_' + timestamp,
+            name: 'Patricia Lee',
+            phone: '+14085559999',
+            intent: 'Support',
+            sentiment: 'Positive',
+            outcome: 'Successful',
+            summary: 'Customer asking about window maintenance. Provided care instructions.',
+            transcript: 'AI: Support team. This is Kevin. Customer: I just had windows installed and want to know how to care for them. AI: For glass, use regular cleaner quarterly. For frames, warm soapy water. Customer: What about tracks? AI: Vacuum monthly. Customer: Perfect, thank you!',
+            appointmentDate: null,
+            appointmentTime: null,
+            days_ago: 9
+          },
+          {
+            id: 'demo_010_' + timestamp,
+            name: 'Christopher Brown',
+            phone: '+16195551111',
+            intent: 'Scheduling',
+            sentiment: 'Positive',
+            outcome: 'Successful',
+            summary: 'New customer wants consultation for windows and doors. Motivated buyer.',
+            transcript: 'AI: Thank you for calling EcoView! This is Michelle. Customer: I just bought a house and want to replace all windows and the front door. AI: Congratulations! How many windows? Customer: About 15 windows and a nice entry door. AI: Perfect! Thursday at 11 AM work? Customer: Perfect!',
+            appointmentDate: new Date(Date.now() + 2 * 86400000).toISOString().split('T')[0],
+            appointmentTime: '11:00 AM',
+            days_ago: 10
+          }
+        ];
+
+        // Insert demo calls
+        for (const call of demoCalls) {
+          const callTimestamp = timestamp - (call.days_ago * 86400000);
+          const rawPayload = JSON.stringify({
+            message: {
+              artifact: {
+                transcript: call.transcript
+              }
+            }
+          });
+
+          await env.DB.prepare(
+            `INSERT INTO webhook_calls (
+              id, webhook_id, user_id, vapi_call_id, phone_number, customer_number,
+              recording_url, ended_reason, summary, intent, sentiment, outcome,
+              analysis_completed, analyzed_at, customer_name, customer_email,
+              appointment_date, appointment_time, appointment_type,
+              structured_data, raw_payload, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          ).bind(
+            call.id,
+            webhook.id,
+            userId,
+            call.id,
+            '+18005551234',
+            call.phone,
+            'https://recordings.vapi.ai/demo.mp3',
+            'customer-ended-call',
+            call.summary,
+            call.intent,
+            call.sentiment,
+            call.outcome,
+            1,
+            Math.floor(callTimestamp / 1000),
+            call.name,
+            null,
+            call.appointmentDate,
+            call.appointmentTime,
+            call.appointmentDate ? 'Consultation' : null,
+            '{}',
+            rawPayload,
+            Math.floor(callTimestamp / 1000)
+          ).run();
+        }
+
+        // Invalidate cache
+        const cache = new VoiceAICache(env.CACHE);
+        await cache.invalidateUserCache(userId);
+
+        return jsonResponse({
+          success: true,
+          message: `Created ${demoCalls.length} demo calls for vic@channelautomation.com`,
+          callsCreated: demoCalls.length
+        });
       }
 
       // Get cache statistics
