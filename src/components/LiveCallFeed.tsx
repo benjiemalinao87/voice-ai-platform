@@ -251,7 +251,7 @@ export function LiveCallFeed() {
           </p>
         </div>
       ) : (
-        <div className="space-y-3">
+        <div className="space-y-3 max-h-[600px] overflow-y-auto pr-2 scrollbar-thin">
           {activeCalls.map((call) => (
             <div
               key={call.id}
