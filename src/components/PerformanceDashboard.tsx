@@ -111,9 +111,19 @@ export function PerformanceDashboard({ selectedAgentId, dateRange }: Performance
         { label: 'Negative', value: negativeCalls, color: '#ef4444' }
       ];
 
+      // Load keywords from API
+      const keywordsData = await d1Client.getKeywords();
+
+      // Transform keywords to KeywordTrend format
+      const keywordTrends: KeywordTrend[] = keywordsData.map((kw, index) => ({
+        keyword: kw.keyword,
+        count: kw.count,
+        trend: 0 // We don't track trends yet
+      }));
+
       setMetrics(metricsData);
       setCalls(convertedCalls);
-      setKeywords([]); // No keywords for now
+      setKeywords(keywordTrends);
       setSentimentData(sentimentBreakdown);
     } catch (error) {
       console.error('Error loading dashboard data:', error);
@@ -281,7 +291,14 @@ export function PerformanceDashboard({ selectedAgentId, dateRange }: Performance
         />
       </div>
 
-      <SentimentKeywords sentimentData={sentimentData} />
+      <SentimentKeywords
+        sentimentData={sentimentData}
+        keywordsData={keywords.map((kw, index) => ({
+          label: kw.keyword,
+          value: kw.count,
+          color: ['#3b82f6', '#8b5cf6', '#ec4899', '#f59e0b', '#10b981', '#06b6d4', '#6366f1', '#a855f7', '#14b8a6', '#f97316'][index % 10]
+        }))}
+      />
 
       <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
         <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Recent Calls</h3>

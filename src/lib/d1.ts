@@ -222,6 +222,17 @@ class D1Client {
       method: 'GET',
     });
   }
+
+  // Get top keywords
+  async getKeywords(): Promise<Array<{
+    keyword: string;
+    count: number;
+    last_detected_at: number;
+  }>> {
+    return this.request('/api/keywords', {
+      method: 'GET',
+    });
+  }
 }
 
 // Export singleton instance

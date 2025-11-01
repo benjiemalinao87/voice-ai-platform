@@ -159,6 +159,92 @@ Only respond with the JSON object, no additional text.`
   }
 }
 
+// Helper: Extract keywords from transcript
+function extractKeywords(transcript: string): string[] {
+  if (!transcript || transcript.trim().length === 0) {
+    return [];
+  }
+
+  // Common stop words to filter out
+  const stopWords = new Set([
+    'i', 'me', 'my', 'myself', 'we', 'our', 'ours', 'ourselves', 'you', 'your', 'yours',
+    'yourself', 'yourselves', 'he', 'him', 'his', 'himself', 'she', 'her', 'hers',
+    'herself', 'it', 'its', 'itself', 'they', 'them', 'their', 'theirs', 'themselves',
+    'what', 'which', 'who', 'whom', 'this', 'that', 'these', 'those', 'am', 'is', 'are',
+    'was', 'were', 'be', 'been', 'being', 'have', 'has', 'had', 'having', 'do', 'does',
+    'did', 'doing', 'a', 'an', 'the', 'and', 'but', 'if', 'or', 'because', 'as', 'until',
+    'while', 'of', 'at', 'by', 'for', 'with', 'about', 'against', 'between', 'into',
+    'through', 'during', 'before', 'after', 'above', 'below', 'to', 'from', 'up', 'down',
+    'in', 'out', 'on', 'off', 'over', 'under', 'again', 'further', 'then', 'once', 'here',
+    'there', 'when', 'where', 'why', 'how', 'all', 'both', 'each', 'few', 'more', 'most',
+    'other', 'some', 'such', 'no', 'nor', 'not', 'only', 'own', 'same', 'so', 'than',
+    'too', 'very', 's', 't', 'can', 'will', 'just', 'don', 'should', 'now', 'yeah',
+    'yes', 'okay', 'ok', 'um', 'uh', 'like', 'know', 'think', 'get', 'got', 'would',
+    'could', 'want', 'need', 'see', 'go', 'going', 'come', 'let', 'one', 'two', 'make'
+  ]);
+
+  // Convert to lowercase and split into words
+  const words = transcript
+    .toLowerCase()
+    .replace(/[^\w\s]/g, ' ') // Replace punctuation with spaces
+    .split(/\s+/)
+    .filter(word =>
+      word.length > 3 && // At least 4 characters
+      !stopWords.has(word) &&
+      !/^\d+$/.test(word) // Not just numbers
+    );
+
+  // Count word frequency
+  const wordCount = new Map<string, number>();
+  words.forEach(word => {
+    wordCount.set(word, (wordCount.get(word) || 0) + 1);
+  });
+
+  // Get top keywords (mentioned at least twice, sorted by frequency)
+  const keywords = Array.from(wordCount.entries())
+    .filter(([_, count]) => count >= 2)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 20) // Top 20 keywords
+    .map(([word]) => word);
+
+  return keywords;
+}
+
+// Helper: Store keywords in database
+async function storeKeywords(
+  keywords: string[],
+  userId: string,
+  db: D1Database
+): Promise<void> {
+  if (keywords.length === 0) return;
+
+  const timestamp = Date.now();
+
+  for (const keyword of keywords) {
+    try {
+      // Check if keyword already exists for this user
+      const existing = await db.prepare(
+        'SELECT id, count FROM call_keywords WHERE user_id = ? AND keyword = ?'
+      ).bind(userId, keyword).first() as any;
+
+      if (existing) {
+        // Update count
+        await db.prepare(
+          'UPDATE call_keywords SET count = count + 1, last_detected_at = ? WHERE id = ?'
+        ).bind(timestamp, existing.id).run();
+      } else {
+        // Insert new keyword
+        await db.prepare(
+          `INSERT INTO call_keywords (id, user_id, keyword, count, last_detected_at, created_at)
+           VALUES (?, ?, ?, 1, ?, ?)`
+        ).bind(generateId(), userId, keyword, timestamp, timestamp).run();
+      }
+    } catch (error) {
+      console.error('Error storing keyword:', keyword, error);
+    }
+  }
+}
+
 // Helper: Lookup caller info using Twilio API
 interface TwilioCallerInfo {
   callerName: string | null;
@@ -1137,6 +1223,28 @@ export default {
         return jsonResponse(results);
       }
 
+      // Get top keywords
+      if (url.pathname === '/api/keywords' && request.method === 'GET') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        // Fetch top keywords from database (limit to top 10)
+        const { results } = await env.DB.prepare(
+          `SELECT
+            keyword,
+            count,
+            last_detected_at
+          FROM call_keywords
+          WHERE user_id = ?
+          ORDER BY count DESC
+          LIMIT 10`
+        ).bind(userId).all();
+
+        return jsonResponse(results);
+      }
+
       // End active call
       if (url.pathname.startsWith('/api/calls/') && url.pathname.endsWith('/end') && request.method === 'POST') {
         const userId = await getUserFromToken(request, env);
@@ -1704,6 +1812,12 @@ export default {
                 if (settings?.openai_api_key) {
                   const transcript = artifact.transcript || '';
                   const summary = analysis.summary || message.summary || '';
+
+                  // Extract and store keywords from transcript
+                  if (transcript) {
+                    const keywords = extractKeywords(transcript);
+                    await storeKeywords(keywords, webhook.user_id, env.DB);
+                  }
 
                   // Analyze with OpenAI
                   const analysisResult = await analyzeCallWithOpenAI(
