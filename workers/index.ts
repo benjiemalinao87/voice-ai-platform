@@ -1173,39 +1173,68 @@ export default {
 
         // Call VAPI API to end the call
         try {
-          console.log('[Call Control] Calling VAPI to end call:', callId);
+          // Step 1: Get the call details to retrieve controlUrl
+          console.log('[Call Control] Fetching call details for controlUrl:', callId);
 
-          const response = await fetch(`https://api.vapi.ai/call/${callId}`, {
-            method: 'DELETE',
+          const getCallResponse = await fetch(`https://api.vapi.ai/call/${callId}`, {
+            method: 'GET',
             headers: {
-              'Authorization': `Bearer ${settings.private_key}`,
-              'Content-Type': 'application/json'
+              'Authorization': `Bearer ${settings.private_key}`
             }
           });
 
-          if (!response.ok) {
-            const error = await response.text();
-            console.error('[Call Control] VAPI end call error:', {
+          if (!getCallResponse.ok) {
+            const error = await getCallResponse.text();
+            console.error('[Call Control] Failed to get call details:', {
               callId,
-              status: response.status,
+              status: getCallResponse.status,
               error
             });
-            return jsonResponse({ error: 'Failed to end call' }, response.status);
+            return jsonResponse({ error: 'Failed to get call details' }, getCallResponse.status);
           }
 
-          const result = await response.json();
-          console.log('[Call Control] VAPI response:', result);
+          const callDetails = await getCallResponse.json() as any;
+          const controlUrl = callDetails.monitor?.controlUrl;
 
-          // Remove from active calls
-          await env.DB.prepare(
-            'DELETE FROM active_calls WHERE vapi_call_id = ? AND user_id = ?'
-          ).bind(callId, userId).run();
+          console.log('[Call Control] Call details retrieved:', {
+            callId,
+            hasControlUrl: !!controlUrl
+          });
+
+          if (!controlUrl) {
+            console.error('[Call Control] No controlUrl found in call details');
+            return jsonResponse({ error: 'Call control URL not available' }, 400);
+          }
+
+          // Step 2: Send end-call command to controlUrl
+          const endCallPayload = {
+            type: 'end-call'
+          };
+
+          console.log('[Call Control] Sending end-call command to controlUrl:', {
+            callId,
+            payload: endCallPayload
+          });
+
+          const endCallResponse = await fetch(controlUrl, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(endCallPayload)
+          });
+
+          if (!endCallResponse.ok) {
+            const error = await endCallResponse.text();
+            console.error('[Call Control] End-call command failed:', {
+              callId,
+              status: endCallResponse.status,
+              error
+            });
+            return jsonResponse({ error: 'Failed to end call' }, endCallResponse.status);
+          }
 
           console.log('[Call Control] Call ended successfully:', callId);
-
-          // Invalidate cache
-          const cache = new VoiceAICache(env.CACHE);
-          await cache.invalidateUserCache(userId);
 
           return jsonResponse({ success: true, message: 'Call ended successfully' });
         } catch (error) {
