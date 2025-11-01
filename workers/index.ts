@@ -1261,41 +1261,73 @@ export default {
 
         // Call VAPI API to transfer the call
         try {
+          // Step 1: Get the call details to retrieve controlUrl
+          console.log('[Call Control] Fetching call details for controlUrl:', callId);
+
+          const getCallResponse = await fetch(`https://api.vapi.ai/call/${callId}`, {
+            method: 'GET',
+            headers: {
+              'Authorization': `Bearer ${settings.private_key}`
+            }
+          });
+
+          if (!getCallResponse.ok) {
+            const error = await getCallResponse.text();
+            console.error('[Call Control] Failed to get call details:', {
+              callId,
+              status: getCallResponse.status,
+              error
+            });
+            return jsonResponse({ error: 'Failed to get call details' }, getCallResponse.status);
+          }
+
+          const callDetails = await getCallResponse.json() as any;
+          const controlUrl = callDetails.monitor?.controlUrl;
+
+          console.log('[Call Control] Call details retrieved:', {
+            callId,
+            hasControlUrl: !!controlUrl
+          });
+
+          if (!controlUrl) {
+            console.error('[Call Control] No controlUrl found in call details');
+            return jsonResponse({ error: 'Call control URL not available' }, 400);
+          }
+
+          // Step 2: Send transfer command to controlUrl
           const transferPayload = {
+            type: 'transfer',
             destination: {
               type: 'number',
-              number: transferNumber,
-              message: 'Transferring your call...'
+              number: transferNumber
             }
           };
 
-          console.log('[Call Control] Calling VAPI to transfer call:', {
+          console.log('[Call Control] Sending transfer command to controlUrl:', {
             callId,
+            transferNumber,
             payload: transferPayload
           });
 
-          const response = await fetch(`https://api.vapi.ai/call/${callId}`, {
-            method: 'PATCH',
+          const transferResponse = await fetch(controlUrl, {
+            method: 'POST',
             headers: {
-              'Authorization': `Bearer ${settings.private_key}`,
               'Content-Type': 'application/json'
             },
             body: JSON.stringify(transferPayload)
           });
 
-          if (!response.ok) {
-            const error = await response.text();
-            console.error('[Call Control] VAPI transfer call error:', {
+          if (!transferResponse.ok) {
+            const error = await transferResponse.text();
+            console.error('[Call Control] Transfer command failed:', {
               callId,
               transferNumber,
-              status: response.status,
+              status: transferResponse.status,
               error
             });
-            return jsonResponse({ error: 'Failed to transfer call' }, response.status);
+            return jsonResponse({ error: 'Failed to transfer call' }, transferResponse.status);
           }
 
-          const result = await response.json();
-          console.log('[Call Control] VAPI transfer response:', result);
           console.log('[Call Control] Call transferred successfully:', {
             callId,
             transferNumber
@@ -1487,12 +1519,12 @@ export default {
 
         // Handle status-update events (real-time call status)
         if (messageType === 'status-update') {
-          const callStatus = message.status; // 'queued', 'ringing', 'in-progress', 'ended'
+          const callStatus = message.status; // 'queued', 'ringing', 'in-progress', 'forwarding', 'ended'
           const vapiCallId = call.id;
           const customerNumber = customer.number || null;
 
-          // Only track active calls (ringing or in-progress)
-          if (callStatus === 'ringing' || callStatus === 'in-progress') {
+          // Track active calls (ringing, in-progress, or forwarding)
+          if (callStatus === 'ringing' || callStatus === 'in-progress' || callStatus === 'forwarding') {
             // Enrich caller data with Twilio Lookup
             let twilioData: TwilioCallerInfo | null = null;
             if (customerNumber) {

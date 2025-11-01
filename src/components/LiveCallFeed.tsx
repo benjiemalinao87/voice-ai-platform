@@ -134,6 +134,8 @@ export function LiveCallFeed() {
         return 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400';
       case 'in-progress':
         return 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400';
+      case 'forwarding':
+        return 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400';
       default:
         return 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400';
     }
@@ -145,6 +147,8 @@ export function LiveCallFeed() {
         return <PhoneIncoming className="w-4 h-4 animate-bounce" />;
       case 'in-progress':
         return <Phone className="w-4 h-4 animate-pulse" />;
+      case 'forwarding':
+        return <PhoneForwarded className="w-4 h-4 animate-pulse" />;
       default:
         return <Phone className="w-4 h-4" />;
     }
@@ -261,27 +265,36 @@ export function LiveCallFeed() {
                   </div>
                 ) : (
                   <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => setShowTransferInput(call.vapi_call_id)}
-                      disabled={actionLoading === call.vapi_call_id}
-                      className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      <PhoneForwarded className="w-4 h-4" />
-                      Transfer
-                    </button>
-                    <button
-                      onClick={() => handleEndCall(call.vapi_call_id)}
-                      disabled={actionLoading === call.vapi_call_id}
-                      className="flex items-center gap-1.5 px-3 py-1.5 bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-400 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/50 transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      <PhoneOff className="w-4 h-4" />
-                      End Call
-                    </button>
-                    {actionLoading === call.vapi_call_id && (
-                      <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
-                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600 dark:border-blue-400"></div>
-                        Processing...
+                    {call.status === 'forwarding' ? (
+                      <div className="flex items-center gap-2 text-sm text-blue-600 dark:text-blue-400">
+                        <PhoneForwarded className="w-4 h-4 animate-pulse" />
+                        Call being transferred...
                       </div>
+                    ) : (
+                      <>
+                        <button
+                          onClick={() => setShowTransferInput(call.vapi_call_id)}
+                          disabled={actionLoading === call.vapi_call_id}
+                          className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          <PhoneForwarded className="w-4 h-4" />
+                          Transfer
+                        </button>
+                        <button
+                          onClick={() => handleEndCall(call.vapi_call_id)}
+                          disabled={actionLoading === call.vapi_call_id}
+                          className="flex items-center gap-1.5 px-3 py-1.5 bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-400 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/50 transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          <PhoneOff className="w-4 h-4" />
+                          End Call
+                        </button>
+                        {actionLoading === call.vapi_call_id && (
+                          <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
+                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600 dark:border-blue-400"></div>
+                            Processing...
+                          </div>
+                        )}
+                      </>
                     )}
                   </div>
                 )}
