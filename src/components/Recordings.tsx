@@ -200,8 +200,10 @@ export function Recordings() {
         let location = 'Unknown';
         let callerName = 'Unknown Caller';
 
-        // Use Twilio enriched data first (if available)
-        if (call.caller_name) {
+        // Use customer_name first (from analysis), then Twilio enriched data, then structured data
+        if (call.customer_name) {
+          callerName = call.customer_name;
+        } else if (call.caller_name) {
           callerName = call.caller_name;
         }
 
@@ -228,8 +230,8 @@ export function Recordings() {
             }
           }
 
-          // Fallback to structured_data name if Twilio didn't provide it
-          if (!call.caller_name && call.structured_data?.name) {
+          // Fallback to structured_data name if neither customer_name nor caller_name provided
+          if (callerName === 'Unknown Caller' && call.structured_data?.name) {
             callerName = call.structured_data.name;
           }
         } catch (error) {
