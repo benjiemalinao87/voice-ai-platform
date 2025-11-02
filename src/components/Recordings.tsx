@@ -163,8 +163,11 @@ const mockRecordings: Recording[] = [
   }
 ];
 
+type CallTab = 'answered' | 'missed' | 'forwarded';
+
 export function Recordings() {
   const [recordings, setRecordings] = useState<Recording[]>([]);
+  const [activeTab, setActiveTab] = useState<CallTab>('answered');
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [playingId, setPlayingId] = useState<string | null>(null);
@@ -179,14 +182,37 @@ export function Recordings() {
     loadRecordings(true);
   }, []);
 
-  // Refresh recordings periodically to catch new calls (every 30 seconds)
-  useEffect(() => {
-    const interval = setInterval(() => {
-      loadRecordings(true);
-    }, 30000);
+  // Removed auto-refresh to improve UX - user can manually refresh if needed
+  // Auto-refresh was causing the page to keep refreshing every 30 seconds
 
-    return () => clearInterval(interval);
-  }, []);
+  // Categorize calls based on ended_reason and recording_url
+  const categorizeCall = (recording: Recording): CallTab => {
+    const endedReason = (recording.endedReason || '').toLowerCase();
+    
+    // Check for forwarded calls
+    if (endedReason.includes('forwarded') || endedReason.includes('forward')) {
+      return 'forwarded';
+    }
+    
+    // Check for missed calls (no recording and specific ended reasons)
+    if (!recording.wasAnswered && (
+      endedReason.includes('silence') || 
+      endedReason.includes('timeout') ||
+      endedReason.includes('no-answer') ||
+      recording.duration === 0
+    )) {
+      return 'missed';
+    }
+    
+    // Default to answered if there's a recording or the call completed
+    return 'answered';
+  };
+
+  // Filter recordings by active tab
+  const filteredRecordings = recordings.filter(recording => {
+    const category = categorizeCall(recording);
+    return category === activeTab;
+  });
 
   const loadRecordings = async (reset: boolean = false) => {
     try {
@@ -320,7 +346,7 @@ export function Recordings() {
           sentiment: 'neutral' as const, // We can add sentiment analysis later
           wasAnswered: !!call.recording_url, // If there's a recording, it was answered
           summary: call.summary || undefined,
-          endedReason: call.ended_reason,
+          endedReason: call.ended_reason || undefined,
           enhancedData: enhancedData,
           callerType: call.caller_type || undefined,
           carrierName: call.carrier_name || undefined,
@@ -440,6 +466,13 @@ export function Recordings() {
     );
   }
 
+  // Count recordings by category
+  const counts = {
+    answered: recordings.filter(r => categorizeCall(r) === 'answered').length,
+    missed: recordings.filter(r => categorizeCall(r) === 'missed').length,
+    forwarded: recordings.filter(r => categorizeCall(r) === 'forwarded').length,
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -451,13 +484,90 @@ export function Recordings() {
         </div>
         <div className="flex items-center gap-2">
           <span className="text-sm text-gray-600 dark:text-gray-400">
-            {recordings.length} recordings
+            {filteredRecordings.length} of {recordings.length} recordings
           </span>
         </div>
       </div>
 
-      <div className="space-y-3">
-        {recordings.map((recording) => (
+      {/* Tab Navigation */}
+      <div className="border-b border-gray-200 dark:border-gray-700">
+        <nav className="-mb-px flex space-x-8" aria-label="Tabs">
+          <button
+            onClick={() => setActiveTab('answered')}
+            className={`
+              py-4 px-1 border-b-2 font-medium text-sm whitespace-nowrap
+              ${activeTab === 'answered'
+                ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
+              }
+            `}
+          >
+            Answered
+            {counts.answered > 0 && (
+              <span className={`ml-2 py-0.5 px-2 rounded-full text-xs ${
+                activeTab === 'answered'
+                  ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400'
+                  : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400'
+              }`}>
+                {counts.answered}
+              </span>
+            )}
+          </button>
+          <button
+            onClick={() => setActiveTab('missed')}
+            className={`
+              py-4 px-1 border-b-2 font-medium text-sm whitespace-nowrap
+              ${activeTab === 'missed'
+                ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
+              }
+            `}
+          >
+            Missed
+            {counts.missed > 0 && (
+              <span className={`ml-2 py-0.5 px-2 rounded-full text-xs ${
+                activeTab === 'missed'
+                  ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400'
+                  : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400'
+              }`}>
+                {counts.missed}
+              </span>
+            )}
+          </button>
+          <button
+            onClick={() => setActiveTab('forwarded')}
+            className={`
+              py-4 px-1 border-b-2 font-medium text-sm whitespace-nowrap
+              ${activeTab === 'forwarded'
+                ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
+              }
+            `}
+          >
+            Forwarded
+            {counts.forwarded > 0 && (
+              <span className={`ml-2 py-0.5 px-2 rounded-full text-xs ${
+                activeTab === 'forwarded'
+                  ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400'
+                  : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400'
+              }`}>
+                {counts.forwarded}
+              </span>
+            )}
+          </button>
+        </nav>
+      </div>
+
+      {/* Recordings List */}
+      {filteredRecordings.length === 0 ? (
+        <div className="text-center py-12 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+          <p className="text-gray-500 dark:text-gray-400">
+            No {activeTab} calls found
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {filteredRecordings.map((recording) => (
           <div
             key={recording.id}
             className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4 hover:shadow-md transition-shadow"
@@ -669,38 +779,40 @@ export function Recordings() {
           </div>
         ))}
 
-        {/* Load More Button */}
-        {hasMore && !loading && (
-          <div className="flex justify-center mt-6">
-            <button
-              onClick={handleLoadMore}
-              disabled={loadingMore}
-              className="flex items-center gap-2 px-6 py-3 bg-blue-600 dark:bg-blue-500 text-white rounded-lg hover:bg-blue-700 dark:hover:bg-blue-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {loadingMore ? (
-                <>
-                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                  Loading...
-                </>
-              ) : (
-                <>
-                  <ChevronDown className="w-5 h-5" />
-                  Load More Recordings
-                </>
-              )}
-            </button>
-          </div>
-        )}
+        </div>
+      )}
 
-        {/* No More Recordings Message */}
-        {!hasMore && recordings.length > 0 && (
-          <div className="flex justify-center mt-6">
-            <p className="text-sm text-gray-500 dark:text-gray-400">
-              No more recordings to load
-            </p>
-          </div>
-        )}
-      </div>
+      {/* Load More Button */}
+      {hasMore && !loading && (
+        <div className="flex justify-center mt-6">
+          <button
+            onClick={handleLoadMore}
+            disabled={loadingMore}
+            className="flex items-center gap-2 px-6 py-3 bg-blue-600 dark:bg-blue-500 text-white rounded-lg hover:bg-blue-700 dark:hover:bg-blue-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {loadingMore ? (
+              <>
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                Loading...
+              </>
+            ) : (
+              <>
+                <ChevronDown className="w-5 h-5" />
+                Load More Recordings
+              </>
+            )}
+          </button>
+        </div>
+      )}
+
+      {/* No More Recordings Message */}
+      {!hasMore && recordings.length > 0 && (
+        <div className="flex justify-center mt-6">
+          <p className="text-sm text-gray-500 dark:text-gray-400">
+            No more recordings to load
+          </p>
+        </div>
+      )}
     </div>
   );
 }
