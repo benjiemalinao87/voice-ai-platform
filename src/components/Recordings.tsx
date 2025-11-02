@@ -258,16 +258,27 @@ export function Recordings() {
         const enhancedData = call.enhanced_data || null;
 
         // Get duration from database, or calculate from raw_payload if not available
-        let duration = call.duration_seconds || 180; // Default to 180 if not available
+        let duration = call.duration_seconds || null;
         
-        // If duration not in database, try to calculate from raw_payload
-        if (!call.duration_seconds && call.raw_payload) {
+        // If duration not in database, try to extract from raw_payload
+        if (!duration && call.raw_payload) {
           try {
             const payload = typeof call.raw_payload === 'string'
               ? JSON.parse(call.raw_payload)
               : call.raw_payload;
             
-            if (payload.message?.call?.startedAt && payload.message?.call?.endedAt) {
+            // First try: use durationSeconds directly from message (most reliable)
+            if (payload.message?.durationSeconds) {
+              duration = Math.floor(payload.message.durationSeconds);
+            }
+            // Second try: calculate from message.startedAt and message.endedAt (actual structure)
+            else if (payload.message?.startedAt && payload.message?.endedAt) {
+              const startTime = new Date(payload.message.startedAt).getTime();
+              const endTime = new Date(payload.message.endedAt).getTime();
+              duration = Math.floor((endTime - startTime) / 1000);
+            }
+            // Third try: calculate from message.call.startedAt and message.call.endedAt (older structure)
+            else if (payload.message?.call?.startedAt && payload.message?.call?.endedAt) {
               const startTime = new Date(payload.message.call.startedAt).getTime();
               const endTime = new Date(payload.message.call.endedAt).getTime();
               duration = Math.floor((endTime - startTime) / 1000);
@@ -276,6 +287,9 @@ export function Recordings() {
             console.error('Error calculating duration from payload:', error);
           }
         }
+        
+        // Default to 0 if still no duration found (instead of 180)
+        duration = duration || 0;
 
         // Normalize timestamp: check if it's in milliseconds (> 1e12) or seconds (< 1e12)
         // Demo data has milliseconds, real data has seconds

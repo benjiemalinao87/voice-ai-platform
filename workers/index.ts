@@ -2540,15 +2540,31 @@ export default {
           }
         }
 
-        // Calculate duration from startedAt and endedAt
+        // Calculate duration - check multiple locations in payload
         let durationSeconds: number | null = null;
-        if (call.startedAt && call.endedAt) {
+        
+        // First, try to use durationSeconds directly from message
+        if (message.durationSeconds) {
+          durationSeconds = Math.floor(message.durationSeconds);
+        }
+        // Fallback: try message.startedAt and message.endedAt (actual payload structure)
+        else if (message.startedAt && message.endedAt) {
+          try {
+            const startTime = new Date(message.startedAt).getTime();
+            const endTime = new Date(message.endedAt).getTime();
+            durationSeconds = Math.floor((endTime - startTime) / 1000); // Convert to seconds
+          } catch (error) {
+            console.error('Error calculating call duration from message timestamps:', error);
+          }
+        }
+        // Last fallback: try call.startedAt and call.endedAt (older structure)
+        else if (call.startedAt && call.endedAt) {
           try {
             const startTime = new Date(call.startedAt).getTime();
             const endTime = new Date(call.endedAt).getTime();
             durationSeconds = Math.floor((endTime - startTime) / 1000); // Convert to seconds
           } catch (error) {
-            console.error('Error calculating call duration:', error);
+            console.error('Error calculating call duration from call timestamps:', error);
           }
         }
 
