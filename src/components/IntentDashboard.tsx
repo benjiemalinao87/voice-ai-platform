@@ -162,7 +162,26 @@ export function IntentDashboard() {
             mood_confidence: 85,
             mood_reasoning: `Determined from call analysis`,
             call_date: new Date(call.created_at * 1000).toISOString(),
-            duration_seconds: 180, // We don't have duration yet
+            duration_seconds: (() => {
+              // Calculate duration from raw_payload if available
+              let duration = 180; // Default
+              if (call.raw_payload) {
+                try {
+                  const payload = typeof call.raw_payload === 'string'
+                    ? JSON.parse(call.raw_payload)
+                    : call.raw_payload;
+                  
+                  if (payload.message?.call?.startedAt && payload.message?.call?.endedAt) {
+                    const startTime = new Date(payload.message.call.startedAt).getTime();
+                    const endTime = new Date(payload.message.call.endedAt).getTime();
+                    duration = Math.floor((endTime - startTime) / 1000);
+                  }
+                } catch (error) {
+                  console.error('Error calculating duration from payload:', error);
+                }
+              }
+              return call.duration_seconds || duration;
+            })(),
             language: 'en',
             was_answered: !!call.recording_url,
             transcript_excerpt: transcriptExcerpt || call.summary?.substring(0, 200) + '...' || 'No transcript available',

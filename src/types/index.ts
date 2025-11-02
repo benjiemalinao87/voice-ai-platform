@@ -29,6 +29,8 @@ export interface Call {
   crm_sync_status: 'success' | 'error' | 'pending';
   transcript: string | null;
   created_at: string;
+  phone_number?: string;
+  customer_name?: string;
 }
 
 export interface CallKeyword {

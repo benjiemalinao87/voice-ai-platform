@@ -17,6 +17,7 @@ interface Recording {
   customerPhone?: string;
   duration: number;
   date: string;
+  createdAt?: number; // Original Unix timestamp for reliable sorting
   location: string;
   audioUrl: string;
   transcript?: TranscriptMessage[];
@@ -178,6 +179,15 @@ export function Recordings() {
     loadRecordings(true);
   }, []);
 
+  // Refresh recordings periodically to catch new calls (every 30 seconds)
+  useEffect(() => {
+    const interval = setInterval(() => {
+      loadRecordings(true);
+    }, 30000);
+
+    return () => clearInterval(interval);
+  }, []);
+
   const loadRecordings = async (reset: boolean = false) => {
     try {
       if (reset) {
@@ -188,10 +198,16 @@ export function Recordings() {
       }
 
       const currentOffset = reset ? 0 : offset;
-      const webhookCalls = await d1Client.getWebhookCalls({
+      // Add cache-busting parameter when resetting to ensure fresh data
+      const params: any = {
         limit,
         offset: currentOffset
-      });
+      };
+      if (reset) {
+        // Add timestamp to bypass cache on fresh loads
+        params._t = Date.now();
+      }
+      const webhookCalls = await d1Client.getWebhookCalls(params);
 
       // Convert webhook calls to Recording format (enhanced data is already included!)
       const convertedRecordings: Recording[] = webhookCalls.map((call) => {
@@ -241,8 +257,31 @@ export function Recordings() {
         // Enhanced data is now included in the API response - no need for separate fetch!
         const enhancedData = call.enhanced_data || null;
 
-        // Calculate duration from recording if available
-        const duration = 180; // Default, we don't have duration in webhook data yet
+        // Get duration from database, or calculate from raw_payload if not available
+        let duration = call.duration_seconds || 180; // Default to 180 if not available
+        
+        // If duration not in database, try to calculate from raw_payload
+        if (!call.duration_seconds && call.raw_payload) {
+          try {
+            const payload = typeof call.raw_payload === 'string'
+              ? JSON.parse(call.raw_payload)
+              : call.raw_payload;
+            
+            if (payload.message?.call?.startedAt && payload.message?.call?.endedAt) {
+              const startTime = new Date(payload.message.call.startedAt).getTime();
+              const endTime = new Date(payload.message.call.endedAt).getTime();
+              duration = Math.floor((endTime - startTime) / 1000);
+            }
+          } catch (error) {
+            console.error('Error calculating duration from payload:', error);
+          }
+        }
+
+        // Normalize timestamp: check if it's in milliseconds (> 1e12) or seconds (< 1e12)
+        // Demo data has milliseconds, real data has seconds
+        const normalizedTimestamp = call.created_at > 1000000000000 
+          ? Math.floor(call.created_at / 1000)  // Already in milliseconds, convert to seconds
+          : call.created_at;  // Already in seconds
 
         return {
           id: call.id,
@@ -250,7 +289,8 @@ export function Recordings() {
           phone: call.phone_number || 'N/A',  // Business/AI agent phone
           customerPhone: call.customer_number || undefined,  // Customer's phone
           duration: duration,
-          date: new Date(call.created_at * 1000).toISOString(), // Convert Unix timestamp (seconds) to milliseconds
+          date: new Date(normalizedTimestamp * 1000).toISOString(), // Convert to milliseconds for display
+          createdAt: normalizedTimestamp, // Normalized timestamp in seconds for reliable sorting
           location: location,
           audioUrl: call.recording_url || '',
           transcript: transcript.length > 0 ? transcript : undefined,
@@ -265,15 +305,44 @@ export function Recordings() {
         };
       });
 
+      // Sort by created_at timestamp descending (newest first) - use original timestamp for reliability
+      // IMPORTANT: Always sort, even if API claims to be sorted, to ensure consistency
+      const sortedRecordings = convertedRecordings.sort((a, b) => {
+        const aTime = a.createdAt || 0;
+        const bTime = b.createdAt || 0;
+        // If timestamps are equal, maintain original order
+        if (aTime === bTime) return 0;
+        // Sort descending: newest (larger timestamp) first
+        return bTime - aTime;
+      });
+      
+      // Debug logging (remove in production if needed)
+      if (reset && sortedRecordings.length > 0) {
+        console.log('Recordings sorted:', sortedRecordings.map(r => ({
+          caller: r.caller,
+          date: r.date,
+          createdAt: r.createdAt
+        })));
+      }
+
       // Check if we have more data
       setHasMore(convertedRecordings.length === limit);
 
       // Append or replace recordings based on reset flag
       if (reset) {
-        setRecordings(convertedRecordings);
+        setRecordings(sortedRecordings);
         setOffset(limit); // Set offset to limit for next load
       } else {
-        setRecordings(prev => [...prev, ...convertedRecordings]);
+        // When appending, merge and re-sort all recordings to maintain newest-first order
+        const merged = [...recordings, ...sortedRecordings];
+        const allSorted = merged.sort((a, b) => 
+          (b.createdAt || 0) - (a.createdAt || 0)
+        );
+        // Remove duplicates based on id
+        const uniqueRecordings = Array.from(
+          new Map(allSorted.map(r => [r.id, r])).values()
+        );
+        setRecordings(uniqueRecordings);
         setOffset(prev => prev + limit); // Increment offset for next load
       }
     } catch (error) {

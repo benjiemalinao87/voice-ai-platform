@@ -141,6 +141,7 @@ class D1Client {
     webhook_id?: string;
     limit?: number;
     offset?: number;
+    _t?: number; // Cache-busting timestamp
   }): Promise<Array<{
     id: string;
     webhook_id: string;
@@ -153,11 +154,18 @@ class D1Client {
     structured_data: Record<string, any> | null;
     raw_payload: any;
     created_at: number;
+    customer_name?: string | null;
+    caller_name?: string | null;
+    intent?: string | null;
+    sentiment?: string | null;
+    outcome?: string | null;
+    duration_seconds?: number | null;
   }>> {
     const queryParams = new URLSearchParams();
     if (params?.webhook_id) queryParams.append('webhook_id', params.webhook_id);
     if (params?.limit) queryParams.append('limit', params.limit.toString());
     if (params?.offset) queryParams.append('offset', params.offset.toString());
+    if (params?._t) queryParams.append('_t', params._t.toString()); // Cache-busting
 
     const query = queryParams.toString();
     return this.request(`/api/webhook-calls${query ? '?' + query : ''}`, {

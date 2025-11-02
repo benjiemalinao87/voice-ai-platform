@@ -45,11 +45,32 @@ export function PerformanceDashboard({ selectedAgentId, dateRange }: Performance
       const webhookCalls = await d1Client.getWebhookCalls({ limit: 1000 });
 
       // Convert webhook calls to Call format
-      const convertedCalls: Call[] = webhookCalls.map(call => ({
-        id: call.id,
-        agent_id: '',
-        call_date: new Date(call.created_at * 1000).toISOString(),
-        duration_seconds: 180, // Default duration
+      const convertedCalls: Call[] = webhookCalls.map(call => {
+        // Calculate duration from database or raw_payload
+        let duration = call.duration_seconds || 180; // Default to 180 if not available
+        
+        // If duration not in database, try to calculate from raw_payload
+        if (!call.duration_seconds && call.raw_payload) {
+          try {
+            const payload = typeof call.raw_payload === 'string'
+              ? JSON.parse(call.raw_payload)
+              : call.raw_payload;
+            
+            if (payload.message?.call?.startedAt && payload.message?.call?.endedAt) {
+              const startTime = new Date(payload.message.call.startedAt).getTime();
+              const endTime = new Date(payload.message.call.endedAt).getTime();
+              duration = Math.floor((endTime - startTime) / 1000);
+            }
+          } catch (error) {
+            console.error('Error calculating duration from payload:', error);
+          }
+        }
+        
+        return {
+          id: call.id,
+          agent_id: '',
+          call_date: new Date(call.created_at * 1000).toISOString(),
+          duration_seconds: duration,
         was_answered: !!call.recording_url,
         language: 'en',
         summary: call.summary || null,
@@ -60,8 +81,9 @@ export function PerformanceDashboard({ selectedAgentId, dateRange }: Performance
         crm_sync_status: 'pending',
         sentiment_score: call.sentiment === 'Positive' ? 0.7 : call.sentiment === 'Negative' ? -0.7 : 0,
         phone_number: call.customer_number || call.phone_number || '',
-        customer_name: call.structured_data?.name || 'Unknown'
-      }));
+        customer_name: call.customer_name || call.caller_name || call.structured_data?.name || call.structured_data?.customerName || null
+      };
+      });
 
       // Calculate metrics from webhook calls
       const totalCalls = convertedCalls.length;
@@ -307,6 +329,8 @@ export function PerformanceDashboard({ selectedAgentId, dateRange }: Performance
             <thead>
               <tr className="border-b border-gray-200 dark:border-gray-700">
                 <th className="text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider py-3 px-4">Date</th>
+                <th className="text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider py-3 px-4">Caller</th>
+                <th className="text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider py-3 px-4">Phone</th>
                 <th className="text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider py-3 px-4">Duration</th>
                 <th className="text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider py-3 px-4">Language</th>
                 <th className="text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider py-3 px-4">Status</th>
@@ -325,6 +349,12 @@ export function PerformanceDashboard({ selectedAgentId, dateRange }: Performance
                       hour: '2-digit',
                       minute: '2-digit'
                     })}
+                  </td>
+                  <td className="py-3 px-4 text-sm text-gray-900 dark:text-gray-100">
+                    {call.customer_name || 'Unknown'}
+                  </td>
+                  <td className="py-3 px-4 text-sm text-gray-600 dark:text-gray-400">
+                    {call.phone_number || '-'}
                   </td>
                   <td className="py-3 px-4 text-sm text-gray-600 dark:text-gray-400">
                     {Math.floor(call.duration_seconds / 60)}:{String(call.duration_seconds % 60).padStart(2, '0')}

@@ -1177,9 +1177,12 @@ export default {
 
         // Initialize cache
         const cache = new VoiceAICache(env.CACHE);
+        
+        // Check if cache-busting parameter is present
+        const cacheBust = url.searchParams.get('_t');
 
-        // Try to get from cache first (only if no webhook filter and reasonable page size)
-        if (!webhookId && limit <= 100) {
+        // Try to get from cache first (only if no webhook filter, reasonable page size, and no cache-bust)
+        if (!webhookId && limit <= 100 && !cacheBust) {
           const cached = await cache.getCachedRecordings(userId, page, limit);
           if (cached) {
             console.log(`Cache HIT for recordings: user=${userId}, page=${page}, limit=${limit}`);
@@ -1187,7 +1190,7 @@ export default {
           }
         }
 
-        console.log(`Cache MISS for recordings: user=${userId}, page=${page}, limit=${limit}`);
+        console.log(`Cache MISS for recordings: user=${userId}, page=${page}, limit=${limit}${cacheBust ? ' (cache-bust requested)' : ''}`);
 
         // Fetch from database with enhanced data
         let query = env.DB.prepare(
@@ -1213,12 +1216,16 @@ export default {
             wc.carrier_name,
             wc.line_type,
             wc.created_at,
+            wc.duration_seconds,
             ar.result_data as enhanced_data
           FROM webhook_calls wc
           LEFT JOIN addon_results ar ON ar.call_id = wc.id AND ar.addon_type = 'enhanced_data' AND ar.status = 'success'
           WHERE wc.user_id = ?
           ${webhookId ? 'AND wc.webhook_id = ?' : ''}
-          ORDER BY wc.created_at DESC
+          ORDER BY CASE 
+            WHEN wc.created_at > 1000000000000 THEN wc.created_at / 1000 
+            ELSE wc.created_at 
+          END DESC
           LIMIT ? OFFSET ?`
         );
 
@@ -2164,14 +2171,26 @@ export default {
           }
         }
 
+        // Calculate duration from startedAt and endedAt
+        let durationSeconds: number | null = null;
+        if (call.startedAt && call.endedAt) {
+          try {
+            const startTime = new Date(call.startedAt).getTime();
+            const endTime = new Date(call.endedAt).getTime();
+            durationSeconds = Math.floor((endTime - startTime) / 1000); // Convert to seconds
+          } catch (error) {
+            console.error('Error calculating call duration:', error);
+          }
+        }
+
         // Store call data
         try {
           await env.DB.prepare(
             `INSERT INTO webhook_calls (
               id, webhook_id, user_id, vapi_call_id, phone_number, customer_number,
               recording_url, ended_reason, summary, structured_data, raw_payload, created_at,
-              caller_name, caller_type, carrier_name, line_type
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+              caller_name, caller_type, carrier_name, line_type, duration_seconds
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
           ).bind(
             callId,
             webhookId,
@@ -2188,7 +2207,8 @@ export default {
             twilioData?.callerName || null,
             twilioData?.callerType || null,
             twilioData?.carrierName || null,
-            twilioData?.lineType || null
+            twilioData?.lineType || null,
+            durationSeconds
           ).run();
 
           // Log success
