@@ -1279,6 +1279,286 @@ export default {
         return jsonResponse(results);
       }
 
+      // Get concurrent calls stats
+      if (url.pathname === '/api/concurrent-calls' && request.method === 'GET') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        // Get current concurrent calls (active calls)
+        const activeCallsResult = await env.DB.prepare(
+          `SELECT COUNT(*) as count FROM active_calls WHERE user_id = ?`
+        ).bind(userId).first() as any;
+        
+        const currentConcurrent = activeCallsResult?.count || 0;
+
+        // Get historical peak concurrent calls
+        // We'll analyze webhook_calls to find the maximum number of overlapping calls
+        const { results } = await env.DB.prepare(
+          `SELECT raw_payload, created_at
+          FROM webhook_calls
+          WHERE user_id = ?
+          AND raw_payload IS NOT NULL
+          ORDER BY created_at DESC
+          LIMIT 1000`
+        ).bind(userId).all();
+
+        let peakConcurrent = 0;
+        
+        if (results && results.length > 0) {
+          // Extract call time ranges from raw_payload
+          const callRanges: Array<{ start: number; end: number }> = [];
+          
+          for (const row of results as any[]) {
+            try {
+              const payload = typeof row.raw_payload === 'string' 
+                ? JSON.parse(row.raw_payload) 
+                : row.raw_payload;
+              
+              const startedAt = payload.message?.call?.startedAt;
+              const endedAt = payload.message?.call?.endedAt;
+              
+              if (startedAt && endedAt) {
+                const startTime = new Date(startedAt).getTime();
+                const endTime = new Date(endedAt).getTime();
+                if (startTime && endTime && startTime < endTime) {
+                  callRanges.push({ start: startTime, end: endTime });
+                }
+              }
+            } catch (error) {
+              // Skip invalid payloads
+              continue;
+            }
+          }
+
+          // Find peak concurrent calls by checking all time points
+          if (callRanges.length > 0) {
+            // Collect all unique time points (start and end times)
+            const timePoints = new Set<number>();
+            callRanges.forEach(range => {
+              timePoints.add(range.start);
+              timePoints.add(range.end);
+            });
+
+            // Check concurrent calls at each time point
+            const sortedTimePoints = Array.from(timePoints).sort((a, b) => a - b);
+            
+            for (const timePoint of sortedTimePoints) {
+              const concurrent = callRanges.filter(range => 
+                range.start <= timePoint && range.end > timePoint
+              ).length;
+              
+              if (concurrent > peakConcurrent) {
+                peakConcurrent = concurrent;
+              }
+            }
+          }
+        }
+
+        return jsonResponse({
+          current: currentConcurrent,
+          peak: peakConcurrent
+        });
+      }
+
+      // Get concurrent calls time-series data
+      if (url.pathname === '/api/concurrent-calls/timeseries' && request.method === 'GET') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        const granularity = url.searchParams.get('granularity') || 'minute'; // minute, hour, day
+        const limit = parseInt(url.searchParams.get('limit') || '1000');
+
+        // Fetch recent calls with their time ranges
+        const { results } = await env.DB.prepare(
+          `SELECT raw_payload, created_at
+          FROM webhook_calls
+          WHERE user_id = ?
+          AND raw_payload IS NOT NULL
+          ORDER BY created_at DESC
+          LIMIT ?`
+        ).bind(userId, limit).all();
+
+        if (!results || results.length === 0) {
+          return jsonResponse({ data: [], labels: [] });
+        }
+
+        // Extract call time ranges
+        const callRanges: Array<{ start: number; end: number }> = [];
+        
+        for (const row of results as any[]) {
+          try {
+            const payload = typeof row.raw_payload === 'string' 
+              ? JSON.parse(row.raw_payload) 
+              : row.raw_payload;
+            
+            const startedAt = payload.message?.call?.startedAt;
+            const endedAt = payload.message?.call?.endedAt;
+            
+            if (startedAt && endedAt) {
+              const startTime = new Date(startedAt).getTime();
+              const endTime = new Date(endedAt).getTime();
+              if (startTime && endTime && startTime < endTime) {
+                callRanges.push({ start: startTime, end: endTime });
+              }
+            }
+          } catch (error) {
+            continue;
+          }
+        }
+
+        if (callRanges.length === 0) {
+          return jsonResponse({ data: [], labels: [] });
+        }
+
+        // Determine time window
+        const allTimes = callRanges.flatMap(r => [r.start, r.end]);
+        const minTime = Math.min(...allTimes);
+        const maxTime = Math.max(...allTimes);
+
+        // Calculate time buckets based on granularity
+        let bucketSize: number;
+        let dateFormatter: (date: Date) => string;
+
+        if (granularity === 'minute') {
+          bucketSize = 60 * 1000; // 1 minute
+          dateFormatter = (d) => d.toISOString().slice(0, 16).replace('T', ' ');
+        } else if (granularity === 'hour') {
+          bucketSize = 60 * 60 * 1000; // 1 hour
+          dateFormatter = (d) => d.toISOString().slice(0, 13) + ':00';
+        } else { // day
+          bucketSize = 24 * 60 * 60 * 1000; // 1 day
+          dateFormatter = (d) => d.toISOString().split('T')[0];
+        }
+
+        // Create time buckets
+        const buckets = new Map<string, number>();
+        const bucketCount = Math.ceil((maxTime - minTime) / bucketSize);
+        
+        for (let i = 0; i <= bucketCount; i++) {
+          const bucketTime = minTime + (i * bucketSize);
+          const bucketKey = dateFormatter(new Date(bucketTime));
+          buckets.set(bucketKey, 0);
+        }
+
+        // Count concurrent calls at each bucket's midpoint
+        for (let i = 0; i <= bucketCount; i++) {
+          const bucketTime = minTime + (i * bucketSize);
+          const midpoint = bucketTime + (bucketSize / 2);
+          const concurrent = callRanges.filter(range => 
+            range.start <= midpoint && range.end > midpoint
+          ).length;
+          
+          const bucketKey = dateFormatter(new Date(bucketTime));
+          buckets.set(bucketKey, concurrent);
+        }
+
+        // Convert to arrays
+        const labels = Array.from(buckets.keys());
+        const data = Array.from(buckets.values());
+
+        return jsonResponse({ data, labels });
+      }
+
+      // Get reason call ended data
+      if (url.pathname === '/api/call-ended-reasons' && request.method === 'GET') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        const startDate = url.searchParams.get('start_date');
+        const endDate = url.searchParams.get('end_date');
+
+        // Build query with optional date filtering
+        // Filter out rows where created_at is null or ended_reason is null
+        let queryStr = `SELECT 
+          ended_reason,
+          DATE(datetime(created_at, 'unixepoch')) as call_date,
+          COUNT(*) as count
+        FROM webhook_calls
+        WHERE user_id = ?
+        AND ended_reason IS NOT NULL
+        AND created_at IS NOT NULL`;
+        
+        const params: any[] = [userId];
+        
+        if (startDate) {
+          queryStr += ` AND DATE(datetime(created_at, 'unixepoch')) >= ?`;
+          params.push(startDate);
+        }
+        if (endDate) {
+          queryStr += ` AND DATE(datetime(created_at, 'unixepoch')) <= ?`;
+          params.push(endDate);
+        }
+        
+        queryStr += ` GROUP BY ended_reason, call_date ORDER BY call_date DESC, count DESC`;
+
+        const { results } = await env.DB.prepare(queryStr).bind(...params).all();
+
+        if (!results || results.length === 0) {
+          return jsonResponse({ dates: [], reasons: {}, colors: {} });
+        }
+
+        // Group data by date and reason
+        const dateSet = new Set<string>();
+        const reasonsSet = new Set<string>();
+        const dataMap = new Map<string, Map<string, number>>(); // date -> reason -> count
+
+        for (const row of results as any[]) {
+          const date = row.call_date;
+          const reason = row.ended_reason || 'unknown';
+          const count = row.count || 0;
+
+          dateSet.add(date);
+          reasonsSet.add(reason);
+
+          if (!dataMap.has(date)) {
+            dataMap.set(date, new Map());
+          }
+          dataMap.get(date)!.set(reason, count);
+        }
+
+        // Sort dates
+        const dates = Array.from(dateSet).sort();
+
+        // Create reason mapping with colors
+        const reasons = Array.from(reasonsSet);
+        const reasonColors: Record<string, string> = {};
+        const colorPalette = [
+          '#8b5cf6', // purple
+          '#3b82f6', // blue
+          '#10b981', // green
+          '#f59e0b', // amber
+          '#ef4444', // red
+          '#06b6d4', // cyan
+          '#ec4899', // pink
+          '#6366f1', // indigo
+        ];
+
+        reasons.forEach((reason, idx) => {
+          reasonColors[reason] = colorPalette[idx % colorPalette.length];
+        });
+
+        // Build the data structure
+        const reasonData: Record<string, number[]> = {};
+        reasons.forEach(reason => {
+          reasonData[reason] = dates.map(date => {
+            const dateData = dataMap.get(date);
+            return dateData?.get(reason) || 0;
+          });
+        });
+
+        return jsonResponse({
+          dates,
+          reasons: reasonData,
+          colors: reasonColors
+        });
+      }
+
       // Get top keywords
       if (url.pathname === '/api/keywords' && request.method === 'GET') {
         const userId = await getUserFromToken(request, env);

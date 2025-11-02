@@ -245,6 +245,53 @@ class D1Client {
       method: 'GET',
     });
   }
+
+  // Get concurrent calls stats
+  async getConcurrentCalls(): Promise<{
+    current: number;
+    peak: number;
+  }> {
+    return this.request('/api/concurrent-calls', {
+      method: 'GET',
+    });
+  }
+
+  // Get concurrent calls time-series data
+  async getConcurrentCallsTimeSeries(params?: {
+    granularity?: 'minute' | 'hour' | 'day';
+    limit?: number;
+  }): Promise<{
+    data: number[];
+    labels: string[];
+  }> {
+    const queryParams = new URLSearchParams();
+    if (params?.granularity) queryParams.append('granularity', params.granularity);
+    if (params?.limit) queryParams.append('limit', params.limit.toString());
+
+    const query = queryParams.toString();
+    return this.request(`/api/concurrent-calls/timeseries${query ? '?' + query : ''}`, {
+      method: 'GET',
+    });
+  }
+
+  // Get call ended reasons data
+  async getCallEndedReasons(params?: {
+    start_date?: string;
+    end_date?: string;
+  }): Promise<{
+    dates: string[];
+    reasons: Record<string, number[]>;
+    colors: Record<string, string>;
+  }> {
+    const queryParams = new URLSearchParams();
+    if (params?.start_date) queryParams.append('start_date', params.start_date);
+    if (params?.end_date) queryParams.append('end_date', params.end_date);
+
+    const query = queryParams.toString();
+    return this.request(`/api/call-ended-reasons${query ? '?' + query : ''}`, {
+      method: 'GET',
+    });
+  }
 }
 
 // Export singleton instance

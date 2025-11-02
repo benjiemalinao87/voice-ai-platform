@@ -11,7 +11,8 @@ import {
   TrendingUp,
   Clock,
   Zap,
-  Smile
+  Smile,
+  Users
 } from 'lucide-react';
 import { MetricCard } from './MetricCard';
 import { LineChart } from './LineChart';
@@ -19,6 +20,8 @@ import { BarChart } from './BarChart';
 import { DonutChart } from './DonutChart';
 import { SentimentKeywords } from './SentimentKeywords';
 import { MultiLineChart } from './MultiLineChart';
+import { AreaChart } from './AreaChart';
+import { StackedBarChart } from './StackedBarChart';
 import { d1Client } from '../lib/d1';
 import type { DashboardMetrics, Call, KeywordTrend } from '../types';
 
@@ -33,10 +36,14 @@ export function PerformanceDashboard({ selectedAgentId, dateRange }: Performance
   const [keywords, setKeywords] = useState<KeywordTrend[]>([]);
   const [sentimentData, setSentimentData] = useState<Array<{ label: string; value: number; color: string }>>([]);
   const [loading, setLoading] = useState(true);
+  const [concurrentCalls, setConcurrentCalls] = useState<{ current: number; peak: number } | null>(null);
+  const [concurrentCallsTimeSeries, setConcurrentCallsTimeSeries] = useState<{ data: number[]; labels: string[] } | null>(null);
+  const [callEndedReasons, setCallEndedReasons] = useState<{ dates: string[]; reasons: Record<string, number[]>; colors: Record<string, string> } | null>(null);
+  const [granularity, setGranularity] = useState<'minute' | 'hour' | 'day'>('minute');
 
   useEffect(() => {
     loadData();
-  }, [selectedAgentId, dateRange]);
+  }, [selectedAgentId, dateRange, granularity]);
 
   // Calculate real call volume trends from actual data - memoized for performance
   const callVolumeSeries = useMemo(() => {
@@ -198,6 +205,11 @@ export function PerformanceDashboard({ selectedAgentId, dateRange }: Performance
         ? convertedCalls.filter(c => c.summary_length > 0).reduce((sum, c) => sum + c.summary_length, 0) / convertedCalls.filter(c => c.summary_length > 0).length
         : 0;
 
+      // Calculate total call minutes (sum of all call durations)
+      const totalCallMinutes = Math.floor(
+        convertedCalls.reduce((sum, c) => sum + c.duration_seconds, 0) / 60
+      );
+
       const metricsData: DashboardMetrics = {
         totalCalls,
         answeredCalls,
@@ -209,7 +221,7 @@ export function PerformanceDashboard({ selectedAgentId, dateRange }: Performance
         qualifiedLeadsCount,
         qualificationRate,
         appointmentDetectionRate,
-        crmSuccessRate: 0,
+        crmSuccessRate: totalCallMinutes, // Reuse this field for total call minutes
         avgSentiment: 0,
         avgHandlingTime,
         automationRate: answerRate
@@ -240,6 +252,32 @@ export function PerformanceDashboard({ selectedAgentId, dateRange }: Performance
       setCalls(convertedCalls);
       setKeywords(keywordTrends);
       setSentimentData(sentimentBreakdown);
+
+      // Load concurrent calls data
+      try {
+        const concurrentData = await d1Client.getConcurrentCalls();
+        setConcurrentCalls(concurrentData);
+
+        // Load concurrent calls time-series
+        const timeSeriesData = await d1Client.getConcurrentCallsTimeSeries({
+          granularity: granularity,
+          limit: 1000
+        });
+        setConcurrentCallsTimeSeries(timeSeriesData);
+      } catch (error) {
+        console.error('Error loading concurrent calls:', error);
+      }
+
+      // Load call ended reasons data
+      try {
+        const reasonsData = await d1Client.getCallEndedReasons({
+          start_date: dateRange.from,
+          end_date: dateRange.to
+        });
+        setCallEndedReasons(reasonsData);
+      } catch (error) {
+        console.error('Error loading call ended reasons:', error);
+      }
     } catch (error) {
       console.error('Error loading dashboard data:', error);
       // Set empty state on error
@@ -347,7 +385,7 @@ export function PerformanceDashboard({ selectedAgentId, dateRange }: Performance
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <MetricCard
           title="Avg Summary Length"
           value={`${Math.round(metrics.avgSummaryLength)} chars`}
@@ -363,12 +401,78 @@ export function PerformanceDashboard({ selectedAgentId, dateRange }: Performance
           iconColor="text-green-600"
         />
         <MetricCard
-          title="CRM Success Rate"
-          value={`${metrics.crmSuccessRate.toFixed(1)}%`}
-          subtitle="Successful integrations"
-          icon={Database}
+          title="Total Call Minutes"
+          value={`${metrics.crmSuccessRate.toLocaleString()}`}
+          subtitle="Total duration of all calls"
+          icon={Clock}
           iconColor="text-emerald-600"
         />
+        <MetricCard
+          title="Concurrent Calls"
+          value={concurrentCalls ? `${concurrentCalls.current}` : '0'}
+          subtitle={concurrentCalls ? `Peak: ${concurrentCalls.peak}` : 'Loading...'}
+          icon={Users}
+          iconColor="text-purple-600"
+        />
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Number of Concurrent Calls</h3>
+            <div className="flex items-center gap-2">
+              <select
+                value={granularity}
+                onChange={(e) => {
+                  const newGranularity = e.target.value as 'minute' | 'hour' | 'day';
+                  setGranularity(newGranularity);
+                  d1Client.getConcurrentCallsTimeSeries({
+                    granularity: newGranularity,
+                    limit: 1000
+                  }).then(data => setConcurrentCallsTimeSeries(data)).catch(err => console.error(err));
+                }}
+                className="text-xs border border-gray-300 dark:border-gray-600 rounded px-2 py-1 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+              >
+                <option value="minute">Minute</option>
+                <option value="hour">Hour</option>
+                <option value="day">Day</option>
+              </select>
+            </div>
+          </div>
+          {concurrentCallsTimeSeries && concurrentCallsTimeSeries.data.length > 0 ? (
+            <AreaChart
+              labels={concurrentCallsTimeSeries.labels}
+              data={concurrentCallsTimeSeries.data}
+              color="#06b6d4"
+              height={300}
+              showGrid={true}
+              showTooltip={true}
+            />
+          ) : (
+            <div className="flex items-center justify-center h-[300px] text-gray-400 dark:text-gray-500">
+              No concurrent calls data available
+            </div>
+          )}
+        </div>
+
+        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Reason Call Ended</h3>
+          </div>
+          {callEndedReasons && callEndedReasons.dates.length > 0 && Object.keys(callEndedReasons.reasons).length > 0 ? (
+            <StackedBarChart
+              dates={callEndedReasons.dates}
+              reasons={callEndedReasons.reasons}
+              colors={callEndedReasons.colors}
+              height={300}
+              showLegend={true}
+            />
+          ) : (
+            <div className="flex items-center justify-center h-[300px] text-gray-400 dark:text-gray-500">
+              No call ended reason data available
+            </div>
+          )}
+        </div>
       </div>
 
       <SentimentKeywords
