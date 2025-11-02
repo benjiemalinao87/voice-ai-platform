@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { BarChart3, Settings as SettingsIcon, Calendar, Moon, Sun, Mic, Brain, Shield } from 'lucide-react';
+import { BarChart3, Settings as SettingsIcon, Calendar, Moon, Sun, Mic, Brain } from 'lucide-react';
 import { PerformanceDashboard } from './components/PerformanceDashboard';
 import { AgentConfig } from './components/AgentConfig';
 import { Recordings } from './components/Recordings';
@@ -9,14 +9,13 @@ import { Login } from './components/Login';
 import { IntentDashboard } from './components/IntentDashboard';
 import { LiveChat } from './components/LiveChat';
 import { BoardView } from './components/BoardView';
-import { AdminDashboard } from './components/AdminDashboard';
 import { LiveCallFeed } from './components/LiveCallFeed';
 import { useAuth } from './contexts/AuthContext';
 import { useVapi } from './contexts/VapiContext';
 import { agentApi } from './lib/api';
 import type { Agent } from './types';
 
-type View = 'dashboard' | 'config' | 'recordings' | 'settings' | 'flow' | 'intent' | 'livechat' | 'board' | 'admin';
+type View = 'dashboard' | 'config' | 'recordings' | 'settings' | 'flow' | 'intent' | 'livechat' | 'board';
 
 function App() {
   const { isAuthenticated, isLoading } = useAuth();
@@ -219,17 +218,6 @@ function App() {
                       <SettingsIcon className="w-4 h-4" />
                       Settings
                     </button>
-                    <button
-                      onClick={() => setCurrentView('admin')}
-                      className={`flex items-center gap-2 px-4 py-2 rounded-md font-medium transition-colors ${
-                        currentView === 'admin'
-                          ? 'bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 shadow-sm'
-                          : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100'
-                      }`}
-                    >
-                      <Shield className="w-4 h-4" />
-                      Admin
-                    </button>
               </div>
             </div>
           </div>
@@ -344,10 +332,6 @@ function App() {
 
             <Settings wideView={wideView} onWideViewChange={setWideView} />
           </div>
-        )}
-
-        {currentView === 'admin' && (
-          <AdminDashboard />
         )}
         </div>
       </main>

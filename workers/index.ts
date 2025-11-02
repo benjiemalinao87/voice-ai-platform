@@ -2024,6 +2024,95 @@ export default {
       }
 
       // ============================================
+      // ADMIN ENDPOINTS
+      // ============================================
+
+      // Helper function to check if user is admin
+      const checkAdminAccess = async (userId: string | null): Promise<boolean> => {
+        if (!userId) return false;
+        
+        // Get user email to check admin status
+        const user = await env.DB.prepare(
+          'SELECT email FROM users WHERE id = ?'
+        ).bind(userId).first() as any;
+        
+        if (!user || !user.email) return false;
+        
+        // Check if email is in admin list (can be configured via env var or hardcoded)
+        // For now, check if email contains 'channelautomation.com' or 'admin'
+        const adminEmails = (env.ADMIN_EMAILS || 'vic@channelautomation.com').split(',').map(e => e.trim());
+        return adminEmails.some(adminEmail => 
+          user.email.toLowerCase() === adminEmail.toLowerCase() || 
+          user.email.toLowerCase().includes(adminEmail.toLowerCase())
+        );
+      };
+
+      // Admin Dashboard Overview
+      if (url.pathname === '/api/admin/dashboard' && request.method === 'GET') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        const isAdmin = await checkAdminAccess(userId);
+        if (!isAdmin) {
+          return jsonResponse({ error: 'Admin access required' }, 403);
+        }
+
+        // Get basic stats
+        const totalUsers = await env.DB.prepare('SELECT COUNT(*) as count FROM users').first() as any;
+        const totalCalls = await env.DB.prepare('SELECT COUNT(*) as count FROM webhook_calls').first() as any;
+        const totalWebhooks = await env.DB.prepare('SELECT COUNT(*) as count FROM webhooks').first() as any;
+        const activeCalls = await env.DB.prepare('SELECT COUNT(*) as count FROM active_calls').first() as any;
+
+        // Get recent activity
+        const recentUsers = await env.DB.prepare(
+          'SELECT id, email, name, created_at, last_login_at FROM users ORDER BY created_at DESC LIMIT 10'
+        ).all();
+
+        return jsonResponse({
+          success: true,
+          data: {
+            overview: {
+              totalUsers: totalUsers?.count || 0,
+              totalCalls: totalCalls?.count || 0,
+              totalWebhooks: totalWebhooks?.count || 0,
+              activeCalls: activeCalls?.count || 0,
+            },
+            recentUsers: (recentUsers.results || []).map((u: any) => ({
+              id: u.id,
+              email: u.email,
+              name: u.name,
+              created_at: u.created_at,
+              last_login_at: u.last_login_at
+            }))
+          }
+        });
+      }
+
+      // Admin - Get all users
+      if (url.pathname === '/api/admin/users' && request.method === 'GET') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        const isAdmin = await checkAdminAccess(userId);
+        if (!isAdmin) {
+          return jsonResponse({ error: 'Admin access required' }, 403);
+        }
+
+        const users = await env.DB.prepare(
+          'SELECT id, email, name, created_at, last_login_at FROM users ORDER BY created_at DESC'
+        ).all();
+
+        return jsonResponse({
+          success: true,
+          data: users.results || []
+        });
+      }
+
+      // ============================================
       // PUBLIC WEBHOOK RECEIVER (No Auth Required)
       // ============================================
 
