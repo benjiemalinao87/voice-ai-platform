@@ -224,15 +224,12 @@ export function Recordings() {
       }
 
       const currentOffset = reset ? 0 : offset;
-      // Add cache-busting parameter when resetting to ensure fresh data
+      // Add cache-busting parameter to ensure fresh data (always bypass cache for recordings)
       const params: any = {
         limit,
-        offset: currentOffset
+        offset: currentOffset,
+        _t: Date.now() // Always bypass cache to ensure we get latest data
       };
-      if (reset) {
-        // Add timestamp to bypass cache on fresh loads
-        params._t = Date.now();
-      }
       const webhookCalls = await d1Client.getWebhookCalls(params);
 
       // Convert webhook calls to Recording format (enhanced data is already included!)

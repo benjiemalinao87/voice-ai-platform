@@ -2087,3 +2087,274 @@ Deployed to: `api.voice-config.channelautomation.com`
 ### Key Takeaway
 Always prioritize data that comes directly from the source (VAPI) over derived analysis (OpenAI), especially for structured data like appointments. Use AI analysis to fill gaps, not as the primary source when the platform already provides the data.
 
+---
+
+## Phone Numbers Management with Twilio Import (January 24, 2025)
+
+### Feature Implementation
+Successfully implemented Phone Numbers management tab in Settings with Twilio number import and free number creation capabilities.
+
+### Implementation Details
+1. **Created PhoneNumbers Component** (`src/components/PhoneNumbers.tsx`):
+   - Lists all existing Vapi phone numbers
+   - Import modal for selecting and importing Twilio numbers
+   - Create modal for generating free numbers by area code
+   - Real-time error/success messaging
+   - Refresh functionality to reload numbers list
+
+2. **Backend API Endpoints** (`workers/index.ts`):
+   - `GET /api/twilio/phone-numbers`: Fetches voice-capable numbers from Twilio
+   - `POST /api/vapi/import-twilio`: Imports selected Twilio number to Vapi
+   - `POST /api/vapi/phone-number`: Creates free Vapi number by area code
+
+3. **D1 Client Helpers** (`src/lib/d1.ts`):
+   - `getTwilioPhoneNumbers()`: Calls worker endpoint to list Twilio numbers
+   - `importTwilioNumber()`: Handles Twilio number import
+   - `createVapiPhoneNumber()`: Handles free number creation
+
+### Security Implementation
+**Server-Side Credential Management:**
+- All API endpoints read credentials from `user_settings` table in D1
+- Twilio Account SID and Auth Token never exposed to frontend
+- Vapi Private Key never sent to frontend
+- All endpoints require JWT authentication
+- Credentials only used server-side for API calls
+
+### How It Should Be Done
+```typescript
+// ✅ CORRECT - Server-side credential management
+// Worker endpoint reads credentials from database
+const settings = await env.DB.prepare(
+  'SELECT twilio_account_sid, twilio_auth_token, private_key FROM user_settings WHERE user_id = ?'
+).bind(userId).first();
+
+// Make API calls server-side using stored credentials
+const twilioResponse = await fetch(twilioUrl, {
+  headers: {
+    'Authorization': `Basic ${btoa(`${settings.twilio_account_sid}:${settings.twilio_auth_token}`)}`,
+  },
+});
+
+// Return only safe data to frontend (no credentials)
+return jsonResponse({
+  sid: num.sid,
+  phoneNumber: num.phone_number,
+  friendlyName: num.friendly_name,
+});
+```
+
+### How It Should NOT Be Done
+```typescript
+// ❌ WRONG - Exposing credentials to frontend
+// Frontend calls Twilio API directly
+const response = await fetch('https://api.twilio.com/...', {
+  headers: {
+    'Authorization': `Basic ${btoa(`${accountSid}:${authToken}`)}`,  // ❌ Credentials in frontend!
+  },
+});
+
+// ❌ WRONG - Sending credentials in request body
+await d1Client.importTwilioNumber({
+  twilioAccountSid: accountSid,  // ❌ Credentials exposed!
+  twilioAuthToken: authToken,     // ❌ Security risk!
+  phoneNumber: number
+});
+```
+
+### Twilio API Integration
+**Authentication:**
+- Uses Basic Auth with Account SID and Auth Token
+- Encoded as base64: `btoa(`${accountSid}:${authToken}`)`
+- Twilio endpoint: `https://api.twilio.com/2010-04-01/Accounts/{AccountSid}/IncomingPhoneNumbers.json`
+
+**Filtering:**
+- Only returns numbers with `capabilities.voice === true`
+- SMS-only numbers are excluded
+- Supports both friendly names and phone numbers
+
+### Vapi API Integration
+**Import Format:**
+- Provider: `twilio`
+- Credentials: `twilioAccountSid` and `twilioAuthToken` in payload
+- Number selection: Either `twilioPhoneNumberSid` (by SID) or `number` (by E.164)
+- SMS: Explicitly disabled (`smsEnabled: false`)
+
+**Create Format:**
+- `areaCode`: 3-digit US area code (e.g., "415")
+- `fallbackDestination`: Uses saved `transfer_phone_number` from settings
+- `smsEnabled`: Always `false` (voice only)
+- Optional `name` field for number identification
+
+### Error Handling
+**User-Friendly Error Messages:**
+- Missing credentials: "Please configure your Twilio/Vapi credentials in API Configuration"
+- Invalid area code: "Valid 3-digit area code is required"
+- API errors: Forward Vapi/Twilio error messages with context
+- Network errors: Generic fallback with console logging for debugging
+
+**Error Display:**
+- Red alert boxes with error icon
+- Success messages in green alert boxes
+- Automatic clearing when modals close
+- Persistent until user action
+
+### Key Takeaways
+1. **Server-Side Credential Management**: Never expose API keys/credentials to frontend - always use server-side endpoints
+2. **Security First**: Read credentials from secure database storage, not from user input
+3. **Voice-Only Requirement**: Explicitly disable SMS (`smsEnabled: false`) in all Vapi API calls
+4. **Error Handling**: Provide clear, actionable error messages to guide users
+5. **Modal UX**: Clear modals with proper close handlers and state cleanup
+6. **Radio Selection**: Use radio buttons for single-selection scenarios (import one number)
+7. **Area Code Validation**: Validate 3-digit numeric input client-side before API call
+8. **Loading States**: Show loading indicators during async operations
+9. **List Refresh**: After import/create, refresh the list automatically
+10. **Fallback Destination**: Use saved `transfer_phone_number` from settings for free number creation
+
+### Common Issues and Solutions
+
+**"Twilio credentials not configured" error:**
+- User needs to add Twilio Account SID and Auth Token in Settings → API Configuration
+- Verify credentials are saved successfully
+- Check worker logs for database query errors
+
+**"Vapi API key not configured" error:**
+- User needs to add Vapi Private API Key in Settings → API Configuration
+- Verify key is saved and valid
+- Test connection in API Configuration tab
+
+**Import fails with "Vapi API error":**
+- Check Vapi API documentation for correct import format
+- Verify Twilio number is voice-capable (not SMS-only)
+- Ensure number isn't already imported to another Vapi account
+- Check Vapi account limits/quotas
+
+**Area code validation fails:**
+- Area code must be exactly 3 digits
+- Only numeric characters allowed
+- US area codes only (no international support yet)
+
+### Files Created/Modified
+- `src/components/PhoneNumbers.tsx` - New component for phone number management
+- `src/components/Settings.tsx` - Added Phone Numbers tab
+- `src/lib/d1.ts` - Added phone number management methods
+- `workers/index.ts` - Added three new protected endpoints
+- `progress.md` - Documented feature completion
+- `lesson_learn.md` - Documented implementation lessons
+
+### API Endpoint Details
+
+**GET /api/twilio/phone-numbers:**
+- Requires: JWT authentication, Twilio credentials in settings
+- Returns: Array of voice-capable Twilio numbers with SID, phone number, friendly name
+- Filters: Only numbers with `capabilities.voice === true`
+
+**POST /api/vapi/import-twilio:**
+- Requires: JWT authentication, Vapi and Twilio credentials in settings
+- Payload: `{ sid?: string, phoneNumber?: string, name?: string }`
+- Returns: Imported Vapi phone number (id, number, name)
+- SMS: Explicitly disabled in Vapi import
+
+**POST /api/vapi/phone-number:**
+- Requires: JWT authentication, Vapi credentials in settings
+- Payload: `{ areaCode: string, name?: string }`
+- Returns: Created Vapi phone number (id, number, name)
+- Fallback: Uses `transfer_phone_number` from settings if available
+- SMS: Explicitly disabled in Vapi creation
+
+### Vapi Free Number Creation - Correct API Format (November 2, 2025)
+
+**Issue:**
+Initially tried multiple incorrect approaches to pass area code to Vapi's free number creation API, including:
+- `areaCode` in payload ❌
+- `areaCodes` array in payload ❌
+- `areaCode` as query parameter ❌
+- `number` field in payload ❌
+
+All resulted in API errors: "property X should not exist"
+
+**Root Cause:**
+The correct field name is `numberDesiredAreaCode` in the request body, not `areaCode` or any other variation. This was discovered by inspecting Vapi's dashboard network requests.
+
+**Correct API Format for Free Numbers:**
+```typescript
+// ✅ CORRECT - Free Vapi number with numberDesiredAreaCode in payload
+const vapiUrl = 'https://api.vapi.ai/phone-number';
+const payload = {
+  provider: 'vapi',
+  numberDesiredAreaCode: '415', // ✅ Correct field name!
+  name: 'Optional Name',
+  fallbackDestination: {
+    type: 'number',
+    number: '+1234567890'
+  }
+};
+```
+
+**API Response:**
+```json
+{
+  "id": "d1c66579-9e69-46ed-9a99-0da7ec55c896",
+  "number": "+13412109253",
+  "status": "activating",
+  "provider": "vapi",
+  ...
+}
+```
+
+The API returns the phone number immediately with `status: "activating"`. The number is assigned instantly, not asynchronously.
+
+**What NOT to do:**
+```typescript
+// ❌ WRONG - Various incorrect attempts
+const payload = {
+  provider: 'vapi',
+  areaCode: '415', // ❌ Wrong field name
+};
+
+const payload = {
+  provider: 'vapi',
+  areaCodes: ['415'], // ❌ Wrong field name and format
+};
+
+const vapiUrl = `https://api.vapi.ai/phone-number?areaCode=415`; // ❌ Query param doesn't work
+```
+
+**Status Display:**
+Added status badge to UI to show when numbers are "activating" vs "active":
+- **Activating**: Orange badge - number is being activated but can't receive calls yet
+- **Active**: Green badge - number is fully active and ready to use
+- Other statuses: Gray badge
+
+**UI Implementation:**
+```typescript
+{number.status && (
+  <span className={`text-xs px-2 py-1 rounded-full font-medium ${
+    number.status === 'active' 
+      ? 'bg-green-100 text-green-700' // Active - green
+      : number.status === 'activating'
+      ? 'bg-orange-100 text-orange-700' // Activating - orange
+      : 'bg-gray-100 text-gray-600' // Other - gray
+  }`}>
+    {number.status.charAt(0).toUpperCase() + number.status.slice(1)}
+  </span>
+)}
+```
+
+**Key Takeaways:**
+1. Always inspect actual API calls from the official dashboard when documentation is unclear
+2. Field name is `numberDesiredAreaCode`, not `areaCode` or any variation
+3. Numbers are returned immediately with status "activating", not asynchronously
+4. Display status badges to inform users when numbers are ready to use
+5. Check the network tab in browser DevTools to see actual payloads and responses
+
+---
+
+### Future Enhancements
+1. **International Support**: Allow area codes from other countries
+2. **Number Management**: Delete/release phone numbers
+3. **Number Configuration**: Update fallback destinations and settings per number
+4. **Bulk Import**: Import multiple Twilio numbers at once
+5. **Number Search**: Filter/search existing numbers
+6. **Usage Statistics**: Show call volume and usage per number
+7. **Number Assignment**: Assign numbers to specific assistants
+8. **Auto-refresh**: Automatically poll for pending numbers until they're assigned

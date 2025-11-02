@@ -9,6 +9,7 @@ export interface Agent {
   response_style: 'concise' | 'detailed' | 'adaptive';
   api_key: string | null;
   is_active: boolean;
+  phone_number?: string | null;
   created_at: string;
   updated_at: string;
 }

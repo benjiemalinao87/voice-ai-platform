@@ -56,6 +56,12 @@ class VapiClient {
     });
   }
 
+  async deleteAssistant(assistantId: string) {
+    return this.request(`/assistant/${assistantId}`, {
+      method: 'DELETE',
+    });
+  }
+
   // Calls
   async listCalls(params?: {
     assistantId?: string;
@@ -92,6 +98,13 @@ class VapiClient {
   async getPhoneNumber(phoneNumberId: string) {
     return this.request(`/phone-number/${phoneNumberId}`, {
       method: 'GET',
+    });
+  }
+
+  async updatePhoneNumber(phoneNumberId: string, data: any) {
+    return this.request(`/phone-number/${phoneNumberId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
     });
   }
 

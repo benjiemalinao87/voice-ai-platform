@@ -11,6 +11,7 @@ import { LiveChat } from './components/LiveChat';
 import { BoardView } from './components/BoardView';
 import { LiveCallFeed } from './components/LiveCallFeed';
 import { VoiceAgentsList } from './components/VoiceAgentsList';
+import { CreateAgentModal } from './components/CreateAgentModal';
 import { useAuth } from './contexts/AuthContext';
 import { useVapi } from './contexts/VapiContext';
 import { agentApi } from './lib/api';
@@ -28,6 +29,7 @@ function App() {
   const [currentView, setCurrentView] = useState<View>(isFlowBuilder ? 'flow' : 'dashboard');
   const [agents, setAgents] = useState<Agent[]>([]);
   const [selectedAgentId, setSelectedAgentId] = useState<string | undefined>();
+  const [showCreateAgentModal, setShowCreateAgentModal] = useState(false);
   const [darkMode, setDarkMode] = useState(() => {
     const saved = localStorage.getItem('darkMode');
     if (saved !== null) {
@@ -71,6 +73,42 @@ function App() {
       // Don't auto-select first agent - let users start with "All Agents"
     } catch (error) {
       console.error('Error loading agents:', error);
+    }
+  };
+
+  const handleCreateAgent = async (agentData: Omit<Agent, 'id' | 'created_at' | 'updated_at' | 'api_key'>, webhookUrl?: string) => {
+    if (!vapiClient) {
+      throw new Error('VAPI client not initialized');
+    }
+
+    try {
+      const newAgent = await agentApi.create(agentData, vapiClient, webhookUrl);
+      setAgents([...agents, newAgent]);
+      setShowCreateAgentModal(false);
+      // Optionally select the newly created agent
+      setSelectedAgentId(newAgent.id);
+    } catch (error) {
+      console.error('Error creating agent:', error);
+      throw error;
+    }
+  };
+
+  const handleDeleteAgent = async (agentId: string) => {
+    if (!vapiClient) {
+      throw new Error('VAPI client not initialized');
+    }
+
+    try {
+      await agentApi.delete(agentId, vapiClient);
+      // Remove agent from local state
+      setAgents(agents.filter(a => a.id !== agentId));
+      // Clear selection if the deleted agent was selected
+      if (selectedAgentId === agentId) {
+        setSelectedAgentId(undefined);
+      }
+    } catch (error) {
+      console.error('Error deleting agent:', error);
+      alert('Failed to delete agent. Please try again.');
     }
   };
 
@@ -297,9 +335,11 @@ function App() {
         )}
 
         {currentView === 'config' && (!selectedAgentId || selectedAgentId === '') && (
-          <VoiceAgentsList 
-            agents={agents} 
-            onSelectAgent={(agentId) => setSelectedAgentId(agentId)} 
+          <VoiceAgentsList
+            agents={agents}
+            onSelectAgent={(agentId) => setSelectedAgentId(agentId)}
+            onCreateAgent={() => setShowCreateAgentModal(true)}
+            onDeleteAgent={handleDeleteAgent}
           />
         )}
 
@@ -327,6 +367,14 @@ function App() {
       >
         {darkMode ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
       </button>
+
+      {/* Create Agent Modal */}
+      {showCreateAgentModal && (
+        <CreateAgentModal
+          onClose={() => setShowCreateAgentModal(false)}
+          onCreate={handleCreateAgent}
+        />
+      )}
     </div>
   );
 }

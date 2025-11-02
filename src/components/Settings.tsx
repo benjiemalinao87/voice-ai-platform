@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Key, Save, Eye, EyeOff, AlertCircle, CheckCircle, Trash2, RefreshCw, LogOut, User, Settings as SettingsIcon, Plug, Webhook, Maximize2, Zap, Calendar, PhoneForwarded } from 'lucide-react';
+import { Key, Save, Eye, EyeOff, AlertCircle, CheckCircle, Trash2, RefreshCw, LogOut, User, Settings as SettingsIcon, Plug, Webhook, Maximize2, Zap, Calendar, PhoneForwarded, Phone } from 'lucide-react';
 import { VapiClient } from '../lib/vapi';
 import { useAuth } from '../contexts/AuthContext';
 import { useVapi } from '../contexts/VapiContext';
@@ -8,6 +8,7 @@ import { Integration } from './Integration';
 import { WebhookConfig } from './WebhookConfig';
 import { Addons } from './Addons';
 import { SchedulingTriggers } from './SchedulingTriggers';
+import { PhoneNumbers } from './PhoneNumbers';
 
 interface VapiCredentials {
   privateKey: string;
@@ -45,7 +46,7 @@ interface SettingsProps {
 
 export function Settings({ wideView = false, onWideViewChange }: SettingsProps = {}) {
   const { user, token, logout } = useAuth();
-  const [activeTab, setActiveTab] = useState<'api' | 'integrations' | 'webhooks' | 'addons' | 'scheduling' | 'preferences'>('api');
+  const [activeTab, setActiveTab] = useState<'api' | 'integrations' | 'webhooks' | 'addons' | 'scheduling' | 'phoneNumbers' | 'preferences'>('api');
   const [credentials, setCredentials] = useState<VapiCredentials>({
     privateKey: '',
     publicKey: ''
@@ -127,12 +128,21 @@ export function Settings({ wideView = false, onWideViewChange }: SettingsProps =
     try {
       const tempClient = new VapiClient(privateKey);
       
-      // Fetch assistants
-      const assistantsData = await tempClient.listAssistants();
-      setAssistants(assistantsData.map((a: any) => ({
-        id: a.id,
-        name: a.name || 'Unnamed Assistant'
-      })));
+      // Fetch assistants (use cached endpoint if available, otherwise direct)
+      try {
+        const { assistants } = await d1Client.getAssistants();
+        setAssistants(assistants.map((a: any) => ({
+          id: a.id,
+          name: a.name || 'Unnamed Assistant'
+        })));
+      } catch {
+        // Fallback to direct Vapi call if cached endpoint fails
+        const assistantsData = await tempClient.listAssistants();
+        setAssistants(assistantsData.map((a: any) => ({
+          id: a.id,
+          name: a.name || 'Unnamed Assistant'
+        })));
+      }
       
       // Fetch phone numbers
       const phonesData = await tempClient.listPhoneNumbers();
@@ -332,6 +342,19 @@ export function Settings({ wideView = false, onWideViewChange }: SettingsProps =
               <div className="flex items-center gap-2">
                 <Calendar className="w-4 h-4" />
                 Scheduling
+              </div>
+            </button>
+            <button
+              onClick={() => setActiveTab('phoneNumbers')}
+              className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
+                activeTab === 'phoneNumbers'
+                  ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                  : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <Phone className="w-4 h-4" />
+                Phone Numbers
               </div>
             </button>
             <button
@@ -670,6 +693,10 @@ export function Settings({ wideView = false, onWideViewChange }: SettingsProps =
 
           {activeTab === 'scheduling' && (
             <SchedulingTriggers />
+          )}
+
+          {activeTab === 'phoneNumbers' && (
+            <PhoneNumbers />
           )}
 
           {activeTab === 'preferences' && (

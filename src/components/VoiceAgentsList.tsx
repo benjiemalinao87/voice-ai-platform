@@ -1,9 +1,11 @@
-import { Bot, Volume2, Power, Settings, ChevronRight } from 'lucide-react';
+import { Bot, Volume2, Power, Settings, ChevronRight, Phone, Plus, Trash2 } from 'lucide-react';
 import type { Agent } from '../types';
 
 interface VoiceAgentsListProps {
   agents: Agent[];
   onSelectAgent: (agentId: string) => void;
+  onCreateAgent: () => void;
+  onDeleteAgent: (agentId: string) => void;
 }
 
 // Voice options mapping - matches AgentConfig
@@ -41,7 +43,14 @@ function getVoiceDisplayName(agent: Agent): string {
   return '';
 }
 
-export function VoiceAgentsList({ agents, onSelectAgent }: VoiceAgentsListProps) {
+export function VoiceAgentsList({ agents, onSelectAgent, onCreateAgent, onDeleteAgent }: VoiceAgentsListProps) {
+  const handleDelete = (e: React.MouseEvent, agentId: string, agentName: string) => {
+    e.stopPropagation(); // Prevent triggering onSelectAgent
+
+    if (confirm(`Are you sure you want to delete "${agentName}"? This action cannot be undone.`)) {
+      onDeleteAgent(agentId);
+    }
+  };
   if (agents.length === 0) {
     return (
       <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-12 text-center">
@@ -53,40 +62,56 @@ export function VoiceAgentsList({ agents, onSelectAgent }: VoiceAgentsListProps)
             </div>
           </div>
         </div>
-        <h3 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-2">No Voice Agents Yet</h3>
+        <h3 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-2">No Voice AI Agents Yet</h3>
         <p className="text-gray-600 dark:text-gray-400 mb-6 max-w-md mx-auto">
-          Create your first voice assistant to get started. Voice agents handle calls, answer questions, and interact with your customers.
+          Create your first voice assistant to get started. Voice AI agents handle calls, answer questions, and interact with your customers.
         </p>
+        <button
+          onClick={onCreateAgent}
+          className="inline-flex items-center gap-2 px-6 py-3 bg-blue-600 dark:bg-blue-500 text-white rounded-lg hover:bg-blue-700 dark:hover:bg-blue-600 transition-colors"
+        >
+          <Plus className="w-5 h-5" />
+          Create Voice AI Agent
+        </button>
       </div>
     );
   }
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Voice Agents</h2>
-        <p className="text-gray-600 dark:text-gray-400 mt-1">
-          Manage and configure your voice assistants
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Voice AI Agents</h2>
+          <p className="text-gray-600 dark:text-gray-400 mt-1">
+            Manage and configure your voice assistants
+          </p>
+        </div>
+        <button
+          onClick={onCreateAgent}
+          className="flex items-center gap-2 px-4 py-2 bg-blue-600 dark:bg-blue-500 text-white rounded-lg hover:bg-blue-700 dark:hover:bg-blue-600 transition-colors"
+        >
+          <Plus className="w-4 h-4" />
+          Create Agent
+        </button>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {agents.map((agent) => (
-          <button
+          <div
             key={agent.id}
             onClick={() => onSelectAgent(agent.id)}
-            className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6 hover:shadow-lg hover:border-blue-500 dark:hover:border-blue-400 transition-all duration-200 text-left group"
+            className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6 hover:shadow-lg hover:border-blue-500 dark:hover:border-blue-400 transition-all duration-200 text-left group cursor-pointer"
           >
             <div className="flex items-start justify-between mb-4">
               <div className="flex items-center gap-3">
                 <div className={`p-2 rounded-lg ${
-                  agent.is_active 
-                    ? 'bg-blue-100 dark:bg-blue-900/20' 
+                  agent.is_active
+                    ? 'bg-blue-100 dark:bg-blue-900/20'
                     : 'bg-gray-100 dark:bg-gray-700'
                 }`}>
                   <Bot className={`w-5 h-5 ${
-                    agent.is_active 
-                      ? 'text-blue-600 dark:text-blue-400' 
+                    agent.is_active
+                      ? 'text-blue-600 dark:text-blue-400'
                       : 'text-gray-400 dark:text-gray-500'
                   }`} />
                 </div>
@@ -96,8 +121,8 @@ export function VoiceAgentsList({ agents, onSelectAgent }: VoiceAgentsListProps)
                   </h3>
                   <div className="flex items-center gap-2 mt-1">
                     <div className={`flex items-center gap-1 ${
-                      agent.is_active 
-                        ? 'text-green-600 dark:text-green-400' 
+                      agent.is_active
+                        ? 'text-green-600 dark:text-green-400'
                         : 'text-gray-400 dark:text-gray-500'
                     }`}>
                       <Power className={`w-3 h-3 ${agent.is_active ? 'fill-current' : ''}`} />
@@ -108,7 +133,16 @@ export function VoiceAgentsList({ agents, onSelectAgent }: VoiceAgentsListProps)
                   </div>
                 </div>
               </div>
-              <ChevronRight className="w-5 h-5 text-gray-400 dark:text-gray-500 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors" />
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={(e) => handleDelete(e, agent.id, agent.name)}
+                  className="p-1.5 rounded-lg text-gray-400 dark:text-gray-500 hover:bg-red-50 dark:hover:bg-red-900/20 hover:text-red-600 dark:hover:text-red-400 transition-colors"
+                  title="Delete agent"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+                <ChevronRight className="w-5 h-5 text-gray-400 dark:text-gray-500 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors" />
+              </div>
             </div>
 
             <div className="space-y-2">
@@ -121,6 +155,12 @@ export function VoiceAgentsList({ agents, onSelectAgent }: VoiceAgentsListProps)
                   </div>
                 ) : null;
               })()}
+              {agent.phone_number && (
+                <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
+                  <Phone className="w-4 h-4" />
+                  <span>{agent.phone_number}</span>
+                </div>
+              )}
               <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
                 <Settings className="w-4 h-4" />
                 <span className="capitalize">{agent.tone || 'Not set'}</span>
@@ -136,7 +176,7 @@ export function VoiceAgentsList({ agents, onSelectAgent }: VoiceAgentsListProps)
                 </p>
               </div>
             )}
-          </button>
+          </div>
         ))}
       </div>
     </div>

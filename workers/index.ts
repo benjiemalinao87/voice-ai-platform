@@ -812,6 +812,578 @@ export default {
       }
 
       // ============================================
+      // PHONE NUMBERS ENDPOINTS (Protected)
+      // ============================================
+
+      // Get Twilio phone numbers
+      if (url.pathname === '/api/twilio/phone-numbers' && request.method === 'GET') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        const settings = await env.DB.prepare(
+          'SELECT twilio_account_sid, twilio_auth_token FROM user_settings WHERE user_id = ?'
+        ).bind(userId).first() as any;
+
+        if (!settings || !settings.twilio_account_sid || !settings.twilio_auth_token) {
+          return jsonResponse({ error: 'Twilio credentials not configured. Please add your Twilio Account SID and Auth Token in API Configuration.' }, 400);
+        }
+
+        try {
+          // Fetch Twilio phone numbers
+          const twilioUrl = `https://api.twilio.com/2010-04-01/Accounts/${settings.twilio_account_sid}/IncomingPhoneNumbers.json`;
+          const twilioAuth = btoa(`${settings.twilio_account_sid}:${settings.twilio_auth_token}`);
+          
+          const twilioResponse = await fetch(twilioUrl, {
+            headers: {
+              'Authorization': `Basic ${twilioAuth}`,
+            },
+          });
+
+          if (!twilioResponse.ok) {
+            const errorText = await twilioResponse.text();
+            return jsonResponse({ error: `Twilio API error: ${twilioResponse.status} - ${errorText}` }, 400);
+          }
+
+          const twilioData = await twilioResponse.json() as any;
+          
+          // Filter to voice-capable numbers only
+          const voiceNumbers = (twilioData.incoming_phone_numbers || []).filter((num: any) => 
+            num.capabilities?.voice === true
+          ).map((num: any) => ({
+            sid: num.sid,
+            phoneNumber: num.phone_number,
+            friendlyName: num.friendly_name,
+            capabilities: {
+              voice: num.capabilities?.voice || false,
+              sms: num.capabilities?.sms || false,
+            }
+          }));
+
+          return jsonResponse(voiceNumbers);
+        } catch (error: any) {
+          console.error('Error fetching Twilio numbers:', error);
+          return jsonResponse({ error: `Failed to fetch Twilio numbers: ${error.message}` }, 500);
+        }
+      }
+
+      // Import Twilio number to Vapi
+      if (url.pathname === '/api/vapi/import-twilio' && request.method === 'POST') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        const { sid, phoneNumber, name } = await request.json() as any;
+
+        if (!sid && !phoneNumber) {
+          return jsonResponse({ error: 'Either sid or phoneNumber is required' }, 400);
+        }
+
+        const settings = await env.DB.prepare(
+          'SELECT private_key, twilio_account_sid, twilio_auth_token FROM user_settings WHERE user_id = ?'
+        ).bind(userId).first() as any;
+
+        if (!settings || !settings.private_key) {
+          return jsonResponse({ error: 'CHAU Voice Engine API key not configured. Please add your CHAU Voice Engine Private API Key in API Configuration.' }, 400);
+        }
+
+        if (!settings.twilio_account_sid || !settings.twilio_auth_token) {
+          return jsonResponse({ error: 'Twilio credentials not configured. Please add your Twilio Account SID and Auth Token in API Configuration.' }, 400);
+        }
+
+        try {
+          // Import phone number to CHAU Voice Engine
+          // According to Vapi docs, we need to POST to /phone-number with import parameters
+          const vapiUrl = 'https://api.vapi.ai/phone-number';
+          const payload: any = {
+            provider: 'twilio',
+            twilioAccountSid: settings.twilio_account_sid,
+            twilioAuthToken: settings.twilio_auth_token,
+          };
+
+          if (sid) {
+            payload.twilioPhoneNumberSid = sid;
+          } else if (phoneNumber) {
+            payload.number = phoneNumber;
+          }
+
+          if (name) {
+            payload.name = name;
+          }
+
+          // Ensure SMS is disabled, only voice
+          payload.smsEnabled = false;
+
+          const vapiResponse = await fetch(vapiUrl, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${settings.private_key}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(payload),
+          });
+
+          if (!vapiResponse.ok) {
+            const errorText = await vapiResponse.text();
+            return jsonResponse({ error: `CHAU Voice Engine API error: ${vapiResponse.status} - ${errorText}` }, 400);
+          }
+
+          const vapiData = await vapiResponse.json() as any;
+          
+          return jsonResponse({
+            id: vapiData.id,
+            number: vapiData.number || vapiData.phoneNumber,
+            name: vapiData.name || name,
+          });
+        } catch (error: any) {
+          console.error('Error importing Twilio number:', error);
+          return jsonResponse({ error: `Failed to import Twilio number: ${error.message}` }, 500);
+        }
+      }
+
+      // Create free CHAU Voice Engine phone number
+      if (url.pathname === '/api/vapi/phone-number' && request.method === 'POST') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        const { areaCode, name } = await request.json() as any;
+
+        if (!areaCode || !/^\d{3}$/.test(areaCode)) {
+          return jsonResponse({ error: 'Valid 3-digit area code is required' }, 400);
+        }
+
+        const settings = await env.DB.prepare(
+          'SELECT private_key, transfer_phone_number FROM user_settings WHERE user_id = ?'
+        ).bind(userId).first() as any;
+
+        if (!settings || !settings.private_key) {
+          return jsonResponse({ error: 'CHAU Voice Engine API key not configured. Please add your CHAU Voice Engine Private API Key in API Configuration.' }, 400);
+        }
+
+        try {
+          // Create free CHAU Voice Engine phone number (provider: "vapi")
+          // CHAU Voice Engine provides free US phone numbers - no Twilio purchase needed
+          // Up to 10 free numbers per account
+          const vapiUrl = 'https://api.vapi.ai/phone-number';
+          const payload: any = {
+            provider: 'vapi',
+            numberDesiredAreaCode: areaCode, // Correct field name from Vapi dashboard
+          };
+
+          if (name) {
+            payload.name = name;
+          }
+
+          // Set fallback destination to transfer number if available
+          if (settings.transfer_phone_number) {
+            payload.fallbackDestination = {
+              type: 'number',
+              number: settings.transfer_phone_number,
+            };
+          }
+
+          const vapiResponse = await fetch(vapiUrl, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${settings.private_key}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(payload),
+          });
+
+          if (!vapiResponse.ok) {
+            const errorText = await vapiResponse.text();
+            return jsonResponse({ error: `CHAU Voice Engine API error: ${vapiResponse.status} - ${errorText}` }, 400);
+          }
+
+          const vapiData = await vapiResponse.json() as any;
+          
+          return jsonResponse({
+            id: vapiData.id,
+            number: vapiData.number || vapiData.phoneNumber,
+            name: vapiData.name || name,
+          });
+        } catch (error: any) {
+          console.error('Error creating CHAU Voice Engine phone number:', error);
+          return jsonResponse({ error: `Failed to create phone number: ${error.message}` }, 500);
+        }
+      }
+
+      // Update phone number assistant assignment
+      if (url.pathname.startsWith('/api/vapi/phone-number/') && url.pathname.endsWith('/assistant') && request.method === 'PATCH') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        // Extract ID from /api/vapi/phone-number/{id}/assistant
+        const pathParts = url.pathname.split('/').filter(Boolean);
+        const phoneNumberId = pathParts.length >= 4 ? pathParts[3] : null; // ['api', 'vapi', 'phone-number', '{id}', 'assistant']
+        const { assistantId } = await request.json() as any;
+
+        if (!phoneNumberId) {
+          return jsonResponse({ error: 'Phone number ID required' }, 400);
+        }
+
+        const settings = await env.DB.prepare(
+          'SELECT private_key FROM user_settings WHERE user_id = ?'
+        ).bind(userId).first() as any;
+
+        if (!settings || !settings.private_key) {
+          return jsonResponse({ error: 'CHAU Voice Engine API key not configured. Please add your CHAU Voice Engine Private API Key in API Configuration.' }, 400);
+        }
+
+        try {
+          // Update phone number via Vapi API
+          const vapiUrl = `https://api.vapi.ai/phone-number/${phoneNumberId}`;
+          const payload: any = {};
+          
+          // If assistantId is null/undefined, set it to null to remove assignment
+          // If assistantId is provided, set it to assign
+          if (assistantId === null || assistantId === undefined || assistantId === '') {
+            payload.assistantId = null;
+          } else {
+            payload.assistantId = assistantId;
+          }
+
+          const vapiResponse = await fetch(vapiUrl, {
+            method: 'PATCH',
+            headers: {
+              'Authorization': `Bearer ${settings.private_key}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(payload),
+          });
+
+          if (!vapiResponse.ok) {
+            const errorText = await vapiResponse.text();
+            return jsonResponse({ error: `CHAU Voice Engine API error: ${vapiResponse.status} - ${errorText}` }, 400);
+          }
+
+          const vapiData = await vapiResponse.json() as any;
+          
+          return jsonResponse({
+            success: true,
+            phoneNumber: {
+              id: vapiData.id,
+              number: vapiData.number || vapiData.phoneNumber,
+              assistantId: vapiData.assistantId || null,
+            }
+          });
+        } catch (error: any) {
+          console.error('Error updating phone number assistant:', error);
+          return jsonResponse({ error: `Failed to update phone number: ${error.message}` }, 500);
+        }
+      }
+
+      // ============================================
+      // ASSISTANTS ENDPOINTS (Protected with Caching)
+      // ============================================
+
+      // Get all assistants (cache-first)
+      if (url.pathname === '/api/assistants' && request.method === 'GET') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        const settings = await env.DB.prepare(
+          'SELECT private_key FROM user_settings WHERE user_id = ?'
+        ).bind(userId).first() as any;
+
+        if (!settings || !settings.private_key) {
+          return jsonResponse({ error: 'CHAU Voice Engine API key not configured' }, 400);
+        }
+
+        try {
+          // Check cache first (assistants cached within last 5 minutes are considered fresh)
+          const cacheAgeLimit = now() - (5 * 60); // 5 minutes ago
+          const cached = await env.DB.prepare(
+            'SELECT id, vapi_data, cached_at, updated_at FROM assistants_cache WHERE user_id = ? AND cached_at > ? ORDER BY cached_at DESC'
+          ).bind(userId, cacheAgeLimit).all();
+
+          if (cached && cached.results && cached.results.length > 0) {
+            // Return cached data
+            const assistants = cached.results.map((row: any) => JSON.parse(row.vapi_data));
+            return jsonResponse({ assistants, cached: true });
+          }
+
+          // Cache miss or stale - fetch from Vapi
+          const vapiUrl = 'https://api.vapi.ai/assistant';
+          const vapiResponse = await fetch(vapiUrl, {
+            method: 'GET',
+            headers: {
+              'Authorization': `Bearer ${settings.private_key}`,
+              'Content-Type': 'application/json',
+            },
+          });
+
+          if (!vapiResponse.ok) {
+            const errorText = await vapiResponse.text();
+            return jsonResponse({ error: `CHAU Voice Engine API error: ${vapiResponse.status} - ${errorText}` }, 400);
+          }
+
+          const assistants = await vapiResponse.json() as any[];
+          const timestamp = now();
+
+          // Update cache (upsert each assistant)
+          for (const assistant of assistants) {
+            await env.DB.prepare(
+              'INSERT OR REPLACE INTO assistants_cache (id, user_id, vapi_data, cached_at, updated_at) VALUES (?, ?, ?, ?, ?)'
+            ).bind(
+              assistant.id,
+              userId,
+              JSON.stringify(assistant),
+              timestamp,
+              new Date(assistant.updatedAt || assistant.createdAt).getTime() / 1000 || timestamp
+            ).run();
+          }
+
+          return jsonResponse({ assistants, cached: false });
+        } catch (error: any) {
+          console.error('Error fetching assistants:', error);
+          return jsonResponse({ error: `Failed to fetch assistants: ${error.message}` }, 500);
+        }
+      }
+
+      // Get single assistant (cache-first)
+      if (url.pathname.startsWith('/api/assistants/') && url.pathname !== '/api/assistants' && request.method === 'GET') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        const assistantId = url.pathname.split('/').pop();
+        if (!assistantId) {
+          return jsonResponse({ error: 'Assistant ID required' }, 400);
+        }
+
+        const settings = await env.DB.prepare(
+          'SELECT private_key FROM user_settings WHERE user_id = ?'
+        ).bind(userId).first() as any;
+
+        if (!settings || !settings.private_key) {
+          return jsonResponse({ error: 'CHAU Voice Engine API key not configured' }, 400);
+        }
+
+        try {
+          // Check cache first
+          const cached = await env.DB.prepare(
+            'SELECT vapi_data, cached_at FROM assistants_cache WHERE id = ? AND user_id = ?'
+          ).bind(assistantId, userId).first() as any;
+
+          if (cached) {
+            const cacheAge = now() - cached.cached_at;
+            // If cached within last 5 minutes, use cache
+            if (cacheAge < 5 * 60) {
+              return jsonResponse({ assistant: JSON.parse(cached.vapi_data), cached: true });
+            }
+          }
+
+          // Cache miss or stale - fetch from Vapi
+          const vapiUrl = `https://api.vapi.ai/assistant/${assistantId}`;
+          const vapiResponse = await fetch(vapiUrl, {
+            method: 'GET',
+            headers: {
+              'Authorization': `Bearer ${settings.private_key}`,
+              'Content-Type': 'application/json',
+            },
+          });
+
+          if (!vapiResponse.ok) {
+            const errorText = await vapiResponse.text();
+            return jsonResponse({ error: `CHAU Voice Engine API error: ${vapiResponse.status} - ${errorText}` }, 400);
+          }
+
+          const assistant = await vapiResponse.json() as any;
+          const timestamp = now();
+
+          // Update cache
+          await env.DB.prepare(
+            'INSERT OR REPLACE INTO assistants_cache (id, user_id, vapi_data, cached_at, updated_at) VALUES (?, ?, ?, ?, ?)'
+          ).bind(
+            assistant.id,
+            userId,
+            JSON.stringify(assistant),
+            timestamp,
+            new Date(assistant.updatedAt || assistant.createdAt).getTime() / 1000 || timestamp
+          ).run();
+
+          return jsonResponse({ assistant, cached: false });
+        } catch (error: any) {
+          console.error('Error fetching assistant:', error);
+          return jsonResponse({ error: `Failed to fetch assistant: ${error.message}` }, 500);
+        }
+      }
+
+      // Update assistant (write-through cache)
+      if (url.pathname.startsWith('/api/assistants/') && url.pathname !== '/api/assistants' && request.method === 'PATCH') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        const assistantId = url.pathname.split('/').pop();
+        const updates = await request.json() as any;
+
+        if (!assistantId) {
+          return jsonResponse({ error: 'Assistant ID required' }, 400);
+        }
+
+        const settings = await env.DB.prepare(
+          'SELECT private_key FROM user_settings WHERE user_id = ?'
+        ).bind(userId).first() as any;
+
+        if (!settings || !settings.private_key) {
+          return jsonResponse({ error: 'CHAU Voice Engine API key not configured' }, 400);
+        }
+
+        try {
+          // 1. Update in Vapi first (source of truth)
+          const vapiUrl = `https://api.vapi.ai/assistant/${assistantId}`;
+          const vapiResponse = await fetch(vapiUrl, {
+            method: 'PATCH',
+            headers: {
+              'Authorization': `Bearer ${settings.private_key}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(updates),
+          });
+
+          if (!vapiResponse.ok) {
+            const errorText = await vapiResponse.text();
+            return jsonResponse({ error: `CHAU Voice Engine API error: ${vapiResponse.status} - ${errorText}` }, 400);
+          }
+
+          const updatedAssistant = await vapiResponse.json() as any;
+          const timestamp = now();
+
+          // 2. Update D1 cache (write-through)
+          await env.DB.prepare(
+            'INSERT OR REPLACE INTO assistants_cache (id, user_id, vapi_data, cached_at, updated_at) VALUES (?, ?, ?, ?, ?)'
+          ).bind(
+            updatedAssistant.id,
+            userId,
+            JSON.stringify(updatedAssistant),
+            timestamp,
+            new Date(updatedAssistant.updatedAt || updatedAssistant.createdAt).getTime() / 1000 || timestamp
+          ).run();
+
+          return jsonResponse({ assistant: updatedAssistant });
+        } catch (error: any) {
+          console.error('Error updating assistant:', error);
+          return jsonResponse({ error: `Failed to update assistant: ${error.message}` }, 500);
+        }
+      }
+
+      // Create assistant (write-through cache)
+      if (url.pathname === '/api/assistants' && request.method === 'POST') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        const assistantData = await request.json() as any;
+
+        const settings = await env.DB.prepare(
+          'SELECT private_key FROM user_settings WHERE user_id = ?'
+        ).bind(userId).first() as any;
+
+        if (!settings || !settings.private_key) {
+          return jsonResponse({ error: 'CHAU Voice Engine API key not configured' }, 400);
+        }
+
+        try {
+          // 1. Create in Vapi first (source of truth)
+          const vapiUrl = 'https://api.vapi.ai/assistant';
+          const vapiResponse = await fetch(vapiUrl, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${settings.private_key}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(assistantData),
+          });
+
+          if (!vapiResponse.ok) {
+            const errorText = await vapiResponse.text();
+            return jsonResponse({ error: `CHAU Voice Engine API error: ${vapiResponse.status} - ${errorText}` }, 400);
+          }
+
+          const newAssistant = await vapiResponse.json() as any;
+          const timestamp = now();
+
+          // 2. Add to D1 cache (write-through)
+          await env.DB.prepare(
+            'INSERT OR REPLACE INTO assistants_cache (id, user_id, vapi_data, cached_at, updated_at) VALUES (?, ?, ?, ?, ?)'
+          ).bind(
+            newAssistant.id,
+            userId,
+            JSON.stringify(newAssistant),
+            timestamp,
+            new Date(newAssistant.updatedAt || newAssistant.createdAt).getTime() / 1000 || timestamp
+          ).run();
+
+          return jsonResponse({ assistant: newAssistant });
+        } catch (error: any) {
+          console.error('Error creating assistant:', error);
+          return jsonResponse({ error: `Failed to create assistant: ${error.message}` }, 500);
+        }
+      }
+
+      // Delete assistant (write-through cache)
+      if (url.pathname.startsWith('/api/assistants/') && url.pathname !== '/api/assistants' && request.method === 'DELETE') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        const assistantId = url.pathname.split('/').pop();
+        if (!assistantId) {
+          return jsonResponse({ error: 'Assistant ID required' }, 400);
+        }
+
+        const settings = await env.DB.prepare(
+          'SELECT private_key FROM user_settings WHERE user_id = ?'
+        ).bind(userId).first() as any;
+
+        if (!settings || !settings.private_key) {
+          return jsonResponse({ error: 'CHAU Voice Engine API key not configured' }, 400);
+        }
+
+        try {
+          // 1. Delete from Vapi first (source of truth)
+          const vapiUrl = `https://api.vapi.ai/assistant/${assistantId}`;
+          const vapiResponse = await fetch(vapiUrl, {
+            method: 'DELETE',
+            headers: {
+              'Authorization': `Bearer ${settings.private_key}`,
+              'Content-Type': 'application/json',
+            },
+          });
+
+          if (!vapiResponse.ok) {
+            const errorText = await vapiResponse.text();
+            return jsonResponse({ error: `CHAU Voice Engine API error: ${vapiResponse.status} - ${errorText}` }, 400);
+          }
+
+          // 2. Delete from D1 cache (write-through)
+          await env.DB.prepare(
+            'DELETE FROM assistants_cache WHERE id = ? AND user_id = ?'
+          ).bind(assistantId, userId).run();
+
+          return jsonResponse({ success: true });
+        } catch (error: any) {
+          console.error('Error deleting assistant:', error);
+          return jsonResponse({ error: `Failed to delete assistant: ${error.message}` }, 500);
+        }
+      }
+
+      // ============================================
       // ADDONS ENDPOINTS (Protected)
       // ============================================
 

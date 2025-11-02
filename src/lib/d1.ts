@@ -160,6 +160,10 @@ class D1Client {
     sentiment?: string | null;
     outcome?: string | null;
     duration_seconds?: number | null;
+    enhanced_data?: any | null;
+    caller_type?: string | null;
+    carrier_name?: string | null;
+    line_type?: string | null;
   }>> {
     const queryParams = new URLSearchParams();
     if (params?.webhook_id) queryParams.append('webhook_id', params.webhook_id);
@@ -290,6 +294,89 @@ class D1Client {
     const query = queryParams.toString();
     return this.request(`/api/call-ended-reasons${query ? '?' + query : ''}`, {
       method: 'GET',
+    });
+  }
+
+  // Phone Numbers Management
+  async getTwilioPhoneNumbers(): Promise<Array<{
+    sid: string;
+    phoneNumber: string;
+    friendlyName?: string;
+    capabilities?: {
+      voice?: boolean;
+      sms?: boolean;
+    };
+  }>> {
+    return this.request('/api/twilio/phone-numbers', {
+      method: 'GET',
+    });
+  }
+
+  async importTwilioNumber(payload: {
+    sid?: string;
+    phoneNumber?: string;
+    name?: string;
+  }): Promise<{
+    id: string;
+    number: string;
+    name?: string;
+  }> {
+    return this.request('/api/vapi/import-twilio', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async createVapiPhoneNumber(payload: {
+    areaCode: string;
+    name?: string;
+  }): Promise<{
+    id: string;
+    number: string;
+    name?: string;
+  }> {
+    return this.request('/api/vapi/phone-number', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async assignAssistantToPhoneNumber(phoneNumberId: string, assistantId: string | null): Promise<void> {
+    return this.request(`/api/vapi/phone-number/${phoneNumberId}/assistant`, {
+      method: 'PATCH',
+      body: JSON.stringify({ assistantId }),
+    });
+  }
+
+  async getAssistants(): Promise<{ assistants: any[], cached: boolean }> {
+    return this.request('/api/assistants', {
+      method: 'GET',
+    });
+  }
+
+  async getAssistant(assistantId: string): Promise<{ assistant: any, cached: boolean }> {
+    return this.request(`/api/assistants/${assistantId}`, {
+      method: 'GET',
+    });
+  }
+
+  async updateAssistant(assistantId: string, updates: any): Promise<{ assistant: any }> {
+    return this.request(`/api/assistants/${assistantId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(updates),
+    });
+  }
+
+  async createAssistant(assistantData: any): Promise<{ assistant: any }> {
+    return this.request('/api/assistants', {
+      method: 'POST',
+      body: JSON.stringify(assistantData),
+    });
+  }
+
+  async deleteAssistant(assistantId: string): Promise<{ success: boolean }> {
+    return this.request(`/api/assistants/${assistantId}`, {
+      method: 'DELETE',
     });
   }
 }
