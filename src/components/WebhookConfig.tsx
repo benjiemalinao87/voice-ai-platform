@@ -225,15 +225,6 @@ export function WebhookConfig() {
 
               {/* Actions */}
               <div className="flex gap-2 ml-4">
-                <a
-                  href="https://dashboard.vapi.ai"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="p-2 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors"
-                  title="Open Voice AI Dashboard"
-                >
-                  <ExternalLink className="w-5 h-5" />
-                </a>
                 <button
                   onClick={() => handleDeleteWebhook(webhook.id)}
                   className="p-2 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
@@ -295,7 +286,7 @@ export function WebhookConfig() {
                       <span className="font-medium">Reason:</span> {call.ended_reason}
                       {call.vapi_call_id && (
                         <span className="ml-2">
-                          • <span className="font-medium">Call ID:</span> {call.vapi_call_id}
+                          • <span className="font-medium">Call ID:</span> {call.vapi_call_id.substring(0, 8)}...
                         </span>
                       )}
                     </div>

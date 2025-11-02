@@ -1,0 +1,145 @@
+import { Bot, Volume2, Power, Settings, ChevronRight } from 'lucide-react';
+import type { Agent } from '../types';
+
+interface VoiceAgentsListProps {
+  agents: Agent[];
+  onSelectAgent: (agentId: string) => void;
+}
+
+// Voice options mapping - matches AgentConfig
+const VOICE_OPTIONS = [
+  { id: 'Paige', name: 'Paige', description: '26 year old white female - Deeper tone, Calming, Professional' },
+  { id: 'Rohan', name: 'Rohan', description: '24 years old male - Indian american, Bright, Optimistic, Cheerful, Energetic' },
+  { id: 'Hana', name: 'Hana', description: '22 year old female - Asian, Soft, Soothing, Gentle' },
+  { id: 'Elliot', name: 'Elliot', description: '25 years old male - Canadian, Soothing, Friendly, Professional' },
+  { id: 'Cole', name: 'Cole', description: '22 year old white male - Deeper tone, Calming, Professional' },
+  { id: 'Harry', name: 'Harry', description: '24 year old white male - Clear, Energetic, Professional' },
+  { id: 'Spencer', name: 'Spencer', description: '26 year old female - Energetic, Quirky, Lighthearted, Cheeky, Amused' },
+  { id: 'Kylie', name: 'Kylie', description: 'Age 23, Female - American' },
+  { id: 'Lily', name: 'Lily', description: 'Female voice' },
+  { id: 'Neha', name: 'Neha', description: 'Female voice' },
+  { id: 'Savannah', name: 'Savannah', description: '25 years old female - American' },
+];
+
+// Helper to get display name for voice
+function getVoiceDisplayName(agent: Agent): string {
+  // Prefer voice_id (actual voice name) over voice_name (provider)
+  if (agent.voice_id) {
+    const voice = VOICE_OPTIONS.find(v => v.id === agent.voice_id);
+    if (voice) {
+      return voice.name;
+    }
+    // If voice_id exists but not in our list, use it as-is
+    return agent.voice_id;
+  }
+  
+  // If voice_name is "vapi" (provider name), don't show it
+  if (agent.voice_name && agent.voice_name.toLowerCase() !== 'vapi') {
+    return agent.voice_name;
+  }
+  
+  return '';
+}
+
+export function VoiceAgentsList({ agents, onSelectAgent }: VoiceAgentsListProps) {
+  if (agents.length === 0) {
+    return (
+      <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-12 text-center">
+        <div className="flex items-center justify-center mb-4">
+          <div className="relative">
+            <Bot className="w-16 h-16 text-gray-400 dark:text-gray-500" />
+            <div className="absolute -top-1 -right-1 w-6 h-6 bg-blue-600 dark:bg-blue-500 rounded-full flex items-center justify-center">
+              <span className="text-white text-xs">!</span>
+            </div>
+          </div>
+        </div>
+        <h3 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-2">No Voice Agents Yet</h3>
+        <p className="text-gray-600 dark:text-gray-400 mb-6 max-w-md mx-auto">
+          Create your first voice assistant to get started. Voice agents handle calls, answer questions, and interact with your customers.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Voice Agents</h2>
+        <p className="text-gray-600 dark:text-gray-400 mt-1">
+          Manage and configure your voice assistants
+        </p>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {agents.map((agent) => (
+          <button
+            key={agent.id}
+            onClick={() => onSelectAgent(agent.id)}
+            className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6 hover:shadow-lg hover:border-blue-500 dark:hover:border-blue-400 transition-all duration-200 text-left group"
+          >
+            <div className="flex items-start justify-between mb-4">
+              <div className="flex items-center gap-3">
+                <div className={`p-2 rounded-lg ${
+                  agent.is_active 
+                    ? 'bg-blue-100 dark:bg-blue-900/20' 
+                    : 'bg-gray-100 dark:bg-gray-700'
+                }`}>
+                  <Bot className={`w-5 h-5 ${
+                    agent.is_active 
+                      ? 'text-blue-600 dark:text-blue-400' 
+                      : 'text-gray-400 dark:text-gray-500'
+                  }`} />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-gray-900 dark:text-gray-100 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
+                    {agent.name}
+                  </h3>
+                  <div className="flex items-center gap-2 mt-1">
+                    <div className={`flex items-center gap-1 ${
+                      agent.is_active 
+                        ? 'text-green-600 dark:text-green-400' 
+                        : 'text-gray-400 dark:text-gray-500'
+                    }`}>
+                      <Power className={`w-3 h-3 ${agent.is_active ? 'fill-current' : ''}`} />
+                      <span className="text-xs font-medium">
+                        {agent.is_active ? 'Active' : 'Inactive'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <ChevronRight className="w-5 h-5 text-gray-400 dark:text-gray-500 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors" />
+            </div>
+
+            <div className="space-y-2">
+              {(() => {
+                const voiceDisplayName = getVoiceDisplayName(agent);
+                return voiceDisplayName ? (
+                  <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
+                    <Volume2 className="w-4 h-4" />
+                    <span>{voiceDisplayName}</span>
+                  </div>
+                ) : null;
+              })()}
+              <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
+                <Settings className="w-4 h-4" />
+                <span className="capitalize">{agent.tone || 'Not set'}</span>
+                <span className="text-gray-400">•</span>
+                <span className="capitalize">{agent.response_style || 'Not set'}</span>
+              </div>
+            </div>
+
+            {agent.system_prompt && (
+              <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+                <p className="text-xs text-gray-500 dark:text-gray-400 line-clamp-2">
+                  {agent.system_prompt}
+                </p>
+              </div>
+            )}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+

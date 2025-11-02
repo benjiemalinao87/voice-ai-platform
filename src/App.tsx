@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { BarChart3, Settings as SettingsIcon, Calendar, Moon, Sun, Mic, Brain } from 'lucide-react';
+import { BarChart3, Settings as SettingsIcon, Calendar, Moon, Sun, Mic, Brain, Bot } from 'lucide-react';
 import { PerformanceDashboard } from './components/PerformanceDashboard';
 import { AgentConfig } from './components/AgentConfig';
 import { Recordings } from './components/Recordings';
@@ -10,6 +10,7 @@ import { IntentDashboard } from './components/IntentDashboard';
 import { LiveChat } from './components/LiveChat';
 import { BoardView } from './components/BoardView';
 import { LiveCallFeed } from './components/LiveCallFeed';
+import { VoiceAgentsList } from './components/VoiceAgentsList';
 import { useAuth } from './contexts/AuthContext';
 import { useVapi } from './contexts/VapiContext';
 import { agentApi } from './lib/api';
@@ -125,21 +126,6 @@ function App() {
             </div>
 
             <div className="flex items-center gap-4">
-              {agents.length > 0 && (
-                <select
-                  value={selectedAgentId || ""}
-                  onChange={(e) => setSelectedAgentId(e.target.value || undefined)}
-                  className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
-                >
-                  <option value="">All Agents</option>
-                  {agents.map((agent) => (
-                    <option key={agent.id} value={agent.id}>
-                      {agent.name}
-                    </option>
-                  ))}
-                </select>
-              )}
-
               <div className="flex items-center gap-2 bg-gray-100 dark:bg-gray-700 rounded-lg p-1">
                     <button
                       onClick={() => setCurrentView('dashboard')}
@@ -197,15 +183,19 @@ function App() {
                       Live Chat
                     </button> */}
                     <button
-                      onClick={() => setCurrentView('config')}
+                      onClick={() => {
+                        setCurrentView('config');
+                        // Always clear selected agent when clicking Voice Agents tab to show the list
+                        setSelectedAgentId(undefined);
+                      }}
                       className={`flex items-center gap-2 px-4 py-2 rounded-md font-medium transition-colors ${
                         currentView === 'config'
                           ? 'bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 shadow-sm'
                           : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100'
                       }`}
                     >
-                      <SettingsIcon className="w-4 h-4" />
-                      Configuration
+                      <Bot className="w-4 h-4" />
+                      Voice Agents
                     </button>
                     <button
                       onClick={() => setCurrentView('settings')}
@@ -233,7 +223,7 @@ function App() {
               <div>
                 <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Performance Metrics</h2>
                 <p className="text-gray-600 dark:text-gray-400 mt-1">
-                  {selectedAgent ? `Viewing metrics for ${selectedAgent.name}` : 'Viewing metrics for all agents'}
+                  Viewing metrics for all agents
                 </p>
               </div>
 
@@ -259,7 +249,7 @@ function App() {
             <LiveCallFeed />
 
             <PerformanceDashboard
-              selectedAgentId={selectedAgentId}
+              selectedAgentId={undefined}
               dateRange={dateRange}
             />
           </div>
@@ -285,11 +275,21 @@ function App() {
 
         {currentView === 'config' && selectedAgentId && selectedAgent && (
           <div className="space-y-6">
-            <div>
-              <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Agent Configuration</h2>
-              <p className="text-gray-600 dark:text-gray-400 mt-1">
-                Configure voice, behavior, and prompts for {selectedAgent.name}
-              </p>
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="flex items-center gap-3 mb-2">
+                  <button
+                    onClick={() => setSelectedAgentId(undefined)}
+                    className="text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 transition-colors"
+                  >
+                    ← Back to Agents
+                  </button>
+                </div>
+                <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Agent Configuration</h2>
+                <p className="text-gray-600 dark:text-gray-400 mt-1">
+                  Configure voice, behavior, and prompts for {selectedAgent.name}
+                </p>
+              </div>
             </div>
 
             <AgentConfig agentId={selectedAgentId} />
@@ -297,28 +297,10 @@ function App() {
         )}
 
         {currentView === 'config' && (!selectedAgentId || selectedAgentId === '') && (
-          <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-12 text-center">
-            <div className="flex items-center justify-center mb-4">
-              <div className="relative">
-                <SettingsIcon className="w-12 h-12 text-gray-400 dark:text-gray-500" />
-                <div className="absolute -top-1 -right-1 w-4 h-4 bg-blue-600 dark:bg-blue-500 rounded-full flex items-center justify-center">
-                  <span className="text-white text-xs">!</span>
-                </div>
-              </div>
-            </div>
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-2">Select an Agent to Configure</h3>
-            <p className="text-gray-600 dark:text-gray-400 mb-4">
-              To view and edit agent configuration, please select an agent from the dropdown menu in the header.
-            </p>
-            <div className="inline-flex items-center gap-2 px-4 py-2 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
-              <svg className="w-5 h-5 text-blue-600 dark:text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
-              </svg>
-              <span className="text-sm font-medium text-blue-900 dark:text-blue-100">
-                Look for the agent selector at the top left
-              </span>
-            </div>
-          </div>
+          <VoiceAgentsList 
+            agents={agents} 
+            onSelectAgent={(agentId) => setSelectedAgentId(agentId)} 
+          />
         )}
 
         {currentView === 'settings' && (
