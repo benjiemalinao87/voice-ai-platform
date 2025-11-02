@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import {
   Phone,
   PhoneIncoming,
@@ -37,6 +37,99 @@ export function PerformanceDashboard({ selectedAgentId, dateRange }: Performance
   useEffect(() => {
     loadData();
   }, [selectedAgentId, dateRange]);
+
+  // Calculate real call volume trends from actual data - memoized for performance
+  const callVolumeSeries = useMemo(() => {
+    if (calls.length === 0) {
+      return [
+        { name: 'Total Inbound', data: [], color: '#3b82f6' },
+        { name: 'Connected', data: [], color: '#10b981' },
+        { name: 'Missed', data: [], color: '#ef4444' }
+      ];
+    }
+
+    // Create date range array from selected date range
+    const startDate = new Date(dateRange.from);
+    const endDate = new Date(dateRange.to);
+    const days: Date[] = [];
+    
+    for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
+      days.push(new Date(d));
+    }
+
+    // Group calls by date
+    const callsByDate = new Map<string, { total: number; answered: number; missed: number }>();
+    
+    days.forEach(date => {
+      const dateKey = date.toISOString().split('T')[0]; // YYYY-MM-DD
+      callsByDate.set(dateKey, { total: 0, answered: 0, missed: 0 });
+    });
+
+    // Aggregate calls by date
+    calls.forEach(call => {
+      const callDate = new Date(call.call_date);
+      const dateKey = callDate.toISOString().split('T')[0];
+      
+      if (callsByDate.has(dateKey)) {
+        const stats = callsByDate.get(dateKey)!;
+        stats.total += 1;
+        if (call.was_answered) {
+          stats.answered += 1;
+        } else {
+          stats.missed += 1;
+        }
+      }
+    });
+
+    // Create labels and data arrays
+    const callVolumeLabels = days.map(date => {
+      const month = date.toLocaleDateString('en-US', { month: 'short' });
+      const day = date.getDate();
+      return `${month} ${day}`;
+    });
+
+    const totalInboundData = days.map(date => {
+      const dateKey = date.toISOString().split('T')[0];
+      return callsByDate.get(dateKey)?.total || 0;
+    });
+
+    const connectedData = days.map(date => {
+      const dateKey = date.toISOString().split('T')[0];
+      return callsByDate.get(dateKey)?.answered || 0;
+    });
+
+    const missedData = days.map(date => {
+      const dateKey = date.toISOString().split('T')[0];
+      return callsByDate.get(dateKey)?.missed || 0;
+    });
+
+    return [
+      {
+        name: 'Total Inbound',
+        data: callVolumeLabels.map((label, i) => ({
+          label,
+          value: totalInboundData[i]
+        })),
+        color: '#3b82f6' // Blue
+      },
+      {
+        name: 'Connected',
+        data: callVolumeLabels.map((label, i) => ({
+          label,
+          value: connectedData[i]
+        })),
+        color: '#10b981' // Green
+      },
+      {
+        name: 'Missed',
+        data: callVolumeLabels.map((label, i) => ({
+          label,
+          value: missedData[i]
+        })),
+        color: '#ef4444' // Red
+      }
+    ];
+  }, [calls, dateRange]);
 
   const loadData = async () => {
     setLoading(true);
@@ -173,41 +266,6 @@ export function PerformanceDashboard({ selectedAgentId, dateRange }: Performance
       setLoading(false);
     }
   };
-
-  // Mock data for call volume trends - 7 days with realistic patterns
-  const callVolumeLabels = ['Jan 8', 'Jan 9', 'Jan 10', 'Jan 11', 'Jan 12', 'Jan 13', 'Jan 14'];
-
-  // Realistic call volume data showing weekly trends
-  const totalInboundData = [52, 58, 65, 48, 61, 55, 63];
-  const connectedData = [45, 51, 58, 41, 53, 48, 56];
-  const missedData = [7, 7, 7, 7, 8, 7, 7];
-
-  const callVolumeSeries = [
-    {
-      name: 'Total Inbound',
-      data: callVolumeLabels.map((label, i) => ({
-        label,
-        value: totalInboundData[i]
-      })),
-      color: '#3b82f6' // Blue
-    },
-    {
-      name: 'Connected',
-      data: callVolumeLabels.map((label, i) => ({
-        label,
-        value: connectedData[i]
-      })),
-      color: '#10b981' // Green
-    },
-    {
-      name: 'Missed',
-      data: callVolumeLabels.map((label, i) => ({
-        label,
-        value: missedData[i]
-      })),
-      color: '#ef4444' // Red
-    }
-  ];
 
   const languageData = [
     { label: 'English', value: Math.round(metrics?.englishCallsPercent || 0), color: '#3b82f6' },
