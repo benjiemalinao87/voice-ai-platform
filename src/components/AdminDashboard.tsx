@@ -76,9 +76,18 @@ export function AdminDashboard() {
           <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100 text-center mb-2">
             Access Denied
           </h2>
-          <p className="text-gray-600 dark:text-gray-400 text-center">
+          <p className="text-gray-600 dark:text-gray-400 text-center mb-4">
             {error || 'You do not have permission to access the admin dashboard. Please contact support if you believe this is an error.'}
           </p>
+          {error?.includes('not available') || error?.includes('not configured') ? (
+            <p className="text-sm text-gray-500 dark:text-gray-500 text-center">
+              Note: Admin features require a separate backend service. If you need admin access, please configure the admin API endpoint.
+            </p>
+          ) : error?.includes('Failed to fetch') || error?.includes('Connection refused') ? (
+            <p className="text-sm text-gray-500 dark:text-gray-500 text-center">
+              Could not connect to the admin API. Make sure the admin backend service is running.
+            </p>
+          ) : null}
         </div>
       </div>
     );

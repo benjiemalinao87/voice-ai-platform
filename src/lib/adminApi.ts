@@ -5,7 +5,9 @@
  */
 
 // Backend URL - update this to match your deepseek-test-livechat backend
-const ADMIN_API_BASE_URL = import.meta.env.VITE_ADMIN_API_URL || 'http://localhost:4000/api/admin';
+// Use the same backend as the main app if ADMIN_API_URL is not set
+const ADMIN_API_BASE_URL = import.meta.env.VITE_ADMIN_API_URL || 
+  (import.meta.env.VITE_D1_API_URL || 'http://localhost:8787') + '/api/admin';
 
 /**
  * Get JWT token from auth context
@@ -43,8 +45,16 @@ const makeAdminRequest = async (endpoint: string, options: RequestInit = {}) => 
   });
 
   if (!response.ok) {
+    // Handle connection errors gracefully
+    if (response.status === 0 || response.type === 'error') {
+      throw new Error('Could not connect to admin API. The admin backend service may not be running or configured.');
+    }
+    // If endpoint doesn't exist (404), admin features aren't available
+    if (response.status === 404) {
+      throw new Error('Admin features are not available. The admin API endpoint is not configured on this server.');
+    }
     const errorData = await response.json().catch(() => ({}));
-    throw new Error(errorData.error || `API request failed: ${response.statusText}`);
+    throw new Error(errorData.error || `Admin API error: ${response.status} ${response.statusText}`);
   }
 
   return response.json();
