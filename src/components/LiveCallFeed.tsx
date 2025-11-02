@@ -29,8 +29,8 @@ export function LiveCallFeed() {
     try {
       const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
 
-      // Create a pleasant notification tone (two beeps)
-      const playBeep = (frequency: number, startTime: number, duration: number) => {
+      // Create a phone-like ring tone (classic telephone ring pattern)
+      const playRing = (frequency: number, startTime: number, duration: number) => {
         const oscillator = audioContext.createOscillator();
         const gainNode = audioContext.createGain();
 
@@ -40,16 +40,22 @@ export function LiveCallFeed() {
         oscillator.frequency.value = frequency;
         oscillator.type = 'sine';
 
-        gainNode.gain.setValueAtTime(0.3, audioContext.currentTime + startTime);
-        gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + startTime + duration);
+        // Quick fade in/out for each ring pulse
+        gainNode.gain.setValueAtTime(0, audioContext.currentTime + startTime);
+        gainNode.gain.linearRampToValueAtTime(0.4, audioContext.currentTime + startTime + 0.02);
+        gainNode.gain.linearRampToValueAtTime(0.4, audioContext.currentTime + startTime + duration - 0.02);
+        gainNode.gain.linearRampToValueAtTime(0, audioContext.currentTime + startTime + duration);
 
         oscillator.start(audioContext.currentTime + startTime);
         oscillator.stop(audioContext.currentTime + startTime + duration);
       };
 
-      // Two-tone notification (like a phone ring)
-      playBeep(800, 0, 0.15);
-      playBeep(600, 0.15, 0.15);
+      // Classic phone ring pattern: two rings with pause (440Hz + 480Hz for richer sound)
+      playRing(440, 0, 0.4);
+      playRing(480, 0, 0.4);
+      // Pause
+      playRing(440, 0.6, 0.4);
+      playRing(480, 0.6, 0.4);
     } catch (error) {
       console.error('Error playing notification sound:', error);
     }
@@ -72,13 +78,29 @@ export function LiveCallFeed() {
 
       const data = await response.json();
 
-      // Detect new calls and play notification
+      // Detect new calls and play notification - only for "ringing" status
       if (!isInitialLoad) {
         const newCallIds = new Set(data.map((call: ActiveCall) => call.vapi_call_id));
-        const hasNewCalls = data.some((call: ActiveCall) => !previousCallIds.has(call.vapi_call_id));
+        // Check for new ringing calls specifically
+        const hasNewRingingCalls = data.some((call: ActiveCall) => 
+          !previousCallIds.has(call.vapi_call_id) && call.status === 'ringing'
+        );
 
-        if (hasNewCalls) {
+        if (hasNewRingingCalls) {
           playNotificationSound();
+          // Optional: Also show browser notification if permission granted
+          if ('Notification' in window && Notification.permission === 'granted') {
+            const ringingCall = data.find((call: ActiveCall) => 
+              !previousCallIds.has(call.vapi_call_id) && call.status === 'ringing'
+            );
+            if (ringingCall) {
+              new Notification('Incoming Call', {
+                body: ringingCall.caller_name || ringingCall.customer_number || 'Unknown Caller',
+                icon: '/favicon.ico',
+                tag: ringingCall.vapi_call_id
+              });
+            }
+          }
         }
 
         setPreviousCallIds(newCallIds);
@@ -97,11 +119,18 @@ export function LiveCallFeed() {
   };
 
   useEffect(() => {
+    // Request notification permission on mount
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission().catch(err => {
+        console.debug('Notification permission request failed:', err);
+      });
+    }
+
     // Initial fetch
     fetchActiveCalls();
 
-    // Poll every 3 seconds for updates
-    const interval = setInterval(fetchActiveCalls, 3000);
+    // Poll every 2 seconds for updates (faster polling for better real-time feel)
+    const interval = setInterval(fetchActiveCalls, 2000);
 
     return () => clearInterval(interval);
   }, []);
