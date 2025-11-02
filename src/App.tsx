@@ -12,6 +12,7 @@ import { BoardView } from './components/BoardView';
 import { LiveCallFeed } from './components/LiveCallFeed';
 import { VoiceAgentsList } from './components/VoiceAgentsList';
 import { CreateAgentModal } from './components/CreateAgentModal';
+import { WhatsNew } from './components/WhatsNew';
 import { useAuth } from './contexts/AuthContext';
 import { useVapi } from './contexts/VapiContext';
 import { agentApi } from './lib/api';
@@ -149,6 +150,9 @@ function App() {
 
   return (
     <div className="h-screen flex flex-col bg-gray-50 dark:bg-gray-900 overflow-hidden">
+      {/* What's New Announcement */}
+      <WhatsNew />
+
       {/* Fixed Header */}
       <nav className="flex-shrink-0 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 shadow-sm z-10">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">

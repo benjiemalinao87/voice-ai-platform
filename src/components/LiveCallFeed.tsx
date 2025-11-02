@@ -26,8 +26,18 @@ export function LiveCallFeed() {
 
   // Play notification sound for new calls
   const playNotificationSound = () => {
+    console.log('🔔 Playing incoming call notification sound...');
+
+    // Try Web Audio API first (synthesized ring tone)
     try {
       const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+
+      // Resume audio context if it's suspended (required by some browsers)
+      if (audioContext.state === 'suspended') {
+        audioContext.resume().then(() => {
+          console.log('AudioContext resumed');
+        });
+      }
 
       // Create a phone-like ring tone (classic telephone ring pattern)
       const playRing = (frequency: number, startTime: number, duration: number) => {
@@ -42,8 +52,8 @@ export function LiveCallFeed() {
 
         // Quick fade in/out for each ring pulse
         gainNode.gain.setValueAtTime(0, audioContext.currentTime + startTime);
-        gainNode.gain.linearRampToValueAtTime(0.4, audioContext.currentTime + startTime + 0.02);
-        gainNode.gain.linearRampToValueAtTime(0.4, audioContext.currentTime + startTime + duration - 0.02);
+        gainNode.gain.linearRampToValueAtTime(0.5, audioContext.currentTime + startTime + 0.02);
+        gainNode.gain.linearRampToValueAtTime(0.5, audioContext.currentTime + startTime + duration - 0.02);
         gainNode.gain.linearRampToValueAtTime(0, audioContext.currentTime + startTime + duration);
 
         oscillator.start(audioContext.currentTime + startTime);
@@ -56,8 +66,72 @@ export function LiveCallFeed() {
       // Pause
       playRing(440, 0.6, 0.4);
       playRing(480, 0.6, 0.4);
+
+      console.log('✅ Notification sound played successfully');
     } catch (error) {
-      console.error('Error playing notification sound:', error);
+      console.error('❌ Error playing notification sound with Web Audio API:', error);
+
+      // Fallback: Try HTML Audio element with data URI (simple beep)
+      try {
+        // Generate a simple beep sound as data URI
+        const audio = new Audio();
+
+        // Create a simple sine wave beep
+        const sampleRate = 44100;
+        const frequency = 800; // 800Hz beep
+        const duration = 0.3;
+        const samples = Math.floor(sampleRate * duration);
+
+        // Create WAV file data
+        const dataSize = samples * 2; // 16-bit mono
+        const header = new ArrayBuffer(44);
+        const view = new DataView(header);
+
+        // WAV header
+        const writeString = (offset: number, string: string) => {
+          for (let i = 0; i < string.length; i++) {
+            view.setUint8(offset + i, string.charCodeAt(i));
+          }
+        };
+
+        writeString(0, 'RIFF');
+        view.setUint32(4, 36 + dataSize, true);
+        writeString(8, 'WAVE');
+        writeString(12, 'fmt ');
+        view.setUint32(16, 16, true); // fmt chunk size
+        view.setUint16(20, 1, true); // PCM format
+        view.setUint16(22, 1, true); // mono
+        view.setUint32(24, sampleRate, true);
+        view.setUint32(28, sampleRate * 2, true); // byte rate
+        view.setUint16(32, 2, true); // block align
+        view.setUint16(34, 16, true); // bits per sample
+        writeString(36, 'data');
+        view.setUint32(40, dataSize, true);
+
+        // Generate sine wave samples
+        const data = new Int16Array(samples);
+        for (let i = 0; i < samples; i++) {
+          const t = i / sampleRate;
+          const value = Math.sin(2 * Math.PI * frequency * t) * 0.5;
+          data[i] = Math.floor(value * 32767);
+        }
+
+        // Combine header and data
+        const blob = new Blob([header, data.buffer], { type: 'audio/wav' });
+        const url = URL.createObjectURL(blob);
+
+        audio.src = url;
+        audio.volume = 0.7;
+        audio.play().then(() => {
+          console.log('✅ Fallback beep sound played');
+          // Clean up after playing
+          setTimeout(() => URL.revokeObjectURL(url), 1000);
+        }).catch((err) => {
+          console.error('❌ Failed to play fallback sound:', err);
+        });
+      } catch (fallbackError) {
+        console.error('❌ Fallback sound also failed:', fallbackError);
+      }
     }
   };
 
