@@ -292,7 +292,16 @@ export function Recordings() {
           date: new Date(normalizedTimestamp * 1000).toISOString(), // Convert to milliseconds for display
           createdAt: normalizedTimestamp, // Normalized timestamp in seconds for reliable sorting
           location: location,
-          audioUrl: call.recording_url || '',
+          audioUrl: (() => {
+            // Filter out VAPI demo URLs and invalid URLs to prevent errors
+            const url = call.recording_url || '';
+            if (!url) return '';
+            // Block VAPI demo/branded URLs
+            if (url.includes('recordings.vapi.ai') || url.includes('demo.mp3') || url.includes('vapi.ai/demo')) {
+              return '';
+            }
+            return url;
+          })(),
           transcript: transcript.length > 0 ? transcript : undefined,
           sentiment: 'neutral' as const, // We can add sentiment analysis later
           wasAnswered: !!call.recording_url, // If there's a recording, it was answered
@@ -504,11 +513,16 @@ export function Recordings() {
                 </div>
 
                 {/* Audio Progress Bar */}
-                {recording.wasAnswered && recording.audioUrl && (
+                {recording.wasAnswered && recording.audioUrl && recording.audioUrl.trim() !== '' && (
                   <div className="mb-2">
                     <audio
                       id={`audio-${recording.id}`}
                       src={recording.audioUrl}
+                      onError={(e) => {
+                        // Silently handle audio loading errors to prevent console spam
+                        console.debug('Audio failed to load:', recording.audioUrl);
+                        e.currentTarget.style.display = 'none';
+                      }}
                       onTimeUpdate={(e) => {
                         const audio = e.currentTarget;
                         setCurrentTime({

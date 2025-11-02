@@ -1971,7 +1971,7 @@ export default {
             call.id,
             '+18005551234',
             call.phone,
-            'https://recordings.vapi.ai/demo.mp3',
+            null, // No recording URL for demo data - use actual recording URLs from real calls
             'customer-ended-call',
             call.summary,
             call.intent,
