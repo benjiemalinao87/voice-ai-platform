@@ -216,3 +216,31 @@ export function generateSalt(): string {
     .join('');
 }
 
+/**
+ * Generate a secure temporary password
+ * Format: 3 random words + 2 digits + 1 special char
+ * Example: "Cloud-Secure-Voice-42!"
+ */
+export function generateTemporaryPassword(): string {
+  const words = [
+    'Cloud', 'Secure', 'Voice', 'Team', 'Digital', 'Smart', 'Quick', 'Bright',
+    'Swift', 'Prime', 'Elite', 'Alpha', 'Beta', 'Gamma', 'Delta', 'Omega',
+    'Nexus', 'Quantum', 'Stellar', 'Cosmic', 'Cyber', 'Pixel', 'Matrix', 'Vertex'
+  ];
+
+  const specialChars = '!@#$%^&*';
+
+  // Pick 3 random words
+  const word1 = words[Math.floor(Math.random() * words.length)];
+  const word2 = words[Math.floor(Math.random() * words.length)];
+  const word3 = words[Math.floor(Math.random() * words.length)];
+
+  // Generate 2 random digits
+  const digits = Math.floor(Math.random() * 100).toString().padStart(2, '0');
+
+  // Pick 1 special character
+  const special = specialChars[Math.floor(Math.random() * specialChars.length)];
+
+  return `${word1}-${word2}-${word3}-${digits}${special}`;
+}
+

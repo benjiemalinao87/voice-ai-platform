@@ -130,3 +130,78 @@ CREATE TABLE IF NOT EXISTS assistants_cache (
 CREATE INDEX IF NOT EXISTS idx_assistants_cache_user_id ON assistants_cache(user_id);
 CREATE INDEX IF NOT EXISTS idx_assistants_cache_cached_at ON assistants_cache(cached_at DESC);
 
+-- Workspaces Table (team/organization management)
+CREATE TABLE IF NOT EXISTS workspaces (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  owner_user_id TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  FOREIGN KEY (owner_user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_workspaces_owner ON workspaces(owner_user_id);
+
+-- Workspace Members Table (users in a workspace)
+CREATE TABLE IF NOT EXISTS workspace_members (
+  id TEXT PRIMARY KEY,
+  workspace_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  role TEXT NOT NULL DEFAULT 'member',    -- 'owner', 'admin', 'member'
+  status TEXT NOT NULL DEFAULT 'active',  -- 'active', 'pending', 'inactive'
+  invited_by_user_id TEXT,
+  invited_at INTEGER,
+  joined_at INTEGER,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  FOREIGN KEY (invited_by_user_id) REFERENCES users(id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_workspace_members_workspace ON workspace_members(workspace_id);
+CREATE INDEX IF NOT EXISTS idx_workspace_members_user ON workspace_members(user_id);
+CREATE INDEX IF NOT EXISTS idx_workspace_members_status ON workspace_members(status);
+
+-- Workspace Invitations Table (pending invitations for non-existing users)
+CREATE TABLE IF NOT EXISTS workspace_invitations (
+  id TEXT PRIMARY KEY,
+  workspace_id TEXT NOT NULL,
+  email TEXT NOT NULL,
+  role TEXT NOT NULL DEFAULT 'member',
+  status TEXT NOT NULL DEFAULT 'pending',
+  invited_by_user_id TEXT NOT NULL,
+  token TEXT NOT NULL UNIQUE,
+  expires_at INTEGER NOT NULL,
+  created_at INTEGER NOT NULL,
+  accepted_at INTEGER,
+  FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE,
+  FOREIGN KEY (invited_by_user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_workspace_invitations_workspace_id ON workspace_invitations(workspace_id);
+CREATE INDEX IF NOT EXISTS idx_workspace_invitations_email ON workspace_invitations(email);
+CREATE INDEX IF NOT EXISTS idx_workspace_invitations_token ON workspace_invitations(token);
+CREATE INDEX IF NOT EXISTS idx_workspace_invitations_status ON workspace_invitations(status);
+
+-- Workspace Settings Table (shared API keys and configuration)
+-- Plaintext storage - security via UI access control (members can't see Settings tabs)
+CREATE TABLE IF NOT EXISTS workspace_settings (
+  id TEXT PRIMARY KEY,
+  workspace_id TEXT NOT NULL UNIQUE,
+  private_key TEXT,                    -- VAPI Private Key
+  public_key TEXT,                     -- VAPI Public Key
+  openai_api_key TEXT,                 -- OpenAI API Key
+  twilio_account_sid TEXT,             -- Twilio Account SID
+  twilio_auth_token TEXT,              -- Twilio Auth Token
+  transfer_phone_number TEXT,          -- Transfer phone number
+  selected_assistant_id TEXT,          -- Selected assistant
+  selected_phone_id TEXT,              -- Selected phone number
+  selected_org_id TEXT,                -- Selected organization
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_workspace_settings_workspace_id ON workspace_settings(workspace_id);
+

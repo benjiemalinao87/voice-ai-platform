@@ -11,7 +11,8 @@ import {
   verifyToken,
   encrypt,
   decrypt,
-  generateSalt
+  generateSalt,
+  generateTemporaryPassword
 } from './auth';
 import { VoiceAICache, CACHE_TTL } from './cache';
 
@@ -472,6 +473,93 @@ async function getUserFromToken(request: Request, env: Env): Promise<string | nu
   return decoded.userId;
 }
 
+// Helper: Get effective user ID for workspace context
+// Returns workspace owner's user_id if workspace is selected, otherwise the authenticated user's ID
+async function getEffectiveUserId(env: Env, userId: string): Promise<{ effectiveUserId: string; isWorkspaceContext: boolean }> {
+  const settings = await env.DB.prepare(
+    'SELECT selected_workspace_id FROM user_settings WHERE user_id = ?'
+  ).bind(userId).first() as any;
+
+  if (!settings || !settings.selected_workspace_id) {
+    return { effectiveUserId: userId, isWorkspaceContext: false };
+  }
+
+  // Verify user has access to this workspace
+  const workspace = await env.DB.prepare(
+    'SELECT owner_user_id FROM workspaces WHERE id = ?'
+  ).bind(settings.selected_workspace_id).first() as any;
+
+  if (!workspace) {
+    return { effectiveUserId: userId, isWorkspaceContext: false };
+  }
+
+  // Check if user is owner or active member
+  const isOwner = workspace.owner_user_id === userId;
+  const membership = await env.DB.prepare(
+    'SELECT status FROM workspace_members WHERE workspace_id = ? AND user_id = ? AND status = "active"'
+  ).bind(settings.selected_workspace_id, userId).first() as any;
+
+  if (isOwner || membership) {
+    return { effectiveUserId: workspace.owner_user_id, isWorkspaceContext: true };
+  }
+
+  // User doesn't have access, fall back to personal
+  return { effectiveUserId: userId, isWorkspaceContext: false };
+}
+
+// Helper: Get workspace settings for a user (finds their workspace and returns its credentials)
+async function getWorkspaceSettingsForUser(env: Env, userId: string): Promise<{
+  private_key?: string;
+  openai_api_key?: string;
+  twilio_account_sid?: string;
+  twilio_auth_token?: string;
+  transfer_phone_number?: string;
+} | null> {
+  // Find user's workspace (they own it or are a member)
+  const userSettings = await env.DB.prepare(
+    'SELECT selected_workspace_id FROM user_settings WHERE user_id = ?'
+  ).bind(userId).first() as any;
+
+  if (!userSettings || !userSettings.selected_workspace_id) {
+    // User has no workspace, check if they own one
+    const ownedWorkspace = await env.DB.prepare(
+      'SELECT id FROM workspaces WHERE owner_user_id = ?'
+    ).bind(userId).first() as any;
+
+    if (ownedWorkspace) {
+      const wsSettings = await env.DB.prepare(
+        'SELECT private_key, openai_api_key, twilio_account_sid, twilio_auth_token, transfer_phone_number FROM workspace_settings WHERE workspace_id = ?'
+      ).bind(ownedWorkspace.id).first() as any;
+      return wsSettings || null;
+    }
+    return null;
+  }
+
+  const workspaceId = userSettings.selected_workspace_id;
+  let wsSettings = await env.DB.prepare(
+    'SELECT private_key, openai_api_key, twilio_account_sid, twilio_auth_token, transfer_phone_number FROM workspace_settings WHERE workspace_id = ?'
+  ).bind(workspaceId).first() as any;
+
+  // FALLBACK: If workspace_settings is empty, try user_settings (migration path)
+  if (!wsSettings || !wsSettings.private_key) {
+    const workspace = await env.DB.prepare(
+      'SELECT owner_user_id FROM workspaces WHERE id = ?'
+    ).bind(workspaceId).first() as any;
+
+    if (workspace) {
+      const ownerSettings = await env.DB.prepare(
+        'SELECT private_key, openai_api_key, twilio_account_sid, twilio_auth_token, transfer_phone_number FROM user_settings WHERE user_id = ?'
+      ).bind(workspace.owner_user_id).first() as any;
+
+      if (ownerSettings && ownerSettings.private_key) {
+        wsSettings = ownerSettings;
+      }
+    }
+  }
+
+  return wsSettings || null;
+}
+
 // Helper: Enhanced Data addon - fetch phone number enrichment
 async function executeEnhancedDataAddon(
   phoneNumber: string
@@ -631,13 +719,61 @@ export default {
           'INSERT INTO sessions (id, user_id, token_hash, expires_at, created_at) VALUES (?, ?, ?, ?, ?)'
         ).bind(sessionId, userId, tokenHash, expiresAt, timestamp).run();
 
+        // Check for pending invitations for this email
+        const pendingInvitations = await env.DB.prepare(
+          'SELECT id, workspace_id, role, token, expires_at FROM workspace_invitations WHERE email = ? AND status = \"pending\" AND expires_at > ?'
+        ).bind(email, timestamp).all();
+
+        let defaultWorkspaceId: string | null = null;
+
+        if (pendingInvitations.results && pendingInvitations.results.length > 0) {
+          // User has pending invitations - accept them automatically
+          for (const invitation of pendingInvitations.results as any[]) {
+            // Add user to workspace
+            const membershipId = generateId();
+            await env.DB.prepare(
+              'INSERT INTO workspace_members (id, workspace_id, user_id, role, status, invited_by_user_id, invited_at, joined_at, created_at, updated_at) VALUES (?, ?, ?, ?, \"active\", ?, ?, ?, ?, ?)'
+            ).bind(
+              membershipId,
+              invitation.workspace_id,
+              userId,
+              invitation.role,
+              null, // We don't have invited_by stored yet in old invitations
+              timestamp,
+              timestamp,
+              timestamp,
+              timestamp
+            ).run();
+
+            // Mark invitation as accepted
+            await env.DB.prepare(
+              'UPDATE workspace_invitations SET status = \"accepted\", accepted_at = ? WHERE id = ?'
+            ).bind(timestamp, invitation.id).run();
+
+            // Use first invited workspace as default
+            if (!defaultWorkspaceId) {
+              defaultWorkspaceId = invitation.workspace_id;
+            }
+          }
+        }
+
+        // Create default workspace for new user only if they don't have invitations
+        if (!defaultWorkspaceId) {
+          const workspaceId = 'ws_' + generateId();
+          const workspaceName = name?.trim() || email.split('@')[0] || 'My Workspace';
+          await env.DB.prepare(
+            'INSERT INTO workspaces (id, name, owner_user_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?)'
+          ).bind(workspaceId, workspaceName, userId, timestamp, timestamp).run();
+          defaultWorkspaceId = workspaceId;
+        }
+
         // Create empty settings
         const settingsId = generateId();
         const encryptionSalt = generateSalt();
 
         await env.DB.prepare(
-          'INSERT INTO user_settings (id, user_id, encryption_salt, created_at, updated_at) VALUES (?, ?, ?, ?, ?)'
-        ).bind(settingsId, userId, encryptionSalt, timestamp, timestamp).run();
+          'INSERT INTO user_settings (id, user_id, encryption_salt, selected_workspace_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
+        ).bind(settingsId, userId, encryptionSalt, defaultWorkspaceId, timestamp, timestamp).run();
 
         return jsonResponse({
           token,
@@ -744,34 +880,118 @@ export default {
       // ============================================
 
       // Get user settings
+      // Get settings - workspace-scoped (returns workspace owner's credentials)
       if (url.pathname === '/api/settings' && request.method === 'GET') {
         const userId = await getUserFromToken(request, env);
         if (!userId) {
           return jsonResponse({ error: 'Unauthorized' }, 401);
         }
 
-        const settings = await env.DB.prepare(
-          'SELECT private_key, public_key, selected_assistant_id, selected_phone_id, selected_org_id, openai_api_key, twilio_account_sid, twilio_auth_token, transfer_phone_number FROM user_settings WHERE user_id = ?'
+        // Get user's selected workspace
+        const userSettings = await env.DB.prepare(
+          'SELECT selected_workspace_id FROM user_settings WHERE user_id = ?'
         ).bind(userId).first() as any;
 
-        if (!settings) {
-          return jsonResponse({ error: 'Settings not found' }, 404);
+        if (!userSettings || !userSettings.selected_workspace_id) {
+          // No workspace selected, return empty settings
+          return jsonResponse({
+            privateKey: null,
+            publicKey: null,
+            selectedAssistantId: null,
+            selectedPhoneId: null,
+            selectedOrgId: null,
+            selectedWorkspaceId: null,
+            openaiApiKey: null,
+            twilioAccountSid: null,
+            twilioAuthToken: null,
+            transferPhoneNumber: null
+          });
+        }
+
+        const workspaceId = userSettings.selected_workspace_id;
+
+        // Verify user has access to this workspace
+        const workspace = await env.DB.prepare(
+          'SELECT owner_user_id FROM workspaces WHERE id = ?'
+        ).bind(workspaceId).first() as any;
+
+        if (!workspace) {
+          return jsonResponse({ error: 'Workspace not found' }, 404);
+        }
+
+        const isOwner = workspace.owner_user_id === userId;
+        const membership = await env.DB.prepare(
+          'SELECT status FROM workspace_members WHERE workspace_id = ? AND user_id = ? AND status = "active"'
+        ).bind(workspaceId, userId).first() as any;
+
+        if (!isOwner && !membership) {
+          return jsonResponse({ error: 'Access denied to workspace' }, 403);
+        }
+
+        // Get workspace settings (workspace owner's credentials)
+        const wsSettings = await env.DB.prepare(
+          'SELECT private_key, public_key, selected_assistant_id, selected_phone_id, selected_org_id, openai_api_key, twilio_account_sid, twilio_auth_token, transfer_phone_number FROM workspace_settings WHERE workspace_id = ?'
+        ).bind(workspaceId).first() as any;
+
+        // FALLBACK: If workspace_settings is empty, try to get from user_settings (migration path)
+        let finalSettings = wsSettings;
+        if (!wsSettings || !wsSettings.private_key) {
+          const ownerSettings = await env.DB.prepare(
+            'SELECT private_key, public_key, selected_assistant_id, selected_phone_id, selected_org_id, openai_api_key, twilio_account_sid, twilio_auth_token, transfer_phone_number FROM user_settings WHERE user_id = ?'
+          ).bind(workspace.owner_user_id).first() as any;
+
+          if (ownerSettings && ownerSettings.private_key) {
+            finalSettings = ownerSettings;
+
+            // Auto-migrate to workspace_settings if user is owner
+            if (isOwner) {
+              const timestamp = Date.now();
+              const wsSettingsId = generateId();
+
+              await env.DB.prepare(
+                `INSERT OR REPLACE INTO workspace_settings (
+                  id, workspace_id, private_key, public_key, openai_api_key,
+                  twilio_account_sid, twilio_auth_token, transfer_phone_number,
+                  selected_assistant_id, selected_phone_id, selected_org_id,
+                  created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+              ).bind(
+                wsSettingsId,
+                workspaceId,
+                ownerSettings.private_key,
+                ownerSettings.public_key,
+                ownerSettings.openai_api_key,
+                ownerSettings.twilio_account_sid,
+                ownerSettings.twilio_auth_token,
+                ownerSettings.transfer_phone_number,
+                ownerSettings.selected_assistant_id,
+                ownerSettings.selected_phone_id,
+                ownerSettings.selected_org_id,
+                timestamp,
+                timestamp
+              ).run();
+
+              console.log(`Auto-migrated settings for workspace ${workspaceId}`);
+            }
+          }
         }
 
         return jsonResponse({
-          privateKey: settings.private_key,
-          publicKey: settings.public_key,
-          selectedAssistantId: settings.selected_assistant_id,
-          selectedPhoneId: settings.selected_phone_id,
-          selectedOrgId: settings.selected_org_id,
-          openaiApiKey: settings.openai_api_key,
-          twilioAccountSid: settings.twilio_account_sid,
-          twilioAuthToken: settings.twilio_auth_token,
-          transferPhoneNumber: settings.transfer_phone_number
+          privateKey: finalSettings?.private_key || null,
+          publicKey: finalSettings?.public_key || null,
+          selectedAssistantId: finalSettings?.selected_assistant_id || null,
+          selectedPhoneId: finalSettings?.selected_phone_id || null,
+          selectedOrgId: finalSettings?.selected_org_id || null,
+          selectedWorkspaceId: workspaceId,
+          openaiApiKey: finalSettings?.openai_api_key || null,
+          twilioAccountSid: finalSettings?.twilio_account_sid || null,
+          twilioAuthToken: finalSettings?.twilio_auth_token || null,
+          transferPhoneNumber: finalSettings?.transfer_phone_number || null,
+          isWorkspaceOwner: isOwner
         });
       }
 
-      // Update user settings
+      // Update settings - workspace-scoped (only workspace owner can update)
       if (url.pathname === '/api/settings' && request.method === 'PUT') {
         const userId = await getUserFromToken(request, env);
         if (!userId) {
@@ -784,31 +1004,375 @@ export default {
           selectedAssistantId,
           selectedPhoneId,
           selectedOrgId,
+          selectedWorkspaceId,
           openaiApiKey,
           twilioAccountSid,
           twilioAuthToken,
           transferPhoneNumber
         } = await request.json() as any;
 
+        // Validate workspace selection
+        if (!selectedWorkspaceId) {
+          return jsonResponse({ error: 'Workspace selection is required' }, 400);
+        }
+
+        // Verify user is workspace owner
+        const workspace = await env.DB.prepare(
+          'SELECT owner_user_id FROM workspaces WHERE id = ?'
+        ).bind(selectedWorkspaceId).first() as any;
+
+        if (!workspace) {
+          return jsonResponse({ error: 'Workspace not found' }, 404);
+        }
+
+        if (workspace.owner_user_id !== userId) {
+          return jsonResponse({ error: 'Only workspace owner can update API credentials' }, 403);
+        }
+
         const timestamp = now();
 
+        // Update or insert workspace settings
+        const existing = await env.DB.prepare(
+          'SELECT id FROM workspace_settings WHERE workspace_id = ?'
+        ).bind(selectedWorkspaceId).first() as any;
+
+        if (existing) {
+          await env.DB.prepare(
+            'UPDATE workspace_settings SET private_key = ?, public_key = ?, selected_assistant_id = ?, selected_phone_id = ?, selected_org_id = ?, openai_api_key = ?, twilio_account_sid = ?, twilio_auth_token = ?, transfer_phone_number = ?, updated_at = ? WHERE workspace_id = ?'
+          ).bind(
+            privateKey || null,
+            publicKey || null,
+            selectedAssistantId || null,
+            selectedPhoneId || null,
+            selectedOrgId || null,
+            openaiApiKey || null,
+            twilioAccountSid || null,
+            twilioAuthToken || null,
+            transferPhoneNumber || null,
+            timestamp,
+            selectedWorkspaceId
+          ).run();
+        } else {
+          const settingsId = generateId();
+          await env.DB.prepare(
+            'INSERT INTO workspace_settings (id, workspace_id, private_key, public_key, selected_assistant_id, selected_phone_id, selected_org_id, openai_api_key, twilio_account_sid, twilio_auth_token, transfer_phone_number, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+          ).bind(
+            settingsId,
+            selectedWorkspaceId,
+            privateKey || null,
+            publicKey || null,
+            selectedAssistantId || null,
+            selectedPhoneId || null,
+            selectedOrgId || null,
+            openaiApiKey || null,
+            twilioAccountSid || null,
+            twilioAuthToken || null,
+            transferPhoneNumber || null,
+            timestamp,
+            timestamp
+          ).run();
+        }
+
+        // Update user's selected workspace
         await env.DB.prepare(
-          'UPDATE user_settings SET private_key = ?, public_key = ?, selected_assistant_id = ?, selected_phone_id = ?, selected_org_id = ?, openai_api_key = ?, twilio_account_sid = ?, twilio_auth_token = ?, transfer_phone_number = ?, updated_at = ? WHERE user_id = ?'
-        ).bind(
-          privateKey || null,
-          publicKey || null,
-          selectedAssistantId || null,
-          selectedPhoneId || null,
-          selectedOrgId || null,
-          openaiApiKey || null,
-          twilioAccountSid || null,
-          twilioAuthToken || null,
-          transferPhoneNumber || null,
-          timestamp,
-          userId
-        ).run();
+          'UPDATE user_settings SET selected_workspace_id = ?, updated_at = ? WHERE user_id = ?'
+        ).bind(selectedWorkspaceId, timestamp, userId).run();
 
         return jsonResponse({ message: 'Settings updated successfully' });
+      }
+
+      // ============================================
+      // WORKSPACES ENDPOINTS (Protected)
+      // ============================================
+
+      // List workspaces for current user (owner or active member)
+      if (url.pathname === '/api/workspaces' && request.method === 'GET') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        const query = `
+          SELECT DISTINCT w.id, w.name, w.owner_user_id, w.created_at, w.updated_at,
+            CASE WHEN w.owner_user_id = ? THEN 'owner' ELSE wm.role END AS role,
+            CASE WHEN w.owner_user_id = ? THEN 'active' ELSE wm.status END AS status
+          FROM workspaces w
+          LEFT JOIN workspace_members wm
+            ON wm.workspace_id = w.id AND wm.user_id = ?
+          WHERE w.owner_user_id = ? OR wm.user_id = ?
+          ORDER BY w.created_at DESC`;
+
+        const { results } = await env.DB.prepare(query).bind(userId, userId, userId, userId, userId).all();
+        return jsonResponse({ workspaces: results || [] });
+      }
+
+      // Create workspace - DISABLED: Users get one workspace automatically on registration
+      // Keeping endpoint for backward compatibility but returning error
+      if (url.pathname === '/api/workspaces' && request.method === 'POST') {
+        return jsonResponse({ error: 'Workspace creation is not allowed. Each user automatically gets one workspace on registration.' }, 403);
+      }
+
+      // Invite a member to a workspace by email (supports pending invitations for non-existing users)
+      if (url.pathname.startsWith('/api/workspaces/') && url.pathname.endsWith('/invite') && request.method === 'POST') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        const parts = url.pathname.split('/');
+        const workspaceId = parts[3];
+        const { email, role } = await request.json() as any;
+        if (!email) {
+          return jsonResponse({ error: 'Email is required' }, 400);
+        }
+
+        // Verify requester has permission (owner or admin)
+        const ws = await env.DB.prepare('SELECT owner_user_id FROM workspaces WHERE id = ?').bind(workspaceId).first() as any;
+        if (!ws) {
+          return jsonResponse({ error: 'Workspace not found' }, 404);
+        }
+        if (ws.owner_user_id !== userId) {
+          const membership = await env.DB.prepare(
+            'SELECT role FROM workspace_members WHERE workspace_id = ? AND user_id = ? AND status = \"active\"'
+          ).bind(workspaceId, userId).first() as any;
+          if (!membership || (membership.role !== 'admin' && membership.role !== 'owner')) {
+            return jsonResponse({ error: 'Forbidden' }, 403);
+          }
+        }
+
+        const timestamp = now();
+
+        // Check if user exists
+        const user = await env.DB.prepare('SELECT id FROM users WHERE email = ?').bind(email).first() as any;
+
+        if (user) {
+          // User exists - add them directly as active member
+          const membershipId = generateId();
+          try {
+            await env.DB.prepare(
+              'INSERT INTO workspace_members (id, workspace_id, user_id, role, status, invited_by_user_id, invited_at, joined_at, created_at, updated_at) VALUES (?, ?, ?, ?, \"active\", ?, ?, ?, ?, ?)'
+            ).bind(membershipId, workspaceId, user.id, role || 'member', userId, timestamp, timestamp, timestamp, timestamp).run();
+          } catch (e) {
+            // If unique constraint, update status/role
+            await env.DB.prepare(
+              'UPDATE workspace_members SET role = ?, status = \"active\", invited_by_user_id = ?, invited_at = ?, joined_at = ?, updated_at = ? WHERE workspace_id = ? AND user_id = ?'
+            ).bind(role || 'member', userId, timestamp, timestamp, timestamp, workspaceId, user.id).run();
+          }
+          return jsonResponse({ success: true, message: 'User added to workspace' });
+        } else {
+          // User doesn't exist - create account with temporary password
+          const temporaryPassword = generateTemporaryPassword();
+          const passwordHash = await hashPassword(temporaryPassword);
+          const newUserId = generateId();
+
+          // Create user account
+          await env.DB.prepare(
+            'INSERT INTO users (id, email, password_hash, name, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
+          ).bind(newUserId, email, passwordHash, null, timestamp, timestamp).run();
+
+          // Create default workspace for the new user
+          const newUserWorkspaceId = 'ws_' + generateId();
+          const workspaceName = email.split('@')[0] || 'My Workspace';
+          await env.DB.prepare(
+            'INSERT INTO workspaces (id, name, owner_user_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?)'
+          ).bind(newUserWorkspaceId, workspaceName, newUserId, timestamp, timestamp).run();
+
+          // Create user settings with the invited workspace as selected
+          const settingsId = generateId();
+          const encryptionSalt = generateSalt();
+          await env.DB.prepare(
+            'INSERT INTO user_settings (id, user_id, encryption_salt, selected_workspace_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
+          ).bind(settingsId, newUserId, encryptionSalt, workspaceId, timestamp, timestamp).run();
+
+          // Add user to the workspace they were invited to
+          const membershipId = generateId();
+          await env.DB.prepare(
+            'INSERT INTO workspace_members (id, workspace_id, user_id, role, status, invited_by_user_id, invited_at, joined_at, created_at, updated_at) VALUES (?, ?, ?, ?, \"active\", ?, ?, ?, ?, ?)'
+          ).bind(membershipId, workspaceId, newUserId, role || 'member', userId, timestamp, timestamp, timestamp, timestamp).run();
+
+          // Mark any pending invitations as accepted
+          await env.DB.prepare(
+            'UPDATE workspace_invitations SET status = \"accepted\", accepted_at = ? WHERE email = ? AND workspace_id = ? AND status = \"pending\"'
+          ).bind(timestamp, email, workspaceId).run();
+
+          return jsonResponse({
+            success: true,
+            message: 'User account created and added to workspace',
+            credentials: {
+              email: email,
+              temporaryPassword: temporaryPassword
+            }
+          });
+        }
+      }
+
+      // Get workspace members
+      if (url.pathname.startsWith('/api/workspaces/') && url.pathname.endsWith('/members') && request.method === 'GET') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        const parts = url.pathname.split('/');
+        const workspaceId = parts[3];
+
+        // Verify user has access to this workspace
+        const workspace = await env.DB.prepare(
+          'SELECT owner_user_id, name FROM workspaces WHERE id = ?'
+        ).bind(workspaceId).first() as any;
+
+        if (!workspace) {
+          return jsonResponse({ error: 'Workspace not found' }, 404);
+        }
+
+        const isOwner = workspace.owner_user_id === userId;
+        const membership = await env.DB.prepare(
+          'SELECT status, role FROM workspace_members WHERE workspace_id = ? AND user_id = ?'
+        ).bind(workspaceId, userId).first() as any;
+
+        if (!isOwner && (!membership || membership.status !== 'active')) {
+          return jsonResponse({ error: 'Access denied' }, 403);
+        }
+
+        // Get owner info
+        const owner = await env.DB.prepare(
+          'SELECT id, email, name FROM users WHERE id = ?'
+        ).bind(workspace.owner_user_id).first() as any;
+
+        // Get all members including owner
+        const members = await env.DB.prepare(`
+          SELECT wm.id, wm.role, wm.status, wm.joined_at, wm.invited_at,
+                 u.id as user_id, u.email, u.name
+          FROM workspace_members wm
+          JOIN users u ON u.id = wm.user_id
+          WHERE wm.workspace_id = ? AND wm.status = 'active'
+          ORDER BY wm.joined_at DESC
+        `).bind(workspaceId).all() as any;
+
+        const membersList = (members.results || []).map((m: any) => ({
+          id: m.user_id,
+          email: m.email,
+          name: m.name,
+          role: m.role,
+          status: m.status,
+          joinedAt: m.joined_at,
+        }));
+
+        // Add owner to list if not already included
+        const ownerInList = membersList.find((m: any) => m.id === owner.id);
+        if (!ownerInList) {
+          membersList.unshift({
+            id: owner.id,
+            email: owner.email,
+            name: owner.name,
+            role: 'owner',
+            status: 'active',
+            joinedAt: null,
+          });
+        }
+
+        return jsonResponse({
+          workspace: { id: workspaceId, name: workspace.name },
+          members: membersList,
+        });
+      }
+
+      // Remove member from workspace
+      if (url.pathname.includes('/api/workspaces/') && url.pathname.includes('/members/') && request.method === 'DELETE') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        const parts = url.pathname.split('/');
+        const workspaceId = parts[3];
+        const memberId = parts[5];
+
+        // Verify user has permission (must be owner or admin)
+        const workspace = await env.DB.prepare(
+          'SELECT owner_user_id FROM workspaces WHERE id = ?'
+        ).bind(workspaceId).first() as any;
+
+        if (!workspace) {
+          return jsonResponse({ error: 'Workspace not found' }, 404);
+        }
+
+        const isOwner = workspace.owner_user_id === userId;
+        const membership = await env.DB.prepare(
+          'SELECT role FROM workspace_members WHERE workspace_id = ? AND user_id = ? AND status = "active"'
+        ).bind(workspaceId, userId).first() as any;
+
+        if (!isOwner && (!membership || membership.role !== 'admin')) {
+          return jsonResponse({ error: 'Only owners and admins can remove members' }, 403);
+        }
+
+        // Cannot remove owner
+        if (memberId === workspace.owner_user_id) {
+          return jsonResponse({ error: 'Cannot remove workspace owner' }, 400);
+        }
+
+        // Get the member to remove
+        const member = await env.DB.prepare(
+          'SELECT user_id FROM workspace_members WHERE id = ? AND workspace_id = ?'
+        ).bind(memberId, workspaceId).first() as any;
+
+        if (!member) {
+          return jsonResponse({ error: 'Member not found' }, 404);
+        }
+
+        // Remove member
+        await env.DB.prepare(
+          'DELETE FROM workspace_members WHERE id = ? AND workspace_id = ?'
+        ).bind(memberId, workspaceId).run();
+
+        return jsonResponse({ success: true, message: 'Member removed successfully' });
+      }
+
+      // Update member role
+      if (url.pathname.includes('/api/workspaces/') && url.pathname.includes('/members/') && request.method === 'PATCH') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        const parts = url.pathname.split('/');
+        const workspaceId = parts[3];
+        const memberId = parts[5];
+        const { role } = await request.json() as any;
+
+        if (!role || !['member', 'admin'].includes(role)) {
+          return jsonResponse({ error: 'Invalid role. Must be "member" or "admin"' }, 400);
+        }
+
+        // Verify user has permission (must be owner)
+        const workspace = await env.DB.prepare(
+          'SELECT owner_user_id FROM workspaces WHERE id = ?'
+        ).bind(workspaceId).first() as any;
+
+        if (!workspace) {
+          return jsonResponse({ error: 'Workspace not found' }, 404);
+        }
+
+        if (workspace.owner_user_id !== userId) {
+          return jsonResponse({ error: 'Only workspace owner can change roles' }, 403);
+        }
+
+        // Get the member to update
+        const member = await env.DB.prepare(
+          'SELECT user_id FROM workspace_members WHERE id = ? AND workspace_id = ?'
+        ).bind(memberId, workspaceId).first() as any;
+
+        if (!member) {
+          return jsonResponse({ error: 'Member not found' }, 404);
+        }
+
+        // Update role
+        const timestamp = now();
+        await env.DB.prepare(
+          'UPDATE workspace_members SET role = ?, updated_at = ? WHERE id = ? AND workspace_id = ?'
+        ).bind(role, timestamp, memberId, workspaceId).run();
+
+        return jsonResponse({ success: true, message: 'Member role updated successfully' });
       }
 
       // ============================================
@@ -822,9 +1386,38 @@ export default {
           return jsonResponse({ error: 'Unauthorized' }, 401);
         }
 
-        const settings = await env.DB.prepare(
-          'SELECT twilio_account_sid, twilio_auth_token FROM user_settings WHERE user_id = ?'
+        // Get workspace settings (workspace-scoped)
+        const userSettings = await env.DB.prepare(
+          'SELECT selected_workspace_id FROM user_settings WHERE user_id = ?'
         ).bind(userId).first() as any;
+
+        if (!userSettings || !userSettings.selected_workspace_id) {
+          return jsonResponse({ error: 'No workspace selected. Please select a workspace first.' }, 400);
+        }
+
+        const workspaceId = userSettings.selected_workspace_id;
+
+        // Verify workspace access
+        const workspace = await env.DB.prepare(
+          'SELECT owner_user_id FROM workspaces WHERE id = ?'
+        ).bind(workspaceId).first() as any;
+
+        if (!workspace) {
+          return jsonResponse({ error: 'Workspace not found' }, 404);
+        }
+
+        const isOwner = workspace.owner_user_id === userId;
+        const membership = await env.DB.prepare(
+          'SELECT status FROM workspace_members WHERE workspace_id = ? AND user_id = ? AND status = "active"'
+        ).bind(workspaceId, userId).first() as any;
+
+        if (!isOwner && !membership) {
+          return jsonResponse({ error: 'Access denied to workspace' }, 403);
+        }
+
+        const settings = await env.DB.prepare(
+          'SELECT twilio_account_sid, twilio_auth_token FROM workspace_settings WHERE workspace_id = ?'
+        ).bind(workspaceId).first() as any;
 
         if (!settings || !settings.twilio_account_sid || !settings.twilio_auth_token) {
           return jsonResponse({ error: 'Twilio credentials not configured. Please add your Twilio Account SID and Auth Token in API Configuration.' }, 400);
@@ -881,9 +1474,38 @@ export default {
           return jsonResponse({ error: 'Either sid or phoneNumber is required' }, 400);
         }
 
-        const settings = await env.DB.prepare(
-          'SELECT private_key, twilio_account_sid, twilio_auth_token FROM user_settings WHERE user_id = ?'
+        // Get workspace settings (workspace-scoped)
+        const userSettings = await env.DB.prepare(
+          'SELECT selected_workspace_id FROM user_settings WHERE user_id = ?'
         ).bind(userId).first() as any;
+
+        if (!userSettings || !userSettings.selected_workspace_id) {
+          return jsonResponse({ error: 'No workspace selected. Please select a workspace first.' }, 400);
+        }
+
+        const workspaceId = userSettings.selected_workspace_id;
+
+        // Verify workspace access
+        const workspace = await env.DB.prepare(
+          'SELECT owner_user_id FROM workspaces WHERE id = ?'
+        ).bind(workspaceId).first() as any;
+
+        if (!workspace) {
+          return jsonResponse({ error: 'Workspace not found' }, 404);
+        }
+
+        const isOwner = workspace.owner_user_id === userId;
+        const membership = await env.DB.prepare(
+          'SELECT status FROM workspace_members WHERE workspace_id = ? AND user_id = ? AND status = "active"'
+        ).bind(workspaceId, userId).first() as any;
+
+        if (!isOwner && !membership) {
+          return jsonResponse({ error: 'Access denied to workspace' }, 403);
+        }
+
+        const settings = await env.DB.prepare(
+          'SELECT private_key, twilio_account_sid, twilio_auth_token FROM workspace_settings WHERE workspace_id = ?'
+        ).bind(workspaceId).first() as any;
 
         if (!settings || !settings.private_key) {
           return jsonResponse({ error: 'CHAU Voice Engine API key not configured. Please add your CHAU Voice Engine Private API Key in API Configuration.' }, 400);
@@ -956,9 +1578,38 @@ export default {
           return jsonResponse({ error: 'Valid 3-digit area code is required' }, 400);
         }
 
-        const settings = await env.DB.prepare(
-          'SELECT private_key, transfer_phone_number FROM user_settings WHERE user_id = ?'
+        // Get workspace settings (workspace-scoped)
+        const userSettings = await env.DB.prepare(
+          'SELECT selected_workspace_id FROM user_settings WHERE user_id = ?'
         ).bind(userId).first() as any;
+
+        if (!userSettings || !userSettings.selected_workspace_id) {
+          return jsonResponse({ error: 'No workspace selected. Please select a workspace first.' }, 400);
+        }
+
+        const workspaceId = userSettings.selected_workspace_id;
+
+        // Verify workspace access
+        const workspace = await env.DB.prepare(
+          'SELECT owner_user_id FROM workspaces WHERE id = ?'
+        ).bind(workspaceId).first() as any;
+
+        if (!workspace) {
+          return jsonResponse({ error: 'Workspace not found' }, 404);
+        }
+
+        const isOwner = workspace.owner_user_id === userId;
+        const membership = await env.DB.prepare(
+          'SELECT status FROM workspace_members WHERE workspace_id = ? AND user_id = ? AND status = "active"'
+        ).bind(workspaceId, userId).first() as any;
+
+        if (!isOwner && !membership) {
+          return jsonResponse({ error: 'Access denied to workspace' }, 403);
+        }
+
+        const settings = await env.DB.prepare(
+          'SELECT private_key, transfer_phone_number FROM workspace_settings WHERE workspace_id = ?'
+        ).bind(workspaceId).first() as any;
 
         if (!settings || !settings.private_key) {
           return jsonResponse({ error: 'CHAU Voice Engine API key not configured. Please add your CHAU Voice Engine Private API Key in API Configuration.' }, 400);
@@ -996,8 +1647,19 @@ export default {
           });
 
           if (!vapiResponse.ok) {
-            const errorText = await vapiResponse.text();
-            return jsonResponse({ error: `CHAU Voice Engine API error: ${vapiResponse.status} - ${errorText}` }, 400);
+            let errorText = await vapiResponse.text();
+            try {
+              // Try to parse error JSON to extract meaningful message
+              const errorJson = JSON.parse(errorText);
+              if (errorJson.message) {
+                errorText = errorJson.message;
+              } else if (errorJson.error) {
+                errorText = errorJson.error;
+              }
+            } catch {
+              // If not JSON, use error text as is
+            }
+            return jsonResponse({ error: errorText }, 400);
           }
 
           const vapiData = await vapiResponse.json() as any;
@@ -1029,9 +1691,49 @@ export default {
           return jsonResponse({ error: 'Phone number ID required' }, 400);
         }
 
-        const settings = await env.DB.prepare(
-          'SELECT private_key FROM user_settings WHERE user_id = ?'
+        // Get workspace settings (workspace-scoped)
+        const userSettings = await env.DB.prepare(
+          'SELECT selected_workspace_id FROM user_settings WHERE user_id = ?'
         ).bind(userId).first() as any;
+
+        if (!userSettings || !userSettings.selected_workspace_id) {
+          return jsonResponse({ error: 'No workspace selected. Please select a workspace first.' }, 400);
+        }
+
+        const workspaceId = userSettings.selected_workspace_id;
+
+        // Verify workspace access
+        const workspace = await env.DB.prepare(
+          'SELECT owner_user_id FROM workspaces WHERE id = ?'
+        ).bind(workspaceId).first() as any;
+
+        if (!workspace) {
+          return jsonResponse({ error: 'Workspace not found' }, 404);
+        }
+
+        const isOwner = workspace.owner_user_id === userId;
+        const membership = await env.DB.prepare(
+          'SELECT status FROM workspace_members WHERE workspace_id = ? AND user_id = ? AND status = "active"'
+        ).bind(workspaceId, userId).first() as any;
+
+        if (!isOwner && !membership) {
+          return jsonResponse({ error: 'Access denied to workspace' }, 403);
+        }
+
+        let settings = await env.DB.prepare(
+          'SELECT private_key FROM workspace_settings WHERE workspace_id = ?'
+        ).bind(workspaceId).first() as any;
+
+        // FALLBACK: If workspace_settings is empty, try user_settings
+        if (!settings || !settings.private_key) {
+          const ownerSettings = await env.DB.prepare(
+            'SELECT private_key FROM user_settings WHERE user_id = ?'
+          ).bind(workspace.owner_user_id).first() as any;
+
+          if (ownerSettings && ownerSettings.private_key) {
+            settings = ownerSettings;
+          }
+        }
 
         if (!settings || !settings.private_key) {
           return jsonResponse({ error: 'CHAU Voice Engine API key not configured. Please add your CHAU Voice Engine Private API Key in API Configuration.' }, 400);
@@ -1084,19 +1786,68 @@ export default {
       // ASSISTANTS ENDPOINTS (Protected with Caching)
       // ============================================
 
-      // Get all assistants (cache-first)
+      // Get all assistants (cache-first, supports workspace context)
       if (url.pathname === '/api/assistants' && request.method === 'GET') {
         const userId = await getUserFromToken(request, env);
         if (!userId) {
           return jsonResponse({ error: 'Unauthorized' }, 401);
         }
 
+        // Get user settings including selected_workspace_id
         const settings = await env.DB.prepare(
-          'SELECT private_key FROM user_settings WHERE user_id = ?'
+          'SELECT selected_workspace_id FROM user_settings WHERE user_id = ?'
         ).bind(userId).first() as any;
 
-        if (!settings || !settings.private_key) {
-          return jsonResponse({ error: 'CHAU Voice Engine API key not configured' }, 400);
+        if (!settings) {
+          return jsonResponse({ error: 'User settings not found' }, 404);
+        }
+
+        // Determine effective user ID for API key and cache lookup
+        let effectiveUserId = userId;
+        let privateKey: string | null = null;
+
+        // If workspace is selected, use workspace settings (workspace-scoped credentials)
+        if (settings.selected_workspace_id) {
+          // Verify user has access to this workspace
+          const workspace = await env.DB.prepare(
+            'SELECT owner_user_id FROM workspaces WHERE id = ?'
+          ).bind(settings.selected_workspace_id).first() as any;
+
+          if (workspace) {
+            // Check if user is owner or active member
+            const isOwner = workspace.owner_user_id === userId;
+            const membership = await env.DB.prepare(
+              'SELECT status FROM workspace_members WHERE workspace_id = ? AND user_id = ? AND status = "active"'
+            ).bind(settings.selected_workspace_id, userId).first() as any;
+
+            if (isOwner || membership) {
+              // Use workspace settings (workspace-scoped credentials)
+              const wsSettings = await env.DB.prepare(
+                'SELECT private_key FROM workspace_settings WHERE workspace_id = ?'
+              ).bind(settings.selected_workspace_id).first() as any;
+
+              if (wsSettings && wsSettings.private_key) {
+                privateKey = wsSettings.private_key;
+                effectiveUserId = workspace.owner_user_id;
+              } else {
+                // No workspace credentials - return empty list instead of error
+                return jsonResponse({ assistants: [] });
+              }
+            } else {
+              return jsonResponse({ error: 'Access denied to workspace' }, 403);
+            }
+          } else {
+            // Workspace not found - return empty list
+            return jsonResponse({ assistants: [] });
+          }
+        } else {
+          // No workspace selected - return empty list (credentials are now workspace-scoped only)
+          return jsonResponse({ assistants: [] });
+        }
+
+        if (!privateKey) {
+          // No credentials found - return empty list
+          return jsonResponse({ assistants: [] });
         }
 
         try {
@@ -1104,7 +1855,7 @@ export default {
           const cacheAgeLimit = now() - (5 * 60); // 5 minutes ago
           const cached = await env.DB.prepare(
             'SELECT id, vapi_data, cached_at, updated_at FROM assistants_cache WHERE user_id = ? AND cached_at > ? ORDER BY cached_at DESC'
-          ).bind(userId, cacheAgeLimit).all();
+          ).bind(effectiveUserId, cacheAgeLimit).all();
 
           if (cached && cached.results && cached.results.length > 0) {
             // Return cached data
@@ -1117,7 +1868,7 @@ export default {
           const vapiResponse = await fetch(vapiUrl, {
             method: 'GET',
             headers: {
-              'Authorization': `Bearer ${settings.private_key}`,
+              'Authorization': `Bearer ${privateKey}`,
               'Content-Type': 'application/json',
             },
           });
@@ -1130,13 +1881,13 @@ export default {
           const assistants = await vapiResponse.json() as any[];
           const timestamp = now();
 
-          // Update cache (upsert each assistant)
+          // Update cache using effective user ID (workspace owner if applicable)
           for (const assistant of assistants) {
             await env.DB.prepare(
               'INSERT OR REPLACE INTO assistants_cache (id, user_id, vapi_data, cached_at, updated_at) VALUES (?, ?, ?, ?, ?)'
             ).bind(
               assistant.id,
-              userId,
+              effectiveUserId,
               JSON.stringify(assistant),
               timestamp,
               new Date(assistant.updatedAt || assistant.createdAt).getTime() / 1000 || timestamp
@@ -1162,19 +1913,50 @@ export default {
           return jsonResponse({ error: 'Assistant ID required' }, 400);
         }
 
-        const settings = await env.DB.prepare(
-          'SELECT private_key FROM user_settings WHERE user_id = ?'
+        // Get workspace settings (workspace-scoped)
+        const userSettings = await env.DB.prepare(
+          'SELECT selected_workspace_id FROM user_settings WHERE user_id = ?'
         ).bind(userId).first() as any;
+
+        if (!userSettings || !userSettings.selected_workspace_id) {
+          return jsonResponse({ error: 'No workspace selected' }, 400);
+        }
+
+        const workspaceId = userSettings.selected_workspace_id;
+
+        // Verify workspace access
+        const workspace = await env.DB.prepare(
+          'SELECT owner_user_id FROM workspaces WHERE id = ?'
+        ).bind(workspaceId).first() as any;
+
+        if (!workspace) {
+          return jsonResponse({ error: 'Workspace not found' }, 404);
+        }
+
+        const isOwner = workspace.owner_user_id === userId;
+        const membership = await env.DB.prepare(
+          'SELECT status FROM workspace_members WHERE workspace_id = ? AND user_id = ? AND status = "active"'
+        ).bind(workspaceId, userId).first() as any;
+
+        if (!isOwner && !membership) {
+          return jsonResponse({ error: 'Access denied to workspace' }, 403);
+        }
+
+        const settings = await env.DB.prepare(
+          'SELECT private_key FROM workspace_settings WHERE workspace_id = ?'
+        ).bind(workspaceId).first() as any;
 
         if (!settings || !settings.private_key) {
           return jsonResponse({ error: 'CHAU Voice Engine API key not configured' }, 400);
         }
 
+        const effectiveUserId = workspace.owner_user_id;
+
         try {
-          // Check cache first
+          // Check cache first (use workspace owner's user_id for cache)
           const cached = await env.DB.prepare(
             'SELECT vapi_data, cached_at FROM assistants_cache WHERE id = ? AND user_id = ?'
-          ).bind(assistantId, userId).first() as any;
+          ).bind(assistantId, effectiveUserId).first() as any;
 
           if (cached) {
             const cacheAge = now() - cached.cached_at;
@@ -1202,12 +1984,12 @@ export default {
           const assistant = await vapiResponse.json() as any;
           const timestamp = now();
 
-          // Update cache
+          // Update cache (use workspace owner's user_id for cache)
           await env.DB.prepare(
             'INSERT OR REPLACE INTO assistants_cache (id, user_id, vapi_data, cached_at, updated_at) VALUES (?, ?, ?, ?, ?)'
           ).bind(
             assistant.id,
-            userId,
+            effectiveUserId,
             JSON.stringify(assistant),
             timestamp,
             new Date(assistant.updatedAt || assistant.createdAt).getTime() / 1000 || timestamp
@@ -1289,12 +2071,41 @@ export default {
 
         const assistantData = await request.json() as any;
 
-        const settings = await env.DB.prepare(
-          'SELECT private_key FROM user_settings WHERE user_id = ?'
+        // Get workspace settings (workspace-scoped)
+        const userSettings = await env.DB.prepare(
+          'SELECT selected_workspace_id FROM user_settings WHERE user_id = ?'
         ).bind(userId).first() as any;
 
+        if (!userSettings || !userSettings.selected_workspace_id) {
+          return jsonResponse({ error: 'No workspace selected. Please select a workspace first.' }, 400);
+        }
+
+        const workspaceId = userSettings.selected_workspace_id;
+
+        // Verify workspace access
+        const workspace = await env.DB.prepare(
+          'SELECT owner_user_id FROM workspaces WHERE id = ?'
+        ).bind(workspaceId).first() as any;
+
+        if (!workspace) {
+          return jsonResponse({ error: 'Workspace not found' }, 404);
+        }
+
+        const isOwner = workspace.owner_user_id === userId;
+        const membership = await env.DB.prepare(
+          'SELECT status FROM workspace_members WHERE workspace_id = ? AND user_id = ? AND status = "active"'
+        ).bind(workspaceId, userId).first() as any;
+
+        if (!isOwner && !membership) {
+          return jsonResponse({ error: 'Access denied to workspace' }, 403);
+        }
+
+        const settings = await env.DB.prepare(
+          'SELECT private_key FROM workspace_settings WHERE workspace_id = ?'
+        ).bind(workspaceId).first() as any;
+
         if (!settings || !settings.private_key) {
-          return jsonResponse({ error: 'CHAU Voice Engine API key not configured' }, 400);
+          return jsonResponse({ error: 'CHAU Voice Engine API key not configured. Please configure workspace API keys in Settings.' }, 400);
         }
 
         try {
@@ -1310,19 +2121,31 @@ export default {
           });
 
           if (!vapiResponse.ok) {
-            const errorText = await vapiResponse.text();
-            return jsonResponse({ error: `CHAU Voice Engine API error: ${vapiResponse.status} - ${errorText}` }, 400);
+            let errorText = await vapiResponse.text();
+            try {
+              // Try to parse error JSON to extract meaningful message
+              const errorJson = JSON.parse(errorText);
+              if (errorJson.message) {
+                errorText = errorJson.message;
+              } else if (errorJson.error) {
+                errorText = errorJson.error;
+              }
+            } catch {
+              // If not JSON, use error text as is
+            }
+            return jsonResponse({ error: errorText }, 400);
           }
 
           const newAssistant = await vapiResponse.json() as any;
           const timestamp = now();
 
-          // 2. Add to D1 cache (write-through)
+          // 2. Add to D1 cache (write-through) - use workspace owner's user_id for cache
+          const effectiveUserId = workspace.owner_user_id;
           await env.DB.prepare(
             'INSERT OR REPLACE INTO assistants_cache (id, user_id, vapi_data, cached_at, updated_at) VALUES (?, ?, ?, ?, ?)'
           ).bind(
             newAssistant.id,
-            userId,
+            effectiveUserId,
             JSON.stringify(newAssistant),
             timestamp,
             new Date(newAssistant.updatedAt || newAssistant.createdAt).getTime() / 1000 || timestamp
@@ -1347,13 +2170,44 @@ export default {
           return jsonResponse({ error: 'Assistant ID required' }, 400);
         }
 
-        const settings = await env.DB.prepare(
-          'SELECT private_key FROM user_settings WHERE user_id = ?'
+        // Get workspace settings (workspace-scoped)
+        const userSettings = await env.DB.prepare(
+          'SELECT selected_workspace_id FROM user_settings WHERE user_id = ?'
         ).bind(userId).first() as any;
+
+        if (!userSettings || !userSettings.selected_workspace_id) {
+          return jsonResponse({ error: 'No workspace selected' }, 400);
+        }
+
+        const workspaceId = userSettings.selected_workspace_id;
+
+        // Verify workspace access
+        const workspace = await env.DB.prepare(
+          'SELECT owner_user_id FROM workspaces WHERE id = ?'
+        ).bind(workspaceId).first() as any;
+
+        if (!workspace) {
+          return jsonResponse({ error: 'Workspace not found' }, 404);
+        }
+
+        const isOwner = workspace.owner_user_id === userId;
+        const membership = await env.DB.prepare(
+          'SELECT status FROM workspace_members WHERE workspace_id = ? AND user_id = ? AND status = "active"'
+        ).bind(workspaceId, userId).first() as any;
+
+        if (!isOwner && !membership) {
+          return jsonResponse({ error: 'Access denied to workspace' }, 403);
+        }
+
+        const settings = await env.DB.prepare(
+          'SELECT private_key FROM workspace_settings WHERE workspace_id = ?'
+        ).bind(workspaceId).first() as any;
 
         if (!settings || !settings.private_key) {
           return jsonResponse({ error: 'CHAU Voice Engine API key not configured' }, 400);
         }
+
+        const effectiveUserId = workspace.owner_user_id;
 
         try {
           // 1. Delete from Vapi first (source of truth)
@@ -1371,10 +2225,10 @@ export default {
             return jsonResponse({ error: `CHAU Voice Engine API error: ${vapiResponse.status} - ${errorText}` }, 400);
           }
 
-          // 2. Delete from D1 cache (write-through)
+          // 2. Delete from D1 cache (write-through) - use workspace owner's user_id
           await env.DB.prepare(
             'DELETE FROM assistants_cache WHERE id = ? AND user_id = ?'
-          ).bind(assistantId, userId).run();
+          ).bind(assistantId, effectiveUserId).run();
 
           return jsonResponse({ success: true });
         } catch (error: any) {
@@ -1680,12 +2534,15 @@ export default {
         }, 201);
       }
 
-      // List webhooks for user
+      // List webhooks for user (supports workspace context)
       if (url.pathname === '/api/webhooks' && request.method === 'GET') {
         const userId = await getUserFromToken(request, env);
         if (!userId) {
           return jsonResponse({ error: 'Unauthorized' }, 401);
         }
+
+        // Get effective user ID for workspace context
+        const { effectiveUserId } = await getEffectiveUserId(env, userId);
 
         const { results } = await env.DB.prepare(
           `SELECT
@@ -1700,7 +2557,7 @@ export default {
           WHERE w.user_id = ?
           GROUP BY w.id
           ORDER BY w.created_at DESC`
-        ).bind(userId).all();
+        ).bind(effectiveUserId).all();
 
         return jsonResponse(results || []);
       }
@@ -1735,12 +2592,15 @@ export default {
         return jsonResponse({ message: 'Webhook deleted successfully' });
       }
 
-      // Get webhook calls (with KV caching)
+      // Get webhook calls (with KV caching, supports workspace context)
       if (url.pathname === '/api/webhook-calls' && request.method === 'GET') {
         const userId = await getUserFromToken(request, env);
         if (!userId) {
           return jsonResponse({ error: 'Unauthorized' }, 401);
         }
+
+        // Get effective user ID for workspace context
+        const { effectiveUserId } = await getEffectiveUserId(env, userId);
 
         const webhookId = url.searchParams.get('webhook_id');
         const limit = parseInt(url.searchParams.get('limit') || '100');
@@ -1754,17 +2614,18 @@ export default {
         const cacheBust = url.searchParams.get('_t');
 
         // Try to get from cache first (only if no webhook filter, reasonable page size, and no cache-bust)
+        // Use effectiveUserId for cache key to scope by workspace owner
         if (!webhookId && limit <= 100 && !cacheBust) {
-          const cached = await cache.getCachedRecordings(userId, page, limit);
+          const cached = await cache.getCachedRecordings(effectiveUserId, page, limit);
           if (cached) {
-            console.log(`Cache HIT for recordings: user=${userId}, page=${page}, limit=${limit}`);
+            console.log(`Cache HIT for recordings: user=${effectiveUserId}, page=${page}, limit=${limit}`);
             return jsonResponse(cached);
           }
         }
 
-        console.log(`Cache MISS for recordings: user=${userId}, page=${page}, limit=${limit}${cacheBust ? ' (cache-bust requested)' : ''}`);
+        console.log(`Cache MISS for recordings: user=${effectiveUserId}, page=${page}, limit=${limit}${cacheBust ? ' (cache-bust requested)' : ''}`);
 
-        // Fetch from database with enhanced data
+        // Fetch from database with enhanced data (using effectiveUserId for workspace context)
         let query = env.DB.prepare(
           `SELECT
             wc.id,
@@ -1802,8 +2663,8 @@ export default {
         );
 
         const params = webhookId
-          ? [userId, webhookId, limit, offset]
-          : [userId, limit, offset];
+          ? [effectiveUserId, webhookId, limit, offset]
+          : [effectiveUserId, limit, offset];
 
         const { results } = await query.bind(...params).all();
 
@@ -1816,8 +2677,9 @@ export default {
         }));
 
         // Cache the results (only if no webhook filter and reasonable page size)
+        // Use effectiveUserId for cache key to scope by workspace owner
         if (!webhookId && limit <= 100) {
-          await cache.cacheRecordings(userId, parsedResults, page, limit, CACHE_TTL.RECORDINGS);
+          await cache.cacheRecordings(effectiveUserId, parsedResults, page, limit, CACHE_TTL.RECORDINGS);
         }
 
         return jsonResponse(parsedResults);
@@ -1825,13 +2687,17 @@ export default {
 
       // Get intent analysis with caching
       // Get active calls
+      // Get active calls (supports workspace context)
       if (url.pathname === '/api/active-calls' && request.method === 'GET') {
         const userId = await getUserFromToken(request, env);
         if (!userId) {
           return jsonResponse({ error: 'Unauthorized' }, 401);
         }
 
-        // Fetch active calls from database
+        // Get effective user ID for workspace context
+        const { effectiveUserId } = await getEffectiveUserId(env, userId);
+
+        // Fetch active calls from database (using effectiveUserId)
         const { results } = await env.DB.prepare(
           `SELECT
             id,
@@ -1846,22 +2712,26 @@ export default {
           FROM active_calls
           WHERE user_id = ?
           ORDER BY started_at DESC`
-        ).bind(userId).all();
+        ).bind(effectiveUserId).all();
 
         return jsonResponse(results);
       }
 
       // Get concurrent calls stats
+      // Get concurrent calls stats (supports workspace context)
       if (url.pathname === '/api/concurrent-calls' && request.method === 'GET') {
         const userId = await getUserFromToken(request, env);
         if (!userId) {
           return jsonResponse({ error: 'Unauthorized' }, 401);
         }
 
+        // Get effective user ID for workspace context
+        const { effectiveUserId } = await getEffectiveUserId(env, userId);
+
         // Get current concurrent calls (active calls)
         const activeCallsResult = await env.DB.prepare(
           `SELECT COUNT(*) as count FROM active_calls WHERE user_id = ?`
-        ).bind(userId).first() as any;
+        ).bind(effectiveUserId).first() as any;
         
         const currentConcurrent = activeCallsResult?.count || 0;
 
@@ -1874,7 +2744,7 @@ export default {
           AND raw_payload IS NOT NULL
           ORDER BY created_at DESC
           LIMIT 1000`
-        ).bind(userId).all();
+        ).bind(effectiveUserId).all();
 
         let peakConcurrent = 0;
         
@@ -1935,16 +2805,20 @@ export default {
       }
 
       // Get concurrent calls time-series data
+      // Get concurrent calls timeseries (supports workspace context)
       if (url.pathname === '/api/concurrent-calls/timeseries' && request.method === 'GET') {
         const userId = await getUserFromToken(request, env);
         if (!userId) {
           return jsonResponse({ error: 'Unauthorized' }, 401);
         }
 
+        // Get effective user ID for workspace context
+        const { effectiveUserId } = await getEffectiveUserId(env, userId);
+
         const granularity = url.searchParams.get('granularity') || 'minute'; // minute, hour, day
         const limit = parseInt(url.searchParams.get('limit') || '1000');
 
-        // Fetch recent calls with their time ranges
+        // Fetch recent calls with their time ranges (using effectiveUserId)
         const { results } = await env.DB.prepare(
           `SELECT raw_payload, created_at
           FROM webhook_calls
@@ -1952,7 +2826,7 @@ export default {
           AND raw_payload IS NOT NULL
           ORDER BY created_at DESC
           LIMIT ?`
-        ).bind(userId, limit).all();
+        ).bind(effectiveUserId, limit).all();
 
         if (!results || results.length === 0) {
           return jsonResponse({ data: [], labels: [] });
@@ -2036,11 +2910,15 @@ export default {
       }
 
       // Get reason call ended data
+      // Get call ended reasons (supports workspace context)
       if (url.pathname === '/api/call-ended-reasons' && request.method === 'GET') {
         const userId = await getUserFromToken(request, env);
         if (!userId) {
           return jsonResponse({ error: 'Unauthorized' }, 401);
         }
+
+        // Get effective user ID for workspace context
+        const { effectiveUserId } = await getEffectiveUserId(env, userId);
 
         const startDate = url.searchParams.get('start_date');
         const endDate = url.searchParams.get('end_date');
@@ -2056,7 +2934,7 @@ export default {
         AND ended_reason IS NOT NULL
         AND created_at IS NOT NULL`;
         
-        const params: any[] = [userId];
+        const params: any[] = [effectiveUserId];
         
         if (startDate) {
           queryStr += ` AND DATE(datetime(created_at, 'unixepoch')) >= ?`;
@@ -2132,11 +3010,15 @@ export default {
       }
 
       // Get top keywords
+      // Get top keywords with sentiment (supports workspace context)
       if (url.pathname === '/api/keywords' && request.method === 'GET') {
         const userId = await getUserFromToken(request, env);
         if (!userId) {
           return jsonResponse({ error: 'Unauthorized' }, 401);
         }
+
+        // Get effective user ID for workspace context
+        const { effectiveUserId } = await getEffectiveUserId(env, userId);
 
         // Fetch top keywords from database with sentiment data (limit to top 20 for heat map)
         const { results } = await env.DB.prepare(
@@ -2152,7 +3034,7 @@ export default {
           WHERE user_id = ?
           ORDER BY count DESC
           LIMIT 20`
-        ).bind(userId).all();
+        ).bind(effectiveUserId).all();
 
         return jsonResponse(results);
       }
@@ -2393,11 +3275,15 @@ export default {
         }
       }
 
+      // Get intent analysis (supports workspace context)
       if (url.pathname === '/api/intent-analysis' && request.method === 'GET') {
         const userId = await getUserFromToken(request, env);
         if (!userId) {
           return jsonResponse({ error: 'Unauthorized' }, 401);
         }
+
+        // Get effective user ID for workspace context
+        const { effectiveUserId } = await getEffectiveUserId(env, userId);
 
         const limit = parseInt(url.searchParams.get('limit') || '100');
         const offset = parseInt(url.searchParams.get('offset') || '0');
@@ -2406,18 +3292,18 @@ export default {
         // Initialize cache
         const cache = new VoiceAICache(env.CACHE);
 
-        // Try to get from cache first
+        // Try to get from cache first (use effectiveUserId for cache key)
         if (limit <= 100) {
-          const cached = await cache.getCachedIntentSummary(userId);
+          const cached = await cache.getCachedIntentSummary(effectiveUserId);
           if (cached) {
-            console.log(`Cache HIT for intent analysis: user=${userId}`);
+            console.log(`Cache HIT for intent analysis: user=${effectiveUserId}`);
             return jsonResponse(cached);
           }
         }
 
-        console.log(`Cache MISS for intent analysis: user=${userId}`);
+        console.log(`Cache MISS for intent analysis: user=${effectiveUserId}`);
 
-        // Fetch analyzed calls from database with enhanced data
+        // Fetch analyzed calls from database with enhanced data (using effectiveUserId)
         const { results } = await env.DB.prepare(
           `SELECT
             wc.id,
@@ -2448,7 +3334,7 @@ export default {
           WHERE wc.user_id = ? AND wc.analysis_completed = 1
           ORDER BY wc.created_at DESC
           LIMIT ? OFFSET ?`
-        ).bind(userId, limit, offset).all();
+        ).bind(effectiveUserId, limit, offset).all();
 
         // Get user email for demo data check
         const userEmail = await env.DB.prepare(
@@ -2626,7 +3512,8 @@ export default {
 
         // Cache the results
         if (limit <= 100) {
-          await cache.cacheIntentSummary(userId, summaryData, CACHE_TTL.INTENT_SUMMARY);
+          // Use effectiveUserId for cache key to scope by workspace owner
+          await cache.cacheIntentSummary(effectiveUserId, summaryData, CACHE_TTL.INTENT_SUMMARY);
         }
 
         return jsonResponse(summaryData);
@@ -2892,7 +3779,8 @@ export default {
         
         // Check if email is in admin list (can be configured via env var or hardcoded)
         // For now, check if email contains 'channelautomation.com' or 'admin'
-        const adminEmails = (env.ADMIN_EMAILS || 'vic@channelautomation.com').split(',').map(e => e.trim());
+        // Hardcoded admin emails for now (can be moved to env var if needed)
+        const adminEmails = 'vic@channelautomation.com'.split(',').map(e => e.trim());
         return adminEmails.some(adminEmail => 
           user.email.toLowerCase() === adminEmail.toLowerCase() || 
           user.email.toLowerCase().includes(adminEmail.toLowerCase())
@@ -3029,15 +3917,13 @@ export default {
             let twilioData: TwilioCallerInfo | null = null;
             if (customerNumber) {
               try {
-                const userSettings = await env.DB.prepare(
-                  'SELECT twilio_account_sid, twilio_auth_token FROM user_settings WHERE user_id = ?'
-                ).bind(webhook.user_id).first() as any;
+                const wsSettings = await getWorkspaceSettingsForUser(env, webhook.user_id);
 
-                if (userSettings?.twilio_account_sid && userSettings?.twilio_auth_token) {
+                if (wsSettings?.twilio_account_sid && wsSettings?.twilio_auth_token) {
                   twilioData = await lookupCallerWithTwilio(
                     customerNumber,
-                    userSettings.twilio_account_sid,
-                    userSettings.twilio_auth_token
+                    wsSettings.twilio_account_sid,
+                    wsSettings.twilio_auth_token
                   );
                 }
               } catch (error) {
@@ -3096,15 +3982,13 @@ export default {
 
         if (customerNumber) {
           try {
-            const userSettings = await env.DB.prepare(
-              'SELECT twilio_account_sid, twilio_auth_token FROM user_settings WHERE user_id = ?'
-            ).bind(webhook.user_id).first() as any;
+            const wsSettings = await getWorkspaceSettingsForUser(env, webhook.user_id);
 
-            if (userSettings?.twilio_account_sid && userSettings?.twilio_auth_token) {
+            if (wsSettings?.twilio_account_sid && wsSettings?.twilio_auth_token) {
               twilioData = await lookupCallerWithTwilio(
                 customerNumber,
-                userSettings.twilio_account_sid,
-                userSettings.twilio_auth_token
+                wsSettings.twilio_account_sid,
+                wsSettings.twilio_auth_token
               );
             }
           } catch (error) {
@@ -3196,12 +4080,10 @@ export default {
                 let vapiCustomerName = structuredData.customerName || structuredData.customer_name || null;
                 let vapiCustomerEmail = structuredData.customerEmail || structuredData.customer_email || null;
 
-                // Get user's OpenAI API key
-                const settings = await env.DB.prepare(
-                  'SELECT openai_api_key FROM user_settings WHERE user_id = ?'
-                ).bind(webhook.user_id).first() as any;
+                // Get workspace OpenAI API key
+                const wsSettings = await getWorkspaceSettingsForUser(env, webhook.user_id);
 
-                if (settings?.openai_api_key) {
+                if (wsSettings?.openai_api_key) {
                   const transcript = artifact.transcript || '';
                   const summary = analysis.summary || message.summary || '';
 
@@ -3209,7 +4091,7 @@ export default {
                   const analysisResult = await analyzeCallWithOpenAI(
                     summary,
                     transcript,
-                    settings.openai_api_key
+                    wsSettings.openai_api_key
                   );
 
                   if (analysisResult) {

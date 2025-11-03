@@ -77,6 +77,7 @@ class D1Client {
     selectedAssistantId?: string;
     selectedPhoneId?: string;
     selectedOrgId?: string;
+    selectedWorkspaceId?: string;
     openaiApiKey?: string;
     twilioAccountSid?: string;
     twilioAuthToken?: string;
@@ -93,6 +94,7 @@ class D1Client {
     selectedAssistantId?: string | null;
     selectedPhoneId?: string | null;
     selectedOrgId?: string | null;
+    selectedWorkspaceId?: string | null;
     openaiApiKey?: string | null;
     twilioAccountSid?: string | null;
     twilioAuthToken?: string | null;
@@ -377,6 +379,70 @@ class D1Client {
   async deleteAssistant(assistantId: string): Promise<{ success: boolean }> {
     return this.request(`/api/assistants/${assistantId}`, {
       method: 'DELETE',
+    });
+  }
+
+  // Workspaces
+  async getWorkspaces(): Promise<{
+    workspaces: Array<{
+      id: string;
+      name: string;
+      owner_user_id: string;
+      role: string;
+      status: string;
+      created_at: number;
+      updated_at: number;
+    }>;
+  }> {
+    return this.request('/api/workspaces', {
+      method: 'GET',
+    });
+  }
+
+  async createWorkspace(name: string): Promise<{
+    id: string;
+    name: string;
+    owner_user_id: string;
+    created_at: number;
+    updated_at: number;
+  }> {
+    return this.request('/api/workspaces', {
+      method: 'POST',
+      body: JSON.stringify({ name }),
+    });
+  }
+
+  async inviteWorkspaceMember(workspaceId: string, email: string, role?: string): Promise<{ success: boolean }> {
+    return this.request(`/api/workspaces/${workspaceId}/invite`, {
+      method: 'POST',
+      body: JSON.stringify({ email, role: role || 'member' }),
+    });
+  }
+
+  async getWorkspaceMembers(workspaceId: string): Promise<{
+    workspace: { id: string; name: string };
+    members: Array<{
+      id: string;
+      email: string;
+      name: string | null;
+      role: string;
+      status: string;
+      joinedAt: number | null;
+    }>;
+  }> {
+    return this.request(`/api/workspaces/${workspaceId}/members`, {
+      method: 'GET',
+    });
+  }
+
+  async removeWorkspaceMember(workspaceId: string, memberId: string): Promise<{ success: boolean }> {
+    return this.request(`/api/workspaces/${workspaceId}/members/${memberId}`, { method: 'DELETE' });
+  }
+
+  async updateWorkspaceMemberRole(workspaceId: string, memberId: string, role: 'member' | 'admin'): Promise<{ success: boolean }> {
+    return this.request(`/api/workspaces/${workspaceId}/members/${memberId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ role }),
     });
   }
 }

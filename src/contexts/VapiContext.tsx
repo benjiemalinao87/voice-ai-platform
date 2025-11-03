@@ -7,9 +7,11 @@ interface VapiContextType {
   vapiClient: VapiClient | null;
   publicKey: string | null;
   selectedOrgId: string | null;
+  selectedWorkspaceId: string | null;
   isConfigured: boolean;
   isLoading: boolean;
   setSelectedOrgId: (orgId: string | null) => void;
+  setSelectedWorkspaceId: (workspaceId: string | null) => void;
   clearKeys: () => void;
 }
 
@@ -20,6 +22,7 @@ export function VapiProvider({ children }: { children: ReactNode }) {
   const [vapiClient, setVapiClient] = useState<VapiClient | null>(null);
   const [publicKey, setPublicKey] = useState<string | null>(null);
   const [selectedOrgId, setSelectedOrgId] = useState<string | null>(null);
+  const [selectedWorkspaceId, setSelectedWorkspaceIdState] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
   // Auto-load keys when user authenticates
@@ -31,6 +34,7 @@ export function VapiProvider({ children }: { children: ReactNode }) {
       setVapiClient(null);
       setPublicKey(null);
       setSelectedOrgId(null);
+      setSelectedWorkspaceIdState(null);
     }
   }, [user, token]);
 
@@ -62,6 +66,11 @@ export function VapiProvider({ children }: { children: ReactNode }) {
         setSelectedOrgId(settings.selectedOrgId);
       }
 
+      // Load selected workspace ID from settings
+      if (settings.selectedWorkspaceId) {
+        setSelectedWorkspaceIdState(settings.selectedWorkspaceId);
+      }
+
       console.log('CHAU Voice AI client initialized successfully');
     } catch (error) {
       console.error('Failed to load CHAU Voice AI keys:', error);
@@ -70,10 +79,22 @@ export function VapiProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const setSelectedWorkspaceId = async (workspaceId: string | null) => {
+    setSelectedWorkspaceIdState(workspaceId);
+    // Save to backend
+    try {
+      await d1Client.updateUserSettings({ selectedWorkspaceId: workspaceId });
+      // Reload assistants by triggering a reload (App.tsx listens to selectedWorkspaceId)
+    } catch (error) {
+      console.error('Failed to update selected workspace:', error);
+    }
+  };
+
   const clearKeys = () => {
     setVapiClient(null);
     setPublicKey(null);
     setSelectedOrgId(null);
+    setSelectedWorkspaceIdState(null);
   };
 
   return (
@@ -82,9 +103,11 @@ export function VapiProvider({ children }: { children: ReactNode }) {
         vapiClient,
         publicKey,
         selectedOrgId,
+        selectedWorkspaceId,
         isConfigured: !!vapiClient,
         isLoading,
         setSelectedOrgId,
+        setSelectedWorkspaceId,
         clearKeys,
       }}
     >

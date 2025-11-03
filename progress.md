@@ -100,3 +100,88 @@ The Phone Numbers feature is now fully functional and ready for use. Users can n
 - Mobile-responsive design
 
 The Intent Analysis feature is now fully functional and ready for use. Users can navigate to the "Intent Analysis" tab to view AI-powered analysis of customer call intents and moods with beautiful, interactive cards and comprehensive filtering options.
+
+### Team Members & Workspaces Feature (January 2025)
+✅ **Successfully implemented comprehensive workspace and team management system**
+
+**Architecture Overview:**
+- **Multi-tenant Workspace System**: Each workspace is owned by a user and can have multiple members with different roles
+- **Data Isolation**: Workspace context automatically scopes all data queries (assistants, calls, recordings, analytics) to the workspace owner's data
+- **Credential Sharing**: Workspace members access the owner's API keys server-side for seamless data access
+- **Role-based Access**: Three roles - Owner (full control), Admin (can invite/remove), Member (view access)
+
+**Database Schema:**
+- `workspaces` table: `id`, `name`, `owner_user_id`, `created_at`, `updated_at`
+- `workspace_members` table: `id`, `workspace_id`, `user_id`, `role` (member/admin), `status` (active/pending), `invited_by_user_id`, `invited_at`, `joined_at`
+- `user_settings` table: Added `selected_workspace_id` column for workspace context
+
+**Backend Endpoints Created:**
+- `GET /api/workspaces` - List all workspaces user owns or is a member of
+- `POST /api/workspaces` - Create new workspace
+- `POST /api/workspaces/:id/invite` - Invite user to workspace by email
+- `GET /api/workspaces/:id/members` - Get workspace members list
+- `DELETE /api/workspaces/:id/members/:memberId` - Remove member (owner/admin only)
+- `PATCH /api/workspaces/:id/members/:memberId` - Update member role (owner only)
+- Updated `/api/assistants` - Now supports workspace context using owner's API keys
+- Updated `/api/webhook-calls` - Now scoped to workspace owner
+- Updated `/api/webhooks` - Now scoped to workspace owner
+- Updated `/api/keywords` - Now scoped to workspace owner
+- Updated `/api/intent-analysis` - Now scoped to workspace owner
+- Updated `/api/active-calls` - Now scoped to workspace owner
+- Updated `/api/concurrent-calls` - Now scoped to workspace owner
+- Updated `/api/call-ended-reasons` - Now scoped to workspace owner
+
+**Helper Functions:**
+- `getEffectiveUserId()` - Returns workspace owner's user_id if workspace is selected, otherwise authenticated user's ID
+- Validates workspace access (user must be owner or active member)
+- Automatically scopes all queries to effective user ID
+
+**Frontend Components:**
+- `TeamMembers.tsx` - Complete team management UI with Twilio-inspired design
+  - Workspace selector with active workspace indicator
+  - Create workspace modal
+  - Team member list with avatars, roles, status badges
+  - Invite member modal
+  - Member actions menu (remove member, change role)
+  - Dark mode support
+- Updated `Settings.tsx` - Added "Team" tab
+- Updated `App.tsx` - Added workspace selector in header navigation
+- Updated `VapiContext.tsx` - Added `selectedWorkspaceId` state and `setSelectedWorkspaceId` function
+
+**Features Implemented:**
+- **Create Workspace**: Beautiful modal UI for creating new workspaces
+- **Workspace Selection**: Dropdown in header and settings to switch between workspaces
+- **Active Workspace Indicator**: Shows which workspace is currently active for data filtering
+- **Invite Members**: Invite existing users to workspace by email address
+- **Member List**: View all workspace members with roles and status
+- **Remove Members**: Owners and admins can remove members
+- **Change Roles**: Owners can promote members to admin or demote to member
+- **Workspace Scoping**: All data (assistants, calls, recordings, analytics) automatically filtered to workspace owner's data
+- **Personal Mode**: Option to switch to "Personal" mode to view own data without workspace context
+
+**Technical Implementation:**
+- Server-side workspace context resolution (secure, no client-side key sharing)
+- Cache keys scoped to effective user ID (workspace owner)
+- Permission checks at API level (not just UI)
+- Automatic data isolation (no data leakage between workspaces)
+- TypeScript interfaces for type safety
+- Comprehensive error handling
+- Follows existing code patterns and architecture
+
+**User Experience:**
+- Clean, professional Twilio-inspired UI design
+- Intuitive workspace switching from header
+- Clear visual indicators for active workspace
+- Seamless data filtering when switching workspaces
+- Role-based UI permissions (actions only show for authorized users)
+- Mobile-responsive design
+
+**Security Features:**
+- API keys never exposed to frontend (server-side only)
+- Workspace access validated on every request
+- Permission checks prevent unauthorized actions
+- Data isolation ensures users only see workspace owner's data
+- Cannot remove workspace owner
+- Only owners can change roles
+
+The Team Members & Workspaces feature is now fully functional and deployed. Users can create workspaces, invite team members, manage roles, and seamlessly switch between personal and workspace contexts. All data queries are automatically scoped to the selected workspace, ensuring proper data isolation and team collaboration.

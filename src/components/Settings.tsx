@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Key, Save, Eye, EyeOff, AlertCircle, CheckCircle, Trash2, RefreshCw, LogOut, User, Settings as SettingsIcon, Plug, Webhook, Maximize2, Zap, Calendar, PhoneForwarded, Phone } from 'lucide-react';
+import { Key, Save, Eye, EyeOff, AlertCircle, CheckCircle, Trash2, RefreshCw, LogOut, User, Settings as SettingsIcon, Plug, Webhook, Maximize2, Zap, Calendar, PhoneForwarded, Phone, Users } from 'lucide-react';
 import { VapiClient } from '../lib/vapi';
 import { useAuth } from '../contexts/AuthContext';
 import { useVapi } from '../contexts/VapiContext';
@@ -9,6 +9,7 @@ import { WebhookConfig } from './WebhookConfig';
 import { Addons } from './Addons';
 import { SchedulingTriggers } from './SchedulingTriggers';
 import { PhoneNumbers } from './PhoneNumbers';
+import { TeamMembers } from './TeamMembers';
 
 interface VapiCredentials {
   privateKey: string;
@@ -46,7 +47,7 @@ interface SettingsProps {
 
 export function Settings({ wideView = false, onWideViewChange }: SettingsProps = {}) {
   const { user, token, logout } = useAuth();
-  const [activeTab, setActiveTab] = useState<'api' | 'integrations' | 'webhooks' | 'addons' | 'scheduling' | 'phoneNumbers' | 'preferences'>('api');
+  const [activeTab, setActiveTab] = useState<'api' | 'integrations' | 'webhooks' | 'addons' | 'scheduling' | 'phoneNumbers' | 'team' | 'preferences'>('api');
   const [credentials, setCredentials] = useState<VapiCredentials>({
     privateKey: '',
     publicKey: ''
@@ -70,12 +71,20 @@ export function Settings({ wideView = false, onWideViewChange }: SettingsProps =
   const [selectedAssistantId, setSelectedAssistantId] = useState<string>('');
   const [selectedPhoneId, setSelectedPhoneId] = useState<string>('');
   const [loadingResources, setLoadingResources] = useState(false);
+  const [isWorkspaceOwner, setIsWorkspaceOwner] = useState(false);
 
   const [userSettings, setUserSettings] = useState<UserSettings | null>(null);
 
   useEffect(() => {
     loadSettings();
   }, []);
+
+  // Automatically redirect non-owners to 'team' tab if they land on 'api'
+  useEffect(() => {
+    if (!loading && !isWorkspaceOwner && activeTab === 'api') {
+      setActiveTab('team');
+    }
+  }, [isWorkspaceOwner, loading, activeTab]);
 
   const loadSettings = async () => {
     if (!token) return;
@@ -92,7 +101,7 @@ export function Settings({ wideView = false, onWideViewChange }: SettingsProps =
         throw new Error('Failed to load settings');
       }
 
-      const settings: UserSettings = await response.json();
+      const settings: UserSettings & { isWorkspaceOwner?: boolean } = await response.json();
       setUserSettings(settings);
       setSelectedAssistantId(settings.selectedAssistantId || '');
       setSelectedPhoneId(settings.selectedPhoneId || '');
@@ -100,6 +109,9 @@ export function Settings({ wideView = false, onWideViewChange }: SettingsProps =
       setTwilioAccountSid(settings.twilioAccountSid || '');
       setTwilioAuthToken(settings.twilioAuthToken || '');
       setTransferPhoneNumber(settings.transferPhoneNumber || '');
+
+      // Store workspace owner status
+      setIsWorkspaceOwner(settings.isWorkspaceOwner ?? false);
 
       // Load plain keys directly
       if (settings.privateKey) {
@@ -185,6 +197,12 @@ export function Settings({ wideView = false, onWideViewChange }: SettingsProps =
   };
 
   const handleSave = async () => {
+    if (!isWorkspaceOwner) {
+      setErrorMessage('Only workspace owners can update API credentials');
+      setStatus('error');
+      return;
+    }
+
     if (!credentials.privateKey) {
       setErrorMessage('Private API Key is required');
       setStatus('error');
@@ -197,16 +215,23 @@ export function Settings({ wideView = false, onWideViewChange }: SettingsProps =
       return;
     }
 
+    if (!userSettings?.selectedWorkspaceId) {
+      setErrorMessage('No workspace selected. Please select a workspace first.');
+      setStatus('error');
+      return;
+    }
+
     setSaving(true);
     setErrorMessage('');
 
     try {
-      // Save to D1 using d1Client
+      // Save to workspace settings using d1Client
       await d1Client.updateUserSettings({
         privateKey: credentials.privateKey,
         publicKey: credentials.publicKey || null,
         selectedAssistantId: selectedAssistantId || null,
         selectedPhoneId: selectedPhoneId || null,
+        selectedWorkspaceId: userSettings.selectedWorkspaceId,
         openaiApiKey: openaiApiKey || null,
         twilioAccountSid: twilioAccountSid || null,
         twilioAuthToken: twilioAuthToken || null,
@@ -231,7 +256,10 @@ export function Settings({ wideView = false, onWideViewChange }: SettingsProps =
   const handleClear = async () => {
     if (confirm('Are you sure you want to clear all settings? You will need to re-enter your API keys.')) {
       setCredentials({ privateKey: '', publicKey: '' });
-      setPassword('');
+      setOpenaiApiKey('');
+      setTwilioAccountSid('');
+      setTwilioAuthToken('');
+      setTransferPhoneNumber('');
       setSelectedAssistantId('');
       setSelectedPhoneId('');
       setAssistants([]);
@@ -279,82 +307,102 @@ export function Settings({ wideView = false, onWideViewChange }: SettingsProps =
       <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
         <div className="border-b border-gray-200 dark:border-gray-700">
           <nav className="flex space-x-8 px-6">
+            {/* Owner-only tabs */}
+            {isWorkspaceOwner && (
+              <button
+                onClick={() => setActiveTab('api')}
+                className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
+                  activeTab === 'api'
+                    ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                    : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  <Key className="w-4 h-4" />
+                  API Configuration
+                </div>
+              </button>
+            )}
+            {isWorkspaceOwner && (
+              <>
+                <button
+                  onClick={() => setActiveTab('integrations')}
+                  className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
+                    activeTab === 'integrations'
+                      ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                      : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <Plug className="w-4 h-4" />
+                    Integrations
+                  </div>
+                </button>
+                <button
+                  onClick={() => setActiveTab('webhooks')}
+                  className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
+                    activeTab === 'webhooks'
+                      ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                      : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <Webhook className="w-4 h-4" />
+                    Webhooks
+                  </div>
+                </button>
+                <button
+                  onClick={() => setActiveTab('addons')}
+                  className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
+                    activeTab === 'addons'
+                      ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                      : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <Zap className="w-4 h-4" />
+                    Addons
+                  </div>
+                </button>
+                <button
+                  onClick={() => setActiveTab('scheduling')}
+                  className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
+                    activeTab === 'scheduling'
+                      ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                      : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <Calendar className="w-4 h-4" />
+                    Scheduling
+                  </div>
+                </button>
+                <button
+                  onClick={() => setActiveTab('phoneNumbers')}
+                  className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
+                    activeTab === 'phoneNumbers'
+                      ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                      : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <Phone className="w-4 h-4" />
+                    Phone Numbers
+                  </div>
+                </button>
+              </>
+            )}
             <button
-              onClick={() => setActiveTab('api')}
+              onClick={() => setActiveTab('team')}
               className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
-                activeTab === 'api'
+                activeTab === 'team'
                   ? 'border-blue-500 text-blue-600 dark:text-blue-400'
                   : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
               }`}
             >
               <div className="flex items-center gap-2">
-                <Key className="w-4 h-4" />
-                API Configuration
-              </div>
-            </button>
-            <button
-              onClick={() => setActiveTab('integrations')}
-              className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
-                activeTab === 'integrations'
-                  ? 'border-blue-500 text-blue-600 dark:text-blue-400'
-                  : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
-              }`}
-            >
-              <div className="flex items-center gap-2">
-                <Plug className="w-4 h-4" />
-                Integrations
-              </div>
-            </button>
-            <button
-              onClick={() => setActiveTab('webhooks')}
-              className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
-                activeTab === 'webhooks'
-                  ? 'border-blue-500 text-blue-600 dark:text-blue-400'
-                  : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
-              }`}
-            >
-              <div className="flex items-center gap-2">
-                <Webhook className="w-4 h-4" />
-                Webhooks
-              </div>
-            </button>
-            <button
-              onClick={() => setActiveTab('addons')}
-              className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
-                activeTab === 'addons'
-                  ? 'border-blue-500 text-blue-600 dark:text-blue-400'
-                  : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
-              }`}
-            >
-              <div className="flex items-center gap-2">
-                <Zap className="w-4 h-4" />
-                Addons
-              </div>
-            </button>
-            <button
-              onClick={() => setActiveTab('scheduling')}
-              className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
-                activeTab === 'scheduling'
-                  ? 'border-blue-500 text-blue-600 dark:text-blue-400'
-                  : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
-              }`}
-            >
-              <div className="flex items-center gap-2">
-                <Calendar className="w-4 h-4" />
-                Scheduling
-              </div>
-            </button>
-            <button
-              onClick={() => setActiveTab('phoneNumbers')}
-              className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
-                activeTab === 'phoneNumbers'
-                  ? 'border-blue-500 text-blue-600 dark:text-blue-400'
-                  : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
-              }`}
-            >
-              <div className="flex items-center gap-2">
-                <Phone className="w-4 h-4" />
-                Phone Numbers
+                <Users className="w-4 h-4" />
+                Team
               </div>
             </button>
             <button
@@ -386,13 +434,26 @@ export function Settings({ wideView = false, onWideViewChange }: SettingsProps =
           <div className="flex items-start gap-3">
             <AlertCircle className="w-5 h-5 text-blue-600 dark:text-blue-400 flex-shrink-0 mt-0.5" />
             <div className="text-sm text-blue-900 dark:text-blue-100">
-              <p className="font-medium mb-1">API Configuration</p>
+              <p className="font-medium mb-1">Workspace API Configuration</p>
               <p className="text-blue-700 dark:text-blue-300">
-                Enter your CHAU Voice AI API keys to connect your account. Your keys are securely stored and sync across your devices.
+                {isWorkspaceOwner 
+                  ? 'Configure API keys for this workspace. These credentials will be shared with all workspace members.'
+                  : 'Workspace API credentials (read-only). Only workspace owners can modify these settings.'}
               </p>
             </div>
           </div>
         </div>
+
+        {!isWorkspaceOwner && (
+          <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4 mb-6">
+            <div className="flex items-center gap-2 text-yellow-900 dark:text-yellow-100">
+              <AlertCircle className="w-5 h-5" />
+              <span className="text-sm font-medium">
+                You are viewing workspace credentials as a member. Only workspace owners can edit API keys.
+              </span>
+            </div>
+          </div>
+        )}
 
         {/* Status Messages */}
         {status === 'success' && !errorMessage.includes('password') && (
@@ -437,7 +498,9 @@ export function Settings({ wideView = false, onWideViewChange }: SettingsProps =
                 value={credentials.privateKey}
                 onChange={(e) => setCredentials({ ...credentials, privateKey: e.target.value })}
                 placeholder="94d99bcc-17cb-4d09-9810-437447ec8072"
-                className="w-full px-4 py-2 pr-10 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 font-mono text-sm"
+                disabled={!isWorkspaceOwner}
+                readOnly={!isWorkspaceOwner}
+                className="w-full px-4 py-2 pr-10 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 font-mono text-sm disabled:opacity-60 disabled:cursor-not-allowed"
               />
               <button
                 type="button"
@@ -459,7 +522,9 @@ export function Settings({ wideView = false, onWideViewChange }: SettingsProps =
                 value={credentials.publicKey}
                 onChange={(e) => setCredentials({ ...credentials, publicKey: e.target.value })}
                 placeholder="9b13c215-aabf-4f80-abc3-75f2ccd29962"
-                className="w-full px-4 py-2 pr-10 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 font-mono text-sm"
+                disabled={!isWorkspaceOwner}
+                readOnly={!isWorkspaceOwner}
+                className="w-full px-4 py-2 pr-10 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 font-mono text-sm disabled:opacity-60 disabled:cursor-not-allowed"
               />
               <button
                 type="button"
@@ -484,7 +549,9 @@ export function Settings({ wideView = false, onWideViewChange }: SettingsProps =
                 value={openaiApiKey}
                 onChange={(e) => setOpenaiApiKey(e.target.value)}
                 placeholder="sk-proj-..."
-                className="w-full px-4 py-2 pr-10 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 font-mono text-sm"
+                disabled={!isWorkspaceOwner}
+                readOnly={!isWorkspaceOwner}
+                className="w-full px-4 py-2 pr-10 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 font-mono text-sm disabled:opacity-60 disabled:cursor-not-allowed"
               />
               <button
                 type="button"
@@ -519,7 +586,9 @@ export function Settings({ wideView = false, onWideViewChange }: SettingsProps =
                   value={twilioAccountSid}
                   onChange={(e) => setTwilioAccountSid(e.target.value)}
                   placeholder="AC..."
-                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 font-mono text-sm"
+                  disabled={!isWorkspaceOwner}
+                  readOnly={!isWorkspaceOwner}
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 font-mono text-sm disabled:opacity-60 disabled:cursor-not-allowed"
                 />
                 <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                   Your Twilio Account SID (starts with AC)
@@ -536,7 +605,9 @@ export function Settings({ wideView = false, onWideViewChange }: SettingsProps =
                     value={twilioAuthToken}
                     onChange={(e) => setTwilioAuthToken(e.target.value)}
                     placeholder="Your Twilio Auth Token"
-                    className="w-full px-4 py-2 pr-10 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 font-mono text-sm"
+                    disabled={!isWorkspaceOwner}
+                    readOnly={!isWorkspaceOwner}
+                    className="w-full px-4 py-2 pr-10 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 font-mono text-sm disabled:opacity-60 disabled:cursor-not-allowed"
                   />
                   <button
                     type="button"
@@ -572,7 +643,9 @@ export function Settings({ wideView = false, onWideViewChange }: SettingsProps =
                 value={transferPhoneNumber}
                 onChange={(e) => setTransferPhoneNumber(e.target.value)}
                 placeholder="+1234567890"
-                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 font-mono text-sm"
+                disabled={!isWorkspaceOwner}
+                readOnly={!isWorkspaceOwner}
+                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 font-mono text-sm disabled:opacity-60 disabled:cursor-not-allowed"
               />
               <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                 Phone number to transfer calls to (e.g., human agent, backup line)
@@ -586,7 +659,7 @@ export function Settings({ wideView = false, onWideViewChange }: SettingsProps =
         <div className="flex gap-3 mb-6">
           <button
             onClick={testConnection}
-            disabled={testing || !credentials.privateKey}
+            disabled={testing || !credentials.privateKey || !isWorkspaceOwner}
             className="flex items-center gap-2 px-4 py-2 bg-gray-600 dark:bg-gray-700 text-white rounded-lg hover:bg-gray-700 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <RefreshCw className={`w-4 h-4 ${testing ? 'animate-spin' : ''}`} />
@@ -610,7 +683,8 @@ export function Settings({ wideView = false, onWideViewChange }: SettingsProps =
                   <select
                     value={selectedAssistantId}
                     onChange={(e) => setSelectedAssistantId(e.target.value)}
-                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+                    disabled={!isWorkspaceOwner}
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 disabled:opacity-60 disabled:cursor-not-allowed"
                   >
                     <option value="">-- Select an assistant --</option>
                     {assistants.map((assistant) => (
@@ -633,7 +707,8 @@ export function Settings({ wideView = false, onWideViewChange }: SettingsProps =
                   <select
                     value={selectedPhoneId}
                     onChange={(e) => setSelectedPhoneId(e.target.value)}
-                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+                    disabled={!isWorkspaceOwner}
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 disabled:opacity-60 disabled:cursor-not-allowed"
                   >
                     <option value="">-- Select a phone number --</option>
                     {phoneNumbers.map((phone) => (
@@ -655,7 +730,8 @@ export function Settings({ wideView = false, onWideViewChange }: SettingsProps =
         <div className="flex items-center justify-between">
           <button
             onClick={handleClear}
-            className="flex items-center gap-2 px-4 py-2 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
+            disabled={!isWorkspaceOwner}
+            className="flex items-center gap-2 px-4 py-2 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <Trash2 className="w-4 h-4" />
             Clear All Settings
@@ -663,7 +739,7 @@ export function Settings({ wideView = false, onWideViewChange }: SettingsProps =
 
           <button
             onClick={handleSave}
-            disabled={saving || !credentials.privateKey}
+            disabled={saving || !credentials.privateKey || !isWorkspaceOwner}
             className="flex items-center gap-2 px-6 py-2 bg-blue-600 dark:bg-blue-500 text-white rounded-lg hover:bg-blue-700 dark:hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <Save className="w-4 h-4" />
@@ -697,6 +773,10 @@ export function Settings({ wideView = false, onWideViewChange }: SettingsProps =
 
           {activeTab === 'phoneNumbers' && (
             <PhoneNumbers />
+          )}
+
+          {activeTab === 'team' && (
+            <TeamMembers />
           )}
 
           {activeTab === 'preferences' && (

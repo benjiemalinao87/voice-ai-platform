@@ -1,5 +1,139 @@
 # Lessons Learned
 
+## Workspace Context & Team Management (January 2025)
+
+### Feature Implementation
+Implemented a comprehensive workspace and team management system with multi-tenant data isolation.
+
+### Login Page API Calls (November 3, 2025)
+
+**Problem:**
+Console errors showing "Unauthorized" when refreshing the login page. API calls were being made before user authentication was complete.
+
+**Root Cause:**
+In `App.tsx`, the `useEffect` hook for `loadAgents()` was running before the authentication check (`if (!isAuthenticated) return <Login />`). This caused the frontend to attempt API calls with no valid token, resulting in 401 errors.
+
+**How It Should Be Done:**
+```typescript
+// ✅ CORRECT - Guard API calls with authentication check
+useEffect(() => {
+  if (isAuthenticated) {
+    loadAgents();
+  }
+}, [vapiClient, selectedOrgId, selectedWorkspaceId, isAuthenticated]);
+```
+
+**How It Should NOT Be Done:**
+```typescript
+// ❌ WRONG - API calls run before authentication
+useEffect(() => {
+  loadAgents(); // Runs even when not authenticated!
+}, [vapiClient, selectedOrgId, selectedWorkspaceId]);
+```
+
+**Key Takeaway:**
+Always guard data-fetching `useEffect` hooks with authentication checks. Effects run before conditional returns, so API calls will execute even on the login page unless explicitly prevented.
+
+**Files Modified:**
+- `src/App.tsx` - Added `isAuthenticated` guard to `loadAgents` effect
+
+### Key Architectural Decisions
+
+**1. Workspace Context Resolution**
+- Created `getEffectiveUserId()` helper function that resolves workspace owner's user_id when workspace is selected
+- Server-side resolution ensures API keys never exposed to frontend
+- Automatic fallback to authenticated user's ID if no workspace selected
+
+**How It Should Be Done:**
+```typescript
+// ✅ CORRECT - Server-side workspace context resolution
+async function getEffectiveUserId(env: Env, userId: string) {
+  const settings = await env.DB.prepare(
+    'SELECT selected_workspace_id FROM user_settings WHERE user_id = ?'
+  ).bind(userId).first();
+
+  if (!settings?.selected_workspace_id) {
+    return { effectiveUserId: userId, isWorkspaceContext: false };
+  }
+
+  // Verify access and get owner's user_id
+  const workspace = await env.DB.prepare(
+    'SELECT owner_user_id FROM workspaces WHERE id = ?'
+  ).bind(settings.selected_workspace_id).first();
+
+  // Use owner's user_id for all queries
+  return { effectiveUserId: workspace.owner_user_id, isWorkspaceContext: true };
+}
+
+// In endpoints, use effectiveUserId instead of userId
+const { effectiveUserId } = await getEffectiveUserId(env, userId);
+const { results } = await env.DB.prepare(
+  'SELECT * FROM webhook_calls WHERE user_id = ?'
+).bind(effectiveUserId).all();
+```
+
+**How It Should NOT Be Done:**
+```typescript
+// ❌ WRONG - Client-side key sharing (security risk)
+// ❌ WRONG - Not scoping queries to workspace owner
+const { results } = await env.DB.prepare(
+  'SELECT * FROM webhook_calls WHERE user_id = ?'
+).bind(userId).all(); // This would show user's own data, not workspace owner's
+```
+
+**2. Cache Key Scoping**
+- Cache keys must use `effectiveUserId` (workspace owner's ID) to ensure proper cache isolation
+- Different workspaces have different cache entries even for same assistant IDs
+
+**How It Should Be Done:**
+```typescript
+// ✅ CORRECT - Cache scoped to effective user ID
+const cached = await cache.getCachedRecordings(effectiveUserId, page, limit);
+await cache.cacheRecordings(effectiveUserId, results, page, limit, TTL);
+```
+
+**3. Permission Checks**
+- Always check permissions at API level, not just UI
+- Verify user is owner or active member before allowing workspace access
+- Role-based permission checks for actions (only owners can change roles, owners/admins can remove members)
+
+**How It Should Be Done:**
+```typescript
+// ✅ CORRECT - Permission check at API level
+const isOwner = workspace.owner_user_id === userId;
+const membership = await env.DB.prepare(
+  'SELECT role FROM workspace_members WHERE workspace_id = ? AND user_id = ? AND status = "active"'
+).bind(workspaceId, userId).first();
+
+if (!isOwner && (!membership || membership.role !== 'admin')) {
+  return jsonResponse({ error: 'Permission denied' }, 403);
+}
+```
+
+**4. Workspace Member Invites**
+- Auto-activate invites (user doesn't need to accept if they already have account)
+- Use upsert pattern for invites (INSERT OR UPDATE) to handle re-invites
+- Store invitation metadata (invited_by, invited_at, joined_at)
+
+**Files Modified:**
+- `workers/index.ts` - Added workspace endpoints and workspace context resolution
+- `src/components/TeamMembers.tsx` - Complete team management UI
+- `src/components/Settings.tsx` - Added Team tab
+- `src/App.tsx` - Added workspace selector in header
+- `src/contexts/VapiContext.tsx` - Added workspace state management
+- `src/lib/d1.ts` - Added workspace API methods
+
+**Lessons:**
+1. Always scope data queries to effective user ID (workspace owner) when workspace is selected
+2. Cache keys must also use effective user ID for proper isolation
+3. Permission checks must happen server-side, not just UI
+4. Workspace context should be transparent to frontend (automatic filtering)
+5. Use server-side credential sharing (never expose API keys to frontend)
+6. Validate workspace access on every request, not just on initial load
+7. Role-based permissions need both UI and API enforcement
+
+---
+
 ## Transcript Hover Tooltip Feature (October 15, 2025)
 
 ### Feature Implementation

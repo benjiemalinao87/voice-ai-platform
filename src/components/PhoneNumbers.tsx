@@ -296,7 +296,7 @@ export function PhoneNumbers() {
           className="flex items-center gap-2 px-4 py-2 bg-green-600 dark:bg-green-500 text-white rounded-lg hover:bg-green-700 dark:hover:bg-green-600"
         >
           <Plus className="w-4 h-4" />
-          Create Number
+          Create Free Number
         </button>
       </div>
 
@@ -532,6 +532,23 @@ export function PhoneNumbers() {
                 Enter a 3-digit US area code to create a free CHAU Voice Engine phone number. Free US numbers are available (up to 10 per account). The number will use your default transfer number as fallback (configured in API Configuration).
               </p>
 
+              {/* Error Display in Modal */}
+              {error && showCreateModal && (
+                <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3">
+                  <div className="flex items-start gap-2 text-red-900 dark:text-red-100">
+                    <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
+                    <div className="flex-1">
+                      <p className="font-medium text-sm">{error}</p>
+                      {error.includes('area code') && (
+                        <p className="text-xs text-red-700 dark:text-red-300 mt-1">
+                          Try a different area code like 848, 341, or 279.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   Area Code <span className="text-red-500">*</span>
@@ -542,6 +559,8 @@ export function PhoneNumbers() {
                   onChange={(e) => {
                     const value = e.target.value.replace(/\D/g, '').slice(0, 3);
                     setAreaCode(value);
+                    // Clear error when user starts typing again
+                    if (error) setError(null);
                   }}
                   placeholder="415"
                   className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"

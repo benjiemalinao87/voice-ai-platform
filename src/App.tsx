@@ -22,7 +22,7 @@ type View = 'dashboard' | 'config' | 'recordings' | 'settings' | 'flow' | 'inten
 
 function App() {
   const { isAuthenticated, isLoading } = useAuth();
-  const { vapiClient, selectedOrgId } = useVapi();
+  const { vapiClient, selectedOrgId, selectedWorkspaceId, setSelectedWorkspaceId } = useVapi();
 
   // Check URL for flow builder route
   const isFlowBuilder = window.location.pathname === '/flow-builder';
@@ -47,10 +47,13 @@ function App() {
     to: new Date().toISOString()
   });
 
-  // Reload agents when VAPI client or selected org changes
+  // Reload agents when VAPI client, selected org, or workspace changes
   useEffect(() => {
-    loadAgents();
-  }, [vapiClient, selectedOrgId]);
+    if (isAuthenticated) {
+      loadAgents();
+    }
+  }, [vapiClient, selectedOrgId, selectedWorkspaceId, isAuthenticated]);
+
 
   useEffect(() => {
     const root = document.documentElement;
@@ -157,7 +160,7 @@ function App() {
       <nav className="flex-shrink-0 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 shadow-sm z-10">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between h-16">
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-4">
               <div className="flex items-center gap-2">
                 <img
                   src="https://channelautomation.com/wp-content/uploads/2022/11/logofooter2.png"
