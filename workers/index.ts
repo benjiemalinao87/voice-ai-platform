@@ -54,7 +54,7 @@ export interface Env {
 // CORS headers
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+  'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
 };
 
@@ -3053,20 +3053,8 @@ export default {
           userId
         });
 
-        // Verify the call belongs to this user
-        const call = await env.DB.prepare(
-          'SELECT vapi_call_id FROM active_calls WHERE vapi_call_id = ? AND user_id = ?'
-        ).bind(callId, userId).first() as any;
-
-        if (!call) {
-          console.log('[Call Control] Call not found or unauthorized:', callId);
-          return jsonResponse({ error: 'Call not found or unauthorized' }, 404);
-        }
-
-        // Get user's VAPI credentials
-        const settings = await env.DB.prepare(
-          'SELECT private_key FROM user_settings WHERE user_id = ?'
-        ).bind(userId).first() as any;
+        // Get workspace settings (uses helper function with fallback to user_settings)
+        const settings = await getWorkspaceSettingsForUser(env, userId);
 
         if (!settings?.private_key) {
           console.log('[Call Control] VAPI credentials not configured for user:', userId);
