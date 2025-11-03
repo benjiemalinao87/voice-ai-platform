@@ -1,7 +1,7 @@
 /**
  * Admin Workspace Table Component
  * Displays all workspaces with subscription details and usage metrics
- * Premium design matching Customer Connect Command Center patterns
+ * Premium design matching CHAU Voice Engine patterns
  */
 
 import { useState, useEffect } from 'react';

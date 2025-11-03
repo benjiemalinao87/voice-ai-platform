@@ -1,7 +1,7 @@
 /**
  * Admin Dashboard - SaaS Owner Control Panel
  * Connects to deepseek-test-livechat backend for workspace management
- * Follows Customer Connect Command Center design patterns
+ * Follows CHAU Voice Engine design patterns
  */
 
 import { useState, useEffect } from 'react';
