@@ -445,6 +445,26 @@ class D1Client {
       body: JSON.stringify({ role }),
     });
   }
+
+  // Dashboard Summary - SQL-optimized metrics
+  async getDashboardSummary(): Promise<{
+    totalCalls: number;
+    answeredCalls: number;
+    unansweredCalls: number;
+    answerRate: number;
+    avgHandlingTime: number;
+    avgSummaryLength: number;
+    qualifiedLeadsCount: number;
+    appointmentsDetected: number;
+    totalCallMinutes: number;
+    positiveCalls: number;
+    negativeCalls: number;
+    neutralCalls: number;
+  }> {
+    return this.request('/api/dashboard-summary', {
+      method: 'GET',
+    });
+  }
 }
 
 // Export singleton instance

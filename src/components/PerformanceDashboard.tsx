@@ -141,50 +141,50 @@ export function PerformanceDashboard({ selectedAgentId, dateRange }: Performance
   const loadData = async () => {
     setLoading(true);
     try {
-      // Load webhook calls from D1
-      const webhookCalls = await d1Client.getWebhookCalls({ limit: 1000 });
+      // Load dashboard summary with SQL-optimized metrics (single query, <50ms)
+      const summary = await d1Client.getDashboardSummary();
 
-      // Convert webhook calls to Call format
-      const convertedCalls: Call[] = webhookCalls.map(call => {
-        // Calculate duration from database or raw_payload
-        let duration = call.duration_seconds || null;
-        
-        // If duration not in database, try to extract from raw_payload
-        if (!duration && call.raw_payload) {
-          try {
-            const payload = typeof call.raw_payload === 'string'
-              ? JSON.parse(call.raw_payload)
-              : call.raw_payload;
-            
-            // First try: use durationSeconds directly from message (most reliable)
-            if (payload.message?.durationSeconds) {
-              duration = Math.floor(payload.message.durationSeconds);
-            }
-            // Second try: calculate from message.startedAt and message.endedAt (actual structure)
-            else if (payload.message?.startedAt && payload.message?.endedAt) {
-              const startTime = new Date(payload.message.startedAt).getTime();
-              const endTime = new Date(payload.message.endedAt).getTime();
-              duration = Math.floor((endTime - startTime) / 1000);
-            }
-            // Third try: calculate from message.call.startedAt and message.call.endedAt (older structure)
-            else if (payload.message?.call?.startedAt && payload.message?.call?.endedAt) {
-              const startTime = new Date(payload.message.call.startedAt).getTime();
-              const endTime = new Date(payload.message.call.endedAt).getTime();
-              duration = Math.floor((endTime - startTime) / 1000);
-            }
-          } catch (error) {
-            console.error('Error calculating duration from payload:', error);
-          }
-        }
-        
-        // Default to 0 if still no duration found (instead of 180)
-        duration = duration || 0;
-        
-        return {
-          id: call.id,
-          agent_id: '',
-          call_date: new Date(call.created_at * 1000).toISOString(),
-          duration_seconds: duration,
+      // Calculate derived metrics
+      const qualificationRate = summary.answeredCalls > 0
+        ? (summary.qualifiedLeadsCount / summary.answeredCalls) * 100
+        : 0;
+
+      const appointmentDetectionRate = summary.answeredCalls > 0
+        ? (summary.appointmentsDetected / summary.answeredCalls) * 100
+        : 0;
+
+      const metricsData: DashboardMetrics = {
+        totalCalls: summary.totalCalls,
+        answeredCalls: summary.answeredCalls,
+        unansweredCalls: summary.unansweredCalls,
+        answerRate: summary.answerRate,
+        spanishCallsPercent: 0,
+        englishCallsPercent: 100,
+        avgSummaryLength: summary.avgSummaryLength,
+        qualifiedLeadsCount: summary.qualifiedLeadsCount,
+        qualificationRate,
+        appointmentDetectionRate,
+        crmSuccessRate: summary.totalCallMinutes, // Reuse this field for total call minutes
+        avgSentiment: 0,
+        avgHandlingTime: summary.avgHandlingTime,
+        automationRate: summary.answerRate
+      };
+
+      // Sentiment breakdown from summary
+      const sentimentBreakdown = [
+        { label: 'Positive', value: summary.positiveCalls, color: '#10b981' },
+        { label: 'Neutral', value: summary.neutralCalls, color: '#3b82f6' },
+        { label: 'Negative', value: summary.negativeCalls, color: '#ef4444' }
+      ];
+
+      // We still need webhook calls for the call volume chart and call list
+      // But now we don't need to process them for metrics
+      const webhookCalls = await d1Client.getWebhookCalls({ limit: 1000 });
+      const convertedCalls: Call[] = webhookCalls.map(call => ({
+        id: call.id,
+        agent_id: '',
+        call_date: new Date(call.created_at * 1000).toISOString(),
+        duration_seconds: call.duration_seconds || 0,
         was_answered: !!call.recording_url,
         language: 'en',
         summary: call.summary || null,
@@ -196,61 +196,7 @@ export function PerformanceDashboard({ selectedAgentId, dateRange }: Performance
         sentiment_score: call.sentiment === 'Positive' ? 0.7 : call.sentiment === 'Negative' ? -0.7 : 0,
         phone_number: call.customer_number || call.phone_number || '',
         customer_name: call.customer_name || call.caller_name || call.structured_data?.name || call.structured_data?.customerName || null
-      };
-      });
-
-      // Calculate metrics from webhook calls
-      const totalCalls = convertedCalls.length;
-      const answeredCalls = convertedCalls.filter(c => c.was_answered).length;
-      const unansweredCalls = totalCalls - answeredCalls;
-      const answerRate = totalCalls > 0 ? (answeredCalls / totalCalls) * 100 : 0;
-
-      const qualifiedLeadsCount = convertedCalls.filter(c => c.is_qualified_lead).length;
-      const qualificationRate = answeredCalls > 0 ? (qualifiedLeadsCount / answeredCalls) * 100 : 0;
-
-      const appointmentsDetected = convertedCalls.filter(c => c.has_appointment_intent).length;
-      const appointmentDetectionRate = answeredCalls > 0 ? (appointmentsDetected / answeredCalls) * 100 : 0;
-
-      const avgHandlingTime = answeredCalls > 0
-        ? convertedCalls.filter(c => c.was_answered).reduce((sum, c) => sum + c.duration_seconds, 0) / answeredCalls
-        : 0;
-
-      const avgSummaryLength = convertedCalls.filter(c => c.summary_length > 0).length > 0
-        ? convertedCalls.filter(c => c.summary_length > 0).reduce((sum, c) => sum + c.summary_length, 0) / convertedCalls.filter(c => c.summary_length > 0).length
-        : 0;
-
-      // Calculate total call minutes (sum of all call durations)
-      const totalCallMinutes = Math.floor(
-        convertedCalls.reduce((sum, c) => sum + c.duration_seconds, 0) / 60
-      );
-
-      const metricsData: DashboardMetrics = {
-        totalCalls,
-        answeredCalls,
-        unansweredCalls,
-        answerRate,
-        spanishCallsPercent: 0,
-        englishCallsPercent: 100,
-        avgSummaryLength,
-        qualifiedLeadsCount,
-        qualificationRate,
-        appointmentDetectionRate,
-        crmSuccessRate: totalCallMinutes, // Reuse this field for total call minutes
-        avgSentiment: 0,
-        avgHandlingTime,
-        automationRate: answerRate
-      };
-
-      // Calculate sentiment breakdown
-      const positiveCalls = convertedCalls.filter(c => c.sentiment_score > 0.3).length;
-      const negativeCalls = convertedCalls.filter(c => c.sentiment_score < -0.3).length;
-      const neutralCalls = convertedCalls.length - positiveCalls - negativeCalls;
-
-      const sentimentBreakdown = [
-        { label: 'Positive', value: positiveCalls, color: '#10b981' },
-        { label: 'Neutral', value: neutralCalls, color: '#3b82f6' },
-        { label: 'Negative', value: negativeCalls, color: '#ef4444' }
-      ];
+      }));
 
       // Load keywords from API
       const keywordsData = await d1Client.getKeywords();
