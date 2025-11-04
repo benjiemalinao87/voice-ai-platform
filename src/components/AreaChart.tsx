@@ -95,17 +95,17 @@ export function AreaChart({
   };
 
   return (
-    <div className="relative w-full">
+    <div className="relative w-full overflow-hidden">
       <div className="flex gap-3">
         {/* Y-axis labels */}
-        <div className="flex flex-col justify-between text-xs text-gray-500 dark:text-gray-400 font-medium pr-1" style={{ height: `${height}px` }}>
+        <div className="flex flex-col justify-between text-xs text-gray-500 dark:text-gray-400 font-medium pr-1 flex-shrink-0" style={{ height: `${height}px` }}>
           {yAxisLabels.slice().reverse().map((label, i) => (
             <span key={i} className="leading-none">{label}</span>
           ))}
         </div>
 
         {/* Chart */}
-        <div className="flex-1 relative">
+        <div className="flex-1 relative min-w-0">
           <svg
             viewBox={`0 0 ${600} ${300}`}
             className="w-full"
@@ -242,14 +242,14 @@ export function AreaChart({
           )}
 
           {/* X-axis labels */}
-          <div className="flex justify-between mt-2 px-2 text-xs text-gray-600 dark:text-gray-400 font-medium">
+          <div className="flex justify-between mt-2 px-2 text-xs text-gray-600 dark:text-gray-400 font-medium overflow-hidden">
             {labels.map((label, i) => (
               <span
                 key={i}
-                className={`text-center transition-colors ${
+                className={`text-center transition-colors flex-shrink-0 truncate ${
                   hoveredIndex === i ? 'text-gray-900 dark:text-gray-100 font-semibold' : ''
                 }`}
-                style={{ width: `${100 / labels.length}%` }}
+                style={{ width: `${100 / labels.length}%`, minWidth: 0 }}
               >
                 {formatLabel(label).split(' ').slice(0, 2).join(' ')}
               </span>
