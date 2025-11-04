@@ -430,63 +430,23 @@ export function PerformanceDashboard({ selectedAgentId, dateRange }: Performance
         />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Number of Concurrent Calls</h3>
-            <div className="flex items-center gap-2">
-              <select
-                value={granularity}
-                onChange={(e) => {
-                  const newGranularity = e.target.value as 'minute' | 'hour' | 'day';
-                  setGranularity(newGranularity);
-                  d1Client.getConcurrentCallsTimeSeries({
-                    granularity: newGranularity,
-                    limit: 1000
-                  }).then(data => setConcurrentCallsTimeSeries(data)).catch(err => console.error(err));
-                }}
-                className="text-xs border border-gray-300 dark:border-gray-600 rounded px-2 py-1 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
-              >
-                <option value="minute">Minute</option>
-                <option value="hour">Hour</option>
-                <option value="day">Day</option>
-              </select>
-            </div>
-          </div>
-          {concurrentCallsTimeSeries && concurrentCallsTimeSeries.data.length > 0 ? (
-            <AreaChart
-              labels={concurrentCallsTimeSeries.labels}
-              data={concurrentCallsTimeSeries.data}
-              color="#06b6d4"
-              height={300}
-              showGrid={true}
-              showTooltip={true}
-            />
-          ) : (
-            <div className="flex items-center justify-center h-[300px] text-gray-400 dark:text-gray-500">
-              No concurrent calls data available
-            </div>
-          )}
+      <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Reason Call Ended</h3>
         </div>
-
-        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Reason Call Ended</h3>
+        {callEndedReasons && callEndedReasons.dates.length > 0 && Object.keys(callEndedReasons.reasons).length > 0 ? (
+          <StackedBarChart
+            dates={callEndedReasons.dates}
+            reasons={callEndedReasons.reasons}
+            colors={callEndedReasons.colors}
+            height={300}
+            showLegend={true}
+          />
+        ) : (
+          <div className="flex items-center justify-center h-[300px] text-gray-400 dark:text-gray-500">
+            No call ended reason data available
           </div>
-          {callEndedReasons && callEndedReasons.dates.length > 0 && Object.keys(callEndedReasons.reasons).length > 0 ? (
-            <StackedBarChart
-              dates={callEndedReasons.dates}
-              reasons={callEndedReasons.reasons}
-              colors={callEndedReasons.colors}
-              height={300}
-              showLegend={true}
-            />
-          ) : (
-            <div className="flex items-center justify-center h-[300px] text-gray-400 dark:text-gray-500">
-              No call ended reason data available
-            </div>
-          )}
-        </div>
+        )}
       </div>
 
       <SentimentKeywords

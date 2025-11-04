@@ -33,11 +33,18 @@ export function AreaChart({
 
     const maxValue = Math.max(...data, 1);
     const minValue = 0;
-    const range = maxValue - minValue || 1;
+
+    // If all values are the same, adjust the range for better visualization
+    const actualRange = maxValue - minValue;
+    const range = actualRange === 0 ? maxValue * 0.5 : actualRange || 1;
+
+    // Adjust display range for constant values
+    const displayMax = actualRange === 0 ? maxValue * 1.2 : maxValue;
+    const displayMin = actualRange === 0 ? maxValue * 0.8 : minValue;
 
     // Calculate nice Y-axis labels
-    const step = Math.ceil(maxValue / 4 / 0.5) * 0.5; // Round to nearest 0.5
-    const yAxisLabels = [0, step, step * 2, step * 3, step * 4].filter(v => v <= maxValue * 1.1);
+    const step = Math.ceil(displayMax / 4 / 0.5) * 0.5; // Round to nearest 0.5
+    const yAxisLabels = [0, step, step * 2, step * 3, step * 4].filter(v => v <= displayMax * 1.1);
 
     const width = 600;
     const svgHeight = 300;
@@ -50,7 +57,9 @@ export function AreaChart({
 
     const points = data.map((value, i) => {
       const x = paddingLeft + (i / (data.length - 1 || 1)) * chartWidth;
-      const y = paddingTop + ((maxValue - value) / range) * chartHeight;
+      // Use displayMax and displayMin for better visualization of constant values
+      const normalizedValue = actualRange === 0 ? displayMin + (displayMax - displayMin) / 2 : value;
+      const y = paddingTop + ((displayMax - normalizedValue) / (displayMax - displayMin)) * chartHeight;
       return { x, y, value, label: labels[i] };
     });
 
