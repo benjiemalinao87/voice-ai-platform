@@ -13,10 +13,12 @@ import {
   Brain,
   Eye,
   EyeOff,
-  Save
+  Save,
+  Send
 } from 'lucide-react';
 import { d1Client } from '../lib/d1';
 import { useAuth } from '../contexts/AuthContext';
+import { OutboundWebhookIntegration } from './OutboundWebhookIntegration';
 
 interface Integration {
   id: string;
@@ -30,6 +32,15 @@ interface Integration {
 }
 
 const getInitialIntegrations = (): Integration[] => [
+  {
+    id: 'outbound-webhook',
+    name: 'Outbound Webhooks',
+    description: 'Subscribe to real-time inbound call events. Receive instant notifications when calls start or end with full details, transcripts, and recordings.',
+    icon: <Send className="w-6 h-6" />,
+    status: 'disconnected',
+    features: ['Real-time Events', 'Call Transcripts', 'Audio Recordings', 'Dynamic Data Schema'],
+    color: 'bg-blue-600'
+  },
   {
     id: 'openai',
     name: 'OpenAI',
@@ -134,6 +145,12 @@ export function Integration({ onNavigateToApiConfig }: IntegrationProps = {}) {
   };
 
   const handleConnect = async (integrationId: string) => {
+    if (integrationId === 'outbound-webhook') {
+      // Navigate to outbound webhook configuration
+      setSelectedIntegration('outbound-webhook');
+      return;
+    }
+
     if (integrationId === 'openai') {
       // Load existing OpenAI key if available
       try {
@@ -356,6 +373,21 @@ export function Integration({ onNavigateToApiConfig }: IntegrationProps = {}) {
                 <p className="text-xs text-gray-500 dark:text-gray-400">
                   Last sync: {integration.lastSync}
                 </p>
+              </div>
+            )}
+
+            {/* Documentation Link for Salesforce */}
+            {integration.id === 'salesforce' && (
+              <div className="mb-4">
+                <a
+                  href="https://api.voice-config.channelautomation.com/docs/salesforce-integration/html"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 text-sm text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 transition-colors"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" />
+                  View Integration Guide
+                </a>
               </div>
             )}
 
@@ -626,6 +658,27 @@ export function Integration({ onNavigateToApiConfig }: IntegrationProps = {}) {
 
       {/* Integration Details Modal */}
       {selectedIntegration && (
+        selectedIntegration === 'outbound-webhook' ? (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+            <div className="bg-white dark:bg-gray-800 rounded-lg max-w-6xl w-full max-h-[90vh] overflow-y-auto">
+              <div className="p-6">
+                <div className="flex items-center justify-between mb-6">
+                  <h3 className="text-xl font-semibold text-gray-900 dark:text-gray-100">
+                    Outbound Webhooks Configuration
+                  </h3>
+                  <button
+                    onClick={() => setSelectedIntegration(null)}
+                    className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                  >
+                    <XCircle className="w-6 h-6" />
+                  </button>
+                </div>
+
+                <OutboundWebhookIntegration />
+              </div>
+            </div>
+          </div>
+        ) : (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className="bg-white dark:bg-gray-800 rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto">
             <div className="p-6">
@@ -715,6 +768,7 @@ export function Integration({ onNavigateToApiConfig }: IntegrationProps = {}) {
             </div>
           </div>
         </div>
+        )
       )}
     </div>
   );

@@ -465,6 +465,37 @@ class D1Client {
       method: 'GET',
     });
   }
+
+  // Generic HTTP methods for custom API calls
+  async get<T = any>(endpoint: string, token?: string): Promise<T> {
+    return this.request(endpoint, {
+      method: 'GET',
+      headers: token ? { 'Authorization': `Bearer ${token}` } : undefined,
+    });
+  }
+
+  async post<T = any>(endpoint: string, data: any, token?: string): Promise<T> {
+    return this.request(endpoint, {
+      method: 'POST',
+      body: JSON.stringify(data),
+      headers: token ? { 'Authorization': `Bearer ${token}` } : undefined,
+    });
+  }
+
+  async patch<T = any>(endpoint: string, data: any, token?: string): Promise<T> {
+    return this.request(endpoint, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+      headers: token ? { 'Authorization': `Bearer ${token}` } : undefined,
+    });
+  }
+
+  async delete<T = any>(endpoint: string, token?: string): Promise<T> {
+    return this.request(endpoint, {
+      method: 'DELETE',
+      headers: token ? { 'Authorization': `Bearer ${token}` } : undefined,
+    });
+  }
 }
 
 // Export singleton instance

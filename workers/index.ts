@@ -15,6 +15,14 @@ import {
   generateTemporaryPassword
 } from './auth';
 import { VoiceAICache, CACHE_TTL } from './cache';
+import { dispatchToOutboundWebhooks } from './outbound-webhooks';
+import {
+  createOutboundWebhook,
+  listOutboundWebhooks,
+  updateOutboundWebhook,
+  deleteOutboundWebhook,
+  getOutboundWebhookLogs
+} from './outbound-webhooks-api';
 
 // Cloudflare Worker types
 interface D1Database {
@@ -41,6 +49,23 @@ interface KVNamespace {
   list(options?: { prefix?: string }): Promise<{ keys: Array<{ name: string }> }>;
 }
 
+interface R2Bucket {
+  put(key: string, value: ReadableStream | ArrayBuffer | string, options?: any): Promise<R2Object>;
+  get(key: string): Promise<R2Object | null>;
+  delete(key: string): Promise<void>;
+  head(key: string): Promise<R2Object | null>;
+}
+
+interface R2Object {
+  key: string;
+  size: number;
+  etag: string;
+  httpEtag: string;
+  uploaded: Date;
+  body?: ReadableStream;
+  arrayBuffer(): Promise<ArrayBuffer>;
+}
+
 interface ExecutionContext {
   waitUntil(promise: Promise<any>): void;
 }
@@ -48,6 +73,7 @@ interface ExecutionContext {
 export interface Env {
   DB: D1Database;
   CACHE: KVNamespace;
+  RECORDINGS: R2Bucket;
   JWT_SECRET: string; // Set this in wrangler.toml as a secret
 }
 
@@ -2592,6 +2618,62 @@ export default {
         return jsonResponse({ message: 'Webhook deleted successfully' });
       }
 
+      // ============================================
+      // OUTBOUND WEBHOOKS ENDPOINTS
+      // ============================================
+
+      // Create outbound webhook
+      if (url.pathname === '/api/outbound-webhooks' && request.method === 'POST') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+        return await createOutboundWebhook(request, env, userId);
+      }
+
+      // List outbound webhooks
+      if (url.pathname === '/api/outbound-webhooks' && request.method === 'GET') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+        return await listOutboundWebhooks(env, userId);
+      }
+
+      // Update outbound webhook
+      if (url.pathname.startsWith('/api/outbound-webhooks/') && request.method === 'PATCH') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+        const webhookId = url.pathname.split('/').pop()!;
+        return await updateOutboundWebhook(request, env, userId, webhookId);
+      }
+
+      // Delete outbound webhook
+      if (url.pathname.startsWith('/api/outbound-webhooks/') && request.method === 'DELETE') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+        const webhookId = url.pathname.split('/').pop()!;
+        return await deleteOutboundWebhook(env, userId, webhookId);
+      }
+
+      // Get outbound webhook logs
+      if (url.pathname.match(/^\/api\/outbound-webhooks\/[^/]+\/logs$/) && request.method === 'GET') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+        const webhookId = url.pathname.split('/')[3];
+        return await getOutboundWebhookLogs(env, userId, webhookId);
+      }
+
+      // ============================================
+      // WEBHOOK CALLS
+      // ============================================
+
       // Get webhook calls (with KV caching, supports workspace context)
       if (url.pathname === '/api/webhook-calls' && request.method === 'GET') {
         const userId = await getUserFromToken(request, env);
@@ -3894,6 +3976,1204 @@ export default {
       }
 
       // ============================================
+      // PUBLIC DOCUMENTATION ROUTES (No Auth Required)
+      // ============================================
+
+      // Serve Salesforce Integration User Guide (Raw Markdown)
+      if (url.pathname === '/docs/salesforce-integration' && request.method === 'GET') {
+        const markdown = `# Salesforce Integration Guide
+
+## 🎯 What This Integration Does
+
+When you connect Salesforce to your Voice AI Dashboard, every incoming call is automatically logged in Salesforce. Here's what happens:
+
+1. **Search by Phone Number** - We find the existing Lead or Contact in Salesforce using the caller's phone number
+2. **Create Call Log** - We create a Task (call log) on that Lead/Contact record with the full call details
+3. **Schedule Appointments** - If your Voice AI schedules an appointment during the call, we create an Event (appointment) in Salesforce automatically
+
+**Best Part**: Zero programming required on your Salesforce side - just a simple OAuth connection!
+
+---
+
+## 📋 How It Works
+
+\`\`\`
+┌─────────────────────────────────────────────────────────────────────────┐
+│                         SALESFORCE INTEGRATION                            │
+└─────────────────────────────────────────────────────────────────────────┘
+
+   One-Time Setup                      Automatic (Every Call)
+   ==============                      ======================
+
+   ┌──────────────┐                   ┌──────────────────────┐
+   │   You Click  │                   │  Customer Calls      │
+   │  "Connect    │                   └──────────┬───────────┘
+   │ Salesforce"  │                              │
+   └──────┬───────┘                              │
+          │                                      ▼
+          │                          ┌─────────────────────────────┐
+          ▼                          │ 1. Search Salesforce        │
+   ┌──────────────┐                 │    by Phone Number          │
+   │  Salesforce  │                 └─────────────┬───────────────┘
+   │  Login Page  │                               │
+   │  Opens       │                               │
+   └──────┬───────┘                    ┌──────────▼──────────┐
+          │                            │ Lead/Contact Found? │
+          │                            └──────────┬──────────┘
+          ▼                                       │
+   ┌──────────────┐                              YES
+   │  Click       │                               │
+   │  "Allow"     │                               ▼
+   └──────┬───────┘                   ┌─────────────────────────────┐
+          │                           │ 2. Create Task (Call Log)   │
+          │                           │    on that record           │
+          ▼                           └─────────────┬───────────────┘
+   ┌──────────────┐                               │
+   │  ✅ Connected│                               │
+   │  Done!       │                    ┌──────────▼──────────┐
+   └──────────────┘                    │ Appointment booked? │
+                                       └──────────┬──────────┘
+                                                  │
+                                         ┌────────┴────────┐
+                                         │                 │
+                                        YES               NO
+                                         │                 │
+                                         ▼                 ▼
+                              ┌──────────────────┐  ┌──────────┐
+                              │ 3. Create Event  │  │  Done ✓  │
+                              │    (Appointment) │  └──────────┘
+                              └──────────────────┘
+
+                                  ✅ All Done!
+                          Call log + Appointment in Salesforce
+
+\`\`\`
+
+---
+
+## 🔐 Simple OAuth Connection
+
+### Why This Is Easy
+
+No manual API key copying, no developer console needed. Just click and authorize!
+
+\`\`\`
+┌────────────────────────────────────────────────────────────────────────────┐
+│                         OAUTH SETUP FLOW                                     │
+└────────────────────────────────────────────────────────────────────────────┘
+
+ Your Dashboard              Salesforce               Result
+ ==============              ==========               ======
+
+      │                         │                       │
+      │  1. Click "Connect      │                       │
+      │     Salesforce"         │                       │
+      ├────────────────────────►│                       │
+      │                         │                       │
+      │  2. Popup Opens         │                       │
+      │     Login to Salesforce │                       │
+      │                         │                       │
+      │  3. See Permission      │                       │
+      │     Request:            │                       │
+      │     "Allow Voice AI     │                       │
+      │      to access your     │                       │
+      │      data?"             │                       │
+      │                         │                       │
+      │  4. Click "Allow"       │                       │
+      ├────────────────────────►│                       │
+      │                         │                       │
+      │                         │  5. Authorization     │
+      │                         │     Granted           │
+      │                         ├──────────────────────►│
+      │                         │                       │
+      │  6. Connected! ✅       │                       │  ✅ All calls now
+      │     Popup Closes        │                       │    auto-log to
+      │                         │                       │    Salesforce!
+      │◄────────────────────────┼───────────────────────┤
+      │                         │                       │
+
+\`\`\`
+
+---
+
+## 🔍 How Phone Number Search Works
+
+We use Salesforce's powerful search to find your Leads and Contacts, even with different phone formats!
+
+\`\`\`
+┌────────────────────────────────────────────────────────────────┐
+│                   PHONE NUMBER SEARCH                            │
+└────────────────────────────────────────────────────────────────┘
+
+Incoming Call: +1 (555) 123-4567
+
+Step 1: Clean Phone Number
+──────────────────────────
+  Remove: +, (, ), -, spaces
+  Result: "15551234567"
+
+Step 2: Search Salesforce
+─────────────────────────
+  Search ALL phone fields in:
+  → Leads (Phone, Mobile)
+  → Contacts (Phone, Mobile)
+
+  Salesforce automatically matches:
+  • "+1 (555) 123-4567"  ✓
+  • "555-123-4567"        ✓
+  • "5551234567"          ✓
+  • "+15551234567"        ✓
+  • "(555) 123-4567"      ✓
+
+Step 3: Priority
+────────────────
+  1. Check Leads first (new prospects)
+  2. Then check Contacts (existing customers)
+  3. Use first match found
+
+Step 4: Create Call Log
+───────────────────────
+  Task created on the Lead/Contact
+  ✅ Appears in Activity Timeline!
+
+\`\`\`
+
+---
+
+## 📞 Call Logging
+
+Every call creates a Task in Salesforce with complete details:
+
+\`\`\`
+┌────────────────────────────────────────────────────────────────┐
+│              WHAT GETS LOGGED IN SALESFORCE                      │
+└────────────────────────────────────────────────────────────────┘
+
+Lead/Contact: John Smith
+Phone: (555) 123-4567
+
+Activity Timeline:
+┌─────────────────────────────────────────────────────────────┐
+│  ☎️  Task: Inbound Call                                     │
+│                                                              │
+│      Subject:          Inbound Call                          │
+│      Status:           Completed                             │
+│      Type:             Call                                  │
+│      Call Type:        Inbound                               │
+│      Date/Time:        Today at 10:45 AM                     │
+│      Duration:         3 min 42 sec                          │
+│                                                              │
+│      Description:      [Full call summary from Voice AI]    │
+│                       Customer inquired about premium        │
+│                       service. Interested in pricing.        │
+│                       Follow-up needed.                      │
+│                                                              │
+└─────────────────────────────────────────────────────────────┘
+
+\`\`\`
+
+---
+
+## 📅 Appointment Scheduling
+
+When your Voice AI schedules an appointment during a call, we automatically create both a call log AND a calendar event!
+
+### How It Works
+
+\`\`\`
+┌────────────────────────────────────────────────────────────────────────────┐
+│                    APPOINTMENT BOOKING FLOW                                  │
+└────────────────────────────────────────────────────────────────────────────┘
+
+  During Call                   After Call Ends           In Salesforce
+  ===========                   ===============           =============
+
+      │                              │                         │
+      │ Customer:                    │                         │
+      │ "I'd like to schedule        │                         │
+      │  an appointment for          │                         │
+      │  next Monday at 2pm"         │                         │
+      │                              │                         │
+      │ AI:                          │                         │
+      │ "Great! I've booked you      │                         │
+      │  for January 15th at         │                         │
+      │  2:00 PM"                    │                         │
+      │                              │                         │
+      │ [Call Ends]                  │                         │
+      ├─────────────────────────────►│                         │
+      │                              │                         │
+      │                              │ 1. Find Lead/Contact    │
+      │                              │    by phone             │
+      │                              ├────────────────────────►│
+      │                              │                         │
+      │                              │ 2. Create Task          │
+      │                              │    (Call Log) ✓         │
+      │                              ├────────────────────────►│
+      │                              │                         │
+      │                              │ 3. Create Event         │
+      │                              │    (Appointment) ✓      │
+      │                              ├────────────────────────►│
+      │                              │                         │
+
+  Result in Salesforce:
+  ────────────────────
+
+  Lead: Sarah Johnson
+  └── Activity Timeline
+      ├── ✅ Task: "Inbound Call - Scheduled Appointment"
+      │   Today at 10:30 AM
+      │   Duration: 3 min 45 sec
+      │
+      └── 📅 Event: "Consultation Appointment"
+          Monday, Jan 15 at 2:00 PM - 3:00 PM
+          🔔 Reminder: 1 hour before
+          Shows in Salesforce Calendar!
+
+\`\`\`
+
+### Task vs Event: What's The Difference?
+
+\`\`\`
+┌────────────────────────────────────────────────────────────────┐
+│                  TASK VS EVENT IN SALESFORCE                     │
+└────────────────────────────────────────────────────────────────┘
+
+Task (Call Log)                    Event (Appointment)
+===============                    ===================
+
+☎️  Phone Icon                     📅 Calendar Icon
+
+Purpose:                           Purpose:
+  Record past activity               Schedule future activity
+
+Status:                            Status:
+  Completed ✓                        Scheduled/Planned
+
+Time:                              Time:
+  When call happened                 When appointment is
+
+Shows In:                          Shows In:
+  • Activity History                 • Activity History
+  • Task List                        • Salesforce Calendar
+                                     • Outlook/Google Calendar sync
+
+Example:                           Example:
+  "Customer called today             "Consultation scheduled for
+   about pricing"                     Jan 15 at 2:00 PM"
+
+\`\`\`
+
+### What Gets Captured
+
+When an appointment is booked during a call, we capture:
+
+\`\`\`
+┌────────────────────────────────────────────────────────────────┐
+│              APPOINTMENT EVENT IN SALESFORCE                     │
+└────────────────────────────────────────────────────────────────┘
+
+Event Details:
+──────────────
+  Subject:       "Consultation Appointment"
+  Date:          January 15, 2025
+  Start Time:    2:00 PM
+  End Time:      3:00 PM (1 hour duration)
+  Type:          Meeting
+  Status:        Scheduled
+
+  Description:   Appointment scheduled during call.
+
+                 Notes: Bring ID and insurance card
+
+                 Call Summary:
+                 Customer called to schedule consultation.
+                 Interested in premium service package.
+
+  Reminder:      Set for 1 hour before (1:00 PM)
+
+Visibility:
+───────────
+  ✓ Shows in Salesforce Activity Timeline
+  ✓ Shows in Salesforce Calendar
+  ✓ Syncs to Outlook/Google Calendar (if enabled)
+  ✓ Rep receives reminder notification
+
+\`\`\`
+
+---
+
+## 🎯 What You See in Salesforce
+
+### Activity Timeline View
+
+\`\`\`
+┌─────────────────────────────────────────────────────────────┐
+│  Lead: Michael Rodriguez                                     │
+│  Phone: (555) 987-6543                                       │
+│  Company: Tech Solutions Inc.                                │
+└─────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────┐
+│  Activity Timeline                           [Filter] [Sort] │
+├─────────────────────────────────────────────────────────────┤
+│                                                               │
+│  📅 Upcoming                                                 │
+│  ─────────                                                   │
+│                                                               │
+│  Monday, Jan 15 at 2:00 PM                                   │
+│  📅  Consultation Appointment - Scheduled via Voice AI       │
+│      Duration: 1 hour (2:00 PM - 3:00 PM)                    │
+│      🔔 Reminder set for 1:00 PM                             │
+│      [View Details] [Reschedule] [Cancel]                    │
+│                                                               │
+├─────────────────────────────────────────────────────────────┤
+│                                                               │
+│  ✅ Past Activity                                            │
+│  ──────────────                                              │
+│                                                               │
+│  Today at 10:30 AM                                           │
+│  ☎️  Inbound Call - Scheduled Appointment                    │
+│      Status: Completed                                       │
+│      Duration: 3 min 45 sec                                  │
+│      Call Type: Inbound                                      │
+│                                                               │
+│      Description:                                            │
+│      Customer called to schedule consultation. Discussed     │
+│      premium service options. Very interested. Appointment   │
+│      created for next week. Requested reminder to bring ID.  │
+│                                                               │
+│      [View Full Details]                                     │
+│                                                               │
+├─────────────────────────────────────────────────────────────┤
+│                                                               │
+│  Jan 10 at 3:15 PM                                           │
+│  ☎️  Inbound Call - Information Request                      │
+│      Status: Completed                                       │
+│      Duration: 2 min 18 sec                                  │
+│      ...                                                     │
+│                                                               │
+└─────────────────────────────────────────────────────────────┘
+
+\`\`\`
+
+### Calendar View
+
+\`\`\`
+┌─────────────────────────────────────────────────────────────┐
+│  Salesforce Calendar                          January 2025   │
+├─────────────────────────────────────────────────────────────┤
+│                                                               │
+│  Mon 13   Tue 14   Wed 15   Thu 16   Fri 17                 │
+│  ───────  ───────  ───────  ───────  ───────                │
+│                                                               │
+│                     📅 2:00 PM                                │
+│                     Consultation                              │
+│                     with Michael R.                           │
+│                     (Voice AI)                                │
+│                                                               │
+│                                                               │
+└─────────────────────────────────────────────────────────────┘
+
+Click event to see:
+  • Full appointment details
+  • Related Lead/Contact
+  • Call notes from booking
+  • Reschedule/Cancel options
+
+\`\`\`
+
+---
+
+## ✅ Benefits
+
+\`\`\`
+┌────────────────────────────────────────────────────────────────┐
+│                   WHAT YOU GET                                   │
+└────────────────────────────────────────────────────────────────┘
+
+For Sales Reps:
+───────────────
+  ✓ Complete call history on every Lead/Contact
+  ✓ No manual data entry after calls
+  ✓ Automatic appointment scheduling
+  ✓ Calendar reminders for appointments
+  ✓ Full call transcripts and summaries
+  ✓ All data in one place (Salesforce)
+
+For Managers:
+─────────────
+  ✓ Track all inbound calls automatically
+  ✓ See which Leads are being contacted
+  ✓ Monitor appointment booking rate
+  ✓ Complete activity history
+  ✓ No missed follow-ups
+
+For Everyone:
+─────────────
+  ✓ Zero manual work
+  ✓ No training needed
+  ✓ Works automatically 24/7
+  ✓ Sync happens in real-time
+  ✓ Nothing to configure after initial setup
+
+\`\`\`
+
+---
+
+## 🔒 Security & Privacy
+
+\`\`\`
+┌────────────────────────────────────────────────────────────────┐
+│                   YOUR DATA IS SAFE                              │
+└────────────────────────────────────────────────────────────────┘
+
+Secure OAuth Connection:
+────────────────────────
+  ✓ Industry-standard OAuth 2.0
+  ✓ No API keys to copy/paste
+  ✓ You control permissions
+  ✓ Can disconnect anytime
+
+What We Access:
+───────────────
+  ✓ Read Leads (to find by phone)
+  ✓ Read Contacts (to find by phone)
+  ✓ Create Tasks (to log calls)
+  ✓ Create Events (to schedule appointments)
+
+What We DON'T Access:
+──────────────────────
+  ✗ Cannot delete records
+  ✗ Cannot modify existing data
+  ✗ No access to other objects
+  ✗ No admin permissions
+  ✗ Cannot see other users' data
+
+Workspace Isolation:
+────────────────────
+  ✓ Each workspace has separate connection
+  ✓ No cross-workspace data sharing
+  ✓ Tokens stored securely server-side
+  ✓ Auto-refresh for uninterrupted service
+
+\`\`\`
+
+---
+
+## 🚀 Setup Requirements
+
+### What You Need
+
+\`\`\`
+┌────────────────────────────────────────────────────────────────┐
+│                   SETUP REQUIREMENTS                             │
+└────────────────────────────────────────────────────────────────┘
+
+Salesforce Account:
+───────────────────
+  • Any Salesforce edition (including Professional)
+  • User must have:
+    → Read access to Leads
+    → Read access to Contacts
+    → Create access to Tasks
+    → Create access to Events
+  • NO System Administrator required!
+  • NO Developer Console access needed!
+  • NO Apex programming required!
+
+Typical User Profiles That Work:
+─────────────────────────────────
+  ✓ Standard User
+  ✓ Sales User
+  ✓ Service User
+  ✓ Salesforce Platform
+  ✓ Any custom profile with object permissions above
+
+Time Required:
+──────────────
+  • Initial admin setup: 10 minutes (one-time)
+  • User connection: 30 seconds (per user)
+  • Zero ongoing maintenance!
+
+\`\`\`
+
+---
+
+## 🎓 Setup Process Overview
+
+### For Salesforce Admins (One-Time Setup)
+
+\`\`\`
+┌────────────────────────────────────────────────────────────────┐
+│              ADMIN SETUP (10 MINUTES, ONE-TIME)                  │
+└────────────────────────────────────────────────────────────────┘
+
+Step 1: Create Connected App in Salesforce
+──────────────────────────────────────────
+  Navigate: Setup → Apps → App Manager → New Connected App
+
+  Fill in:
+    • App Name: "Voice AI Dashboard"
+    • Contact Email: your@email.com
+    • Enable OAuth Settings: ✓
+    • Callback URL: (provided by us)
+    • OAuth Scopes:
+      - Access and manage your data (api)
+      - Perform requests at any time (refresh_token)
+
+Step 2: Get Credentials
+───────────────────────
+  Copy:
+    • Consumer Key (Client ID)
+    • Consumer Secret (Client Secret)
+
+  Provide these to us for configuration
+
+Step 3: Done!
+────────────
+  All workspace members can now connect their accounts
+
+\`\`\`
+
+### For Users (30 Seconds)
+
+\`\`\`
+┌────────────────────────────────────────────────────────────────┐
+│                USER CONNECTION (30 SECONDS)                      │
+└────────────────────────────────────────────────────────────────┘
+
+Step 1: Go to Integrations
+──────────────────────────
+  Dashboard → Integrations → Salesforce
+
+Step 2: Click "Connect"
+──────────────────────
+  Popup window opens to Salesforce
+
+Step 3: Login & Allow
+─────────────────────
+  • Login to your Salesforce account
+  • Review permissions
+  • Click "Allow"
+
+Step 4: Done! ✅
+───────────────
+  Connected! All calls now auto-log to Salesforce.
+
+\`\`\`
+
+---
+
+## 🔄 How Auto-Refresh Works
+
+You never have to reconnect! Our system automatically maintains your connection.
+
+\`\`\`
+┌────────────────────────────────────────────────────────────────┐
+│              AUTOMATIC CONNECTION MAINTENANCE                    │
+└────────────────────────────────────────────────────────────────┘
+
+Initial Connection:
+───────────────────
+  You: Click "Connect" → Login → Allow
+  Result: ✅ Connected
+
+Behind The Scenes:
+──────────────────
+  • We receive access token (expires in 2 hours)
+  • We receive refresh token (never expires)
+  • We store both securely
+
+Every Time A Call Comes In:
+───────────────────────────
+  1. Check if access token is still valid
+  2. If expired, automatically refresh it
+  3. Use new token to create Task/Event
+  4. You never notice any interruption!
+
+You Never Need To:
+──────────────────
+  ✗ Re-login
+  ✗ Re-authorize
+  ✗ Manually refresh
+  ✗ Enter credentials again
+
+The connection works until:
+───────────────────────────
+  • You click "Disconnect" in our dashboard
+  • You revoke access in Salesforce
+  • Admin disables the Connected App
+
+Otherwise: Always connected, always working! ✅
+
+\`\`\`
+
+---
+
+## ❓ Frequently Asked Questions
+
+### General Questions
+
+**Q: Do I need to be a Salesforce Admin?**
+A: No! Regular users can connect their own accounts. An admin only needs to do the one-time Connected App setup.
+
+**Q: Will this work with Leads and Contacts?**
+A: Yes! We search both Leads and Contacts by phone number and create call logs on whichever one we find.
+
+**Q: What if the phone number isn't in Salesforce?**
+A: We'll log a warning but won't create a Task. The call data is still saved in your Voice AI Dashboard.
+
+**Q: Can I disconnect anytime?**
+A: Yes! Click "Disconnect" in the Integrations page anytime. Your existing call logs in Salesforce won't be deleted.
+
+### Phone Number Questions
+
+**Q: Do phone formats need to match exactly?**
+A: No! Salesforce's search handles different formats automatically:
+- \`+1 (555) 123-4567\`
+- \`555-123-4567\`
+- \`5551234567\`
+- All of these will match!
+
+**Q: What if a Lead has multiple phone numbers?**
+A: We search Phone AND Mobile Phone fields. If the incoming call matches either, we'll find it.
+
+**Q: Can I test with a specific phone number?**
+A: Yes! Use the "Test Sync" button in the integration settings to manually test any phone number.
+
+### Appointment Questions
+
+**Q: How does appointment scheduling work?**
+A: If your Voice AI detects and confirms an appointment during the call, we automatically create both:
+1. A Task (call log)
+2. An Event (appointment on the calendar)
+
+**Q: Can I customize the appointment duration?**
+A: Yes! The default is 1 hour, but your Voice AI can specify different durations (30 min, 2 hours, etc.)
+
+**Q: Will the sales rep get reminded?**
+A: Yes! We set a reminder for 1 hour before the appointment. Reps will get Salesforce notifications.
+
+**Q: What if the appointment needs to be rescheduled?**
+A: The rep can reschedule directly in Salesforce. The Event is a normal Salesforce Event with all standard features.
+
+### Technical Questions
+
+**Q: Does this require Apex code?**
+A: No! This is pure OAuth + REST API integration. Zero coding required.
+
+**Q: Will this slow down my calls?**
+A: No! The Salesforce sync happens after the call ends, so there's no impact on call quality or speed.
+
+**Q: What Salesforce edition do I need?**
+A: Professional Edition or higher. The integration uses standard Salesforce objects (Leads, Contacts, Tasks, Events).
+
+**Q: How long does it take for calls to appear?**
+A: Usually within 30 seconds of the call ending. It's near real-time!
+
+---
+
+## 📊 Success Metrics
+
+After connecting Salesforce, you'll see:
+
+\`\`\`
+┌────────────────────────────────────────────────────────────────┐
+│                   MEASURABLE RESULTS                             │
+└────────────────────────────────────────────────────────────────┘
+
+Data Quality:
+─────────────
+  • 100% of calls automatically logged
+  • Zero manual data entry
+  • Complete call transcripts saved
+  • No missed follow-ups
+
+Time Savings:
+─────────────
+  • ~5 minutes saved per call (no manual logging)
+  • ~10 calls/day = 50 minutes saved daily
+  • ~250 calls/month = 20+ hours saved monthly!
+
+Sales Performance:
+──────────────────
+  • Complete Lead activity history
+  • Never miss a scheduled appointment
+  • Better follow-up rates
+  • Improved customer experience
+
+Visibility:
+───────────
+  • Real-time call tracking
+  • Appointment booking metrics
+  • Lead engagement scores
+  • Full audit trail
+
+\`\`\`
+
+---
+
+## 🎉 Get Started
+
+Ready to connect Salesforce?
+
+1. **Ask your Salesforce Admin** to set up the Connected App (takes 10 minutes)
+2. **Go to Integrations** in your Voice AI Dashboard
+3. **Click "Connect Salesforce"**
+4. **Login and Allow**
+5. **Done!** Calls start auto-logging immediately
+
+Need help? Contact our support team anytime!
+
+---
+
+*Last Updated: January 2025*
+*Voice AI Dashboard - Salesforce Integration*`;
+
+        return new Response(markdown, {
+          status: 200,
+          headers: {
+            'Content-Type': 'text/markdown; charset=utf-8',
+            ...corsHeaders,
+          },
+        });
+      }
+
+      // Serve Salesforce Integration User Guide (HTML)
+      if (url.pathname === '/docs/salesforce-integration/html' && request.method === 'GET') {
+        const htmlContent = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Salesforce Integration Guide - Voice AI Dashboard</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      line-height: 1.6;
+      color: #1f2937;
+      background: #f9fafb;
+      padding: 20px;
+    }
+
+    .container {
+      max-width: 900px;
+      margin: 0 auto;
+      background: white;
+      padding: 40px;
+      border-radius: 12px;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    }
+
+    h1 {
+      font-size: 2.5rem;
+      margin-bottom: 0.5rem;
+      color: #111827;
+      border-bottom: 3px solid #3b82f6;
+      padding-bottom: 0.5rem;
+    }
+
+    h2 {
+      font-size: 1.875rem;
+      margin-top: 2.5rem;
+      margin-bottom: 1rem;
+      color: #1f2937;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    h3 {
+      font-size: 1.5rem;
+      margin-top: 2rem;
+      margin-bottom: 0.75rem;
+      color: #374151;
+    }
+
+    p {
+      margin-bottom: 1rem;
+      color: #4b5563;
+    }
+
+    pre {
+      background: #1f2937;
+      color: #e5e7eb;
+      padding: 1.5rem;
+      border-radius: 8px;
+      overflow-x: auto;
+      margin: 1.5rem 0;
+      font-family: 'Courier New', monospace;
+      font-size: 0.875rem;
+      line-height: 1.5;
+    }
+
+    code {
+      background: #f3f4f6;
+      padding: 0.2rem 0.4rem;
+      border-radius: 4px;
+      font-family: 'Courier New', monospace;
+      font-size: 0.875rem;
+      color: #e11d48;
+    }
+
+    pre code {
+      background: transparent;
+      padding: 0;
+      color: #e5e7eb;
+    }
+
+    ul, ol {
+      margin: 1rem 0 1rem 2rem;
+    }
+
+    li {
+      margin-bottom: 0.5rem;
+      color: #4b5563;
+    }
+
+    strong {
+      color: #111827;
+      font-weight: 600;
+    }
+
+    hr {
+      border: none;
+      border-top: 1px solid #e5e7eb;
+      margin: 2.5rem 0;
+    }
+
+    .info-box {
+      background: #eff6ff;
+      border-left: 4px solid #3b82f6;
+      padding: 1rem 1.5rem;
+      margin: 1.5rem 0;
+      border-radius: 4px;
+    }
+
+    .success-box {
+      background: #f0fdf4;
+      border-left: 4px solid #22c55e;
+      padding: 1rem 1.5rem;
+      margin: 1.5rem 0;
+      border-radius: 4px;
+    }
+
+    .warning-box {
+      background: #fffbeb;
+      border-left: 4px solid #f59e0b;
+      padding: 1rem 1.5rem;
+      margin: 1.5rem 0;
+      border-radius: 4px;
+    }
+
+    a {
+      color: #3b82f6;
+      text-decoration: none;
+    }
+
+    a:hover {
+      text-decoration: underline;
+    }
+
+    .faq-question {
+      font-weight: 600;
+      color: #111827;
+      margin-top: 1.5rem;
+      margin-bottom: 0.5rem;
+    }
+
+    .faq-answer {
+      color: #4b5563;
+      margin-bottom: 1rem;
+      padding-left: 1rem;
+    }
+
+    @media (max-width: 768px) {
+      .container {
+        padding: 20px;
+      }
+
+      h1 {
+        font-size: 2rem;
+      }
+
+      h2 {
+        font-size: 1.5rem;
+      }
+
+      pre {
+        padding: 1rem;
+        font-size: 0.75rem;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Salesforce Integration Guide</h1>
+
+    <h2>🎯 What This Integration Does</h2>
+    <p>When you connect Salesforce to your Voice AI Dashboard, every incoming call is automatically logged in Salesforce. Here's what happens:</p>
+    <ol>
+      <li><strong>Search by Phone Number</strong> - We find the existing Lead or Contact in Salesforce using the caller's phone number</li>
+      <li><strong>Create Call Log</strong> - We create a Task (call log) on that Lead/Contact record with the full call details</li>
+      <li><strong>Schedule Appointments</strong> - If your Voice AI schedules an appointment during the call, we create an Event (appointment) in Salesforce automatically</li>
+    </ol>
+
+    <div class="success-box">
+      <strong>Best Part:</strong> Zero programming required on your Salesforce side - just a simple OAuth connection!
+    </div>
+
+    <hr>
+
+    <h2>📋 How It Works</h2>
+    <pre>
+┌─────────────────────────────────────────────────────────────────────────┐
+│                         SALESFORCE INTEGRATION                            │
+└─────────────────────────────────────────────────────────────────────────┘
+
+   One-Time Setup                      Automatic (Every Call)
+   ==============                      ======================
+
+   ┌──────────────┐                   ┌──────────────────────┐
+   │   You Click  │                   │  Customer Calls      │
+   │  "Connect    │                   └──────────┬───────────┘
+   │ Salesforce"  │                              │
+   └──────┬───────┘                              │
+          │                                      ▼
+          │                          ┌─────────────────────────────┐
+          ▼                          │ 1. Search Salesforce        │
+   ┌──────────────┐                 │    by Phone Number          │
+   │  Salesforce  │                 └─────────────┬───────────────┘
+   │  Login Page  │                               │
+   │  Opens       │                               │
+   └──────┬───────┘                    ┌──────────▼──────────┐
+          │                            │ Lead/Contact Found? │
+          │                            └──────────┬──────────┘
+          ▼                                       │
+   ┌──────────────┐                              YES
+   │  Click       │                               │
+   │  "Allow"     │                               ▼
+   └──────┬───────┘                   ┌─────────────────────────────┐
+          │                           │ 2. Create Task (Call Log)   │
+          │                           │    on that record           │
+          ▼                           └─────────────┬───────────────┘
+   ┌──────────────┐                               │
+   │  ✅ Connected│                               │
+   │  Done!       │                    ┌──────────▼──────────┐
+   └──────────────┘                    │ Appointment booked? │
+                                       └──────────┬──────────┘
+                                                  │
+                                         ┌────────┴────────┐
+                                         │                 │
+                                        YES               NO
+                                         │                 │
+                                         ▼                 ▼
+                              ┌──────────────────┐  ┌──────────┐
+                              │ 3. Create Event  │  │  Done ✓  │
+                              │    (Appointment) │  └──────────┘
+                              └──────────────────┘
+
+                                  ✅ All Done!
+                          Call log + Appointment in Salesforce
+    </pre>
+
+    <hr>
+
+    <h2>🔐 Simple OAuth Connection</h2>
+    <h3>Why This Is Easy</h3>
+    <p>No manual API key copying, no developer console needed. Just click and authorize!</p>
+    <pre>
+┌────────────────────────────────────────────────────────────────────────────┐
+│                         OAUTH SETUP FLOW                                     │
+└────────────────────────────────────────────────────────────────────────────┘
+
+ Your Dashboard              Salesforce               Result
+ ==============              ==========               ======
+
+      │                         │                       │
+      │  1. Click "Connect      │                       │
+      │     Salesforce"         │                       │
+      ├────────────────────────►│                       │
+      │                         │                       │
+      │  2. Popup Opens         │                       │
+      │     Login to Salesforce │                       │
+      │                         │                       │
+      │  3. See Permission      │                       │
+      │     Request:            │                       │
+      │     "Allow Voice AI     │                       │
+      │      to access your     │                       │
+      │      data?"             │                       │
+      │                         │                       │
+      │  4. Click "Allow"       │                       │
+      ├────────────────────────►│                       │
+      │                         │                       │
+      │                         │  5. Authorization     │
+      │                         │     Granted           │
+      │                         ├──────────────────────►│
+      │                         │                       │
+      │  6. Connected! ✅       │                       │  ✅ All calls now
+      │     Popup Closes        │                       │    auto-log to
+      │                         │                       │    Salesforce!
+      │◄────────────────────────┼───────────────────────┤
+      │                         │                       │
+    </pre>
+
+    <hr>
+
+    <h2>✅ Benefits</h2>
+    <h3>For Sales Reps:</h3>
+    <ul>
+      <li>Complete call history on every Lead/Contact</li>
+      <li>No manual data entry after calls</li>
+      <li>Automatic appointment scheduling</li>
+      <li>Calendar reminders for appointments</li>
+      <li>Full call transcripts and summaries</li>
+      <li>All data in one place (Salesforce)</li>
+    </ul>
+
+    <h3>For Managers:</h3>
+    <ul>
+      <li>Track all inbound calls automatically</li>
+      <li>See which Leads are being contacted</li>
+      <li>Monitor appointment booking rate</li>
+      <li>Complete activity history</li>
+      <li>No missed follow-ups</li>
+    </ul>
+
+    <h3>For Everyone:</h3>
+    <ul>
+      <li>Zero manual work</li>
+      <li>No training needed</li>
+      <li>Works automatically 24/7</li>
+      <li>Sync happens in real-time</li>
+      <li>Nothing to configure after initial setup</li>
+    </ul>
+
+    <hr>
+
+    <h2>🔒 Security & Privacy</h2>
+
+    <div class="info-box">
+      <h3>Secure OAuth Connection:</h3>
+      <ul>
+        <li>Industry-standard OAuth 2.0</li>
+        <li>No API keys to copy/paste</li>
+        <li>You control permissions</li>
+        <li>Can disconnect anytime</li>
+      </ul>
+    </div>
+
+    <h3>What We Access:</h3>
+    <ul>
+      <li>Read Leads (to find by phone)</li>
+      <li>Read Contacts (to find by phone)</li>
+      <li>Create Tasks (to log calls)</li>
+      <li>Create Events (to schedule appointments)</li>
+    </ul>
+
+    <h3>What We DON'T Access:</h3>
+    <ul>
+      <li>Cannot delete records</li>
+      <li>Cannot modify existing data</li>
+      <li>No access to other objects</li>
+      <li>No admin permissions</li>
+      <li>Cannot see other users' data</li>
+    </ul>
+
+    <hr>
+
+    <h2>❓ Frequently Asked Questions</h2>
+
+    <h3>General Questions</h3>
+
+    <div class="faq-question">Q: Do I need to be a Salesforce Admin?</div>
+    <div class="faq-answer">A: No! Regular users can connect their own accounts. An admin only needs to do the one-time Connected App setup.</div>
+
+    <div class="faq-question">Q: Will this work with Leads and Contacts?</div>
+    <div class="faq-answer">A: Yes! We search both Leads and Contacts by phone number and create call logs on whichever one we find.</div>
+
+    <div class="faq-question">Q: What if the phone number isn't in Salesforce?</div>
+    <div class="faq-answer">A: We'll log a warning but won't create a Task. The call data is still saved in your Voice AI Dashboard.</div>
+
+    <div class="faq-question">Q: Can I disconnect anytime?</div>
+    <div class="faq-answer">A: Yes! Click "Disconnect" in the Integrations page anytime. Your existing call logs in Salesforce won't be deleted.</div>
+
+    <h3>Phone Number Questions</h3>
+
+    <div class="faq-question">Q: Do phone formats need to match exactly?</div>
+    <div class="faq-answer">A: No! Salesforce's search handles different formats automatically (e.g., +1 (555) 123-4567, 555-123-4567, 5551234567 - all will match!)</div>
+
+    <div class="faq-question">Q: What if a Lead has multiple phone numbers?</div>
+    <div class="faq-answer">A: We search Phone AND Mobile Phone fields. If the incoming call matches either, we'll find it.</div>
+
+    <h3>Appointment Questions</h3>
+
+    <div class="faq-question">Q: How does appointment scheduling work?</div>
+    <div class="faq-answer">A: If your Voice AI detects and confirms an appointment during the call, we automatically create both: 1. A Task (call log) 2. An Event (appointment on the calendar)</div>
+
+    <div class="faq-question">Q: Can I customize the appointment duration?</div>
+    <div class="faq-answer">A: Yes! The default is 1 hour, but your Voice AI can specify different durations (30 min, 2 hours, etc.)</div>
+
+    <div class="faq-question">Q: Will the sales rep get reminded?</div>
+    <div class="faq-answer">A: Yes! We set a reminder for 1 hour before the appointment. Reps will get Salesforce notifications.</div>
+
+    <h3>Technical Questions</h3>
+
+    <div class="faq-question">Q: Does this require Apex code?</div>
+    <div class="faq-answer">A: No! This is pure OAuth + REST API integration. Zero coding required.</div>
+
+    <div class="faq-question">Q: Will this slow down my calls?</div>
+    <div class="faq-answer">A: No! The Salesforce sync happens after the call ends, so there's no impact on call quality or speed.</div>
+
+    <div class="faq-question">Q: What Salesforce edition do I need?</div>
+    <div class="faq-answer">A: Professional Edition or higher. The integration uses standard Salesforce objects (Leads, Contacts, Tasks, Events).</div>
+
+    <div class="faq-question">Q: How long does it take for calls to appear?</div>
+    <div class="faq-answer">A: Usually within 30 seconds of the call ending. It's near real-time!</div>
+
+    <hr>
+
+    <h2>🎉 Get Started</h2>
+    <p>Ready to connect Salesforce?</p>
+    <ol>
+      <li><strong>Ask your Salesforce Admin</strong> to set up the Connected App (takes 10 minutes)</li>
+      <li><strong>Go to Integrations</strong> in your Voice AI Dashboard</li>
+      <li><strong>Click "Connect Salesforce"</strong></li>
+      <li><strong>Login and Allow</strong></li>
+      <li><strong>Done!</strong> Calls start auto-logging immediately</li>
+    </ol>
+
+    <div class="success-box">
+      <p><strong>Need help?</strong> Contact our support team anytime!</p>
+    </div>
+
+    <hr>
+
+    <p style="text-align: center; color: #6b7280; font-size: 0.875rem; margin-top: 3rem;">
+      <em>Last Updated: January 2025</em><br>
+      <em>Voice AI Dashboard - Salesforce Integration</em>
+    </p>
+  </div>
+</body>
+</html>`;
+
+        return new Response(htmlContent, {
+          status: 200,
+          headers: {
+            'Content-Type': 'text/html; charset=utf-8',
+            ...corsHeaders,
+          },
+        });
+      }
+
+      // ============================================
       // PUBLIC WEBHOOK RECEIVER (No Auth Required)
       // ============================================
 
@@ -3995,6 +5275,17 @@ export default {
             // Invalidate cache
             const cache = new VoiceAICache(env.CACHE);
             await cache.invalidateUserCache(webhook.user_id);
+
+            // Dispatch call.started event to outbound webhooks (only for ringing status, not in-progress)
+            if (callStatus === 'ringing') {
+              ctx.waitUntil(
+                dispatchToOutboundWebhooks(env, webhook.user_id, 'call.started', {
+                  callId: vapiCallId,
+                  customerPhone: customerNumber,
+                  assistantName: call.assistant?.name || 'AI Assistant',
+                })
+              );
+            }
 
             return jsonResponse({ success: true, message: 'Call status updated' });
 
@@ -4108,6 +5399,21 @@ export default {
           // Invalidate user cache for new data
           const cache = new VoiceAICache(env.CACHE);
           await cache.invalidateUserCache(webhook.user_id);
+
+          // Dispatch to outbound webhooks in the background (call.ended event)
+          ctx.waitUntil(
+            dispatchToOutboundWebhooks(env, webhook.user_id, 'call.ended', {
+              callId: call.id || callId,
+              customerPhone: customer.number,
+              assistantName: message.assistant?.name || call.assistant?.name || 'AI Assistant',
+              durationSeconds,
+              endedReason: message.endedReason || call.endedReason || 'unknown',
+              summary: analysis.summary || message.summary || '',
+              structuredData: analysis.structuredData || {},
+              rawPayload: payload,
+              recordingUrl: message.recordingUrl || artifact.recordingUrl || null,
+            })
+          );
 
           // Trigger OpenAI analysis and addons in the background (don't wait for them)
           ctx.waitUntil(

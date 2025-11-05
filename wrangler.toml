@@ -19,6 +19,11 @@ database_id = "68edb24b-9705-4b29-b5c5-d702dc78a6fb"
 binding = "CACHE"
 id = "1957b2d9d695460ebba474ba4be11def"
 
+# R2 bucket for call recordings
+[[r2_buckets]]
+binding = "RECORDINGS"
+bucket_name = "voice-ai-recordings"
+
 # Environment variables
 [vars]
 JWT_SECRET = "change-this-to-a-secure-random-string-in-production"
