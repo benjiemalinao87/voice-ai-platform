@@ -23,6 +23,11 @@ import {
   deleteOutboundWebhook,
   getOutboundWebhookLogs
 } from './outbound-webhooks-api';
+import {
+  buildAuthUrl,
+  exchangeCodeForToken,
+  ensureValidToken
+} from './salesforce-service';
 
 // Cloudflare Worker types
 interface D1Database {
@@ -1105,6 +1110,225 @@ export default {
         ).bind(selectedWorkspaceId, timestamp, userId).run();
 
         return jsonResponse({ message: 'Settings updated successfully' });
+      }
+
+      // ============================================
+      // SALESFORCE INTEGRATION ENDPOINTS (Protected)
+      // ============================================
+
+      // Initiate Salesforce OAuth flow
+      if (url.pathname === '/api/salesforce/oauth/initiate' && request.method === 'GET') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        // Get user's workspace
+        const userSettings = await env.DB.prepare(
+          'SELECT selected_workspace_id FROM user_settings WHERE user_id = ?'
+        ).bind(userId).first() as any;
+
+        if (!userSettings || !userSettings.selected_workspace_id) {
+          return jsonResponse({ error: 'No workspace selected' }, 400);
+        }
+
+        const workspaceId = userSettings.selected_workspace_id;
+
+        // Generate OAuth URL
+        const authUrl = buildAuthUrl(workspaceId, env);
+
+        return jsonResponse({
+          success: true,
+          authUrl
+        });
+      }
+
+      // Handle Salesforce OAuth callback
+      if (url.pathname === '/api/salesforce/oauth/callback' && request.method === 'GET') {
+        try {
+          // Extract code and state from query params
+          const code = url.searchParams.get('code');
+          const workspaceId = url.searchParams.get('state'); // We passed workspace ID as state
+
+          if (!code || !workspaceId) {
+            return new Response('Missing code or state parameter', { status: 400 });
+          }
+
+          // Exchange code for tokens
+          const tokens = await exchangeCodeForToken(code, env);
+
+          // Store tokens in database
+          const timestamp = now();
+          await env.DB.prepare(
+            `UPDATE workspace_settings
+             SET salesforce_instance_url = ?,
+                 salesforce_access_token = ?,
+                 salesforce_refresh_token = ?,
+                 salesforce_token_expires_at = ?,
+                 updated_at = ?
+             WHERE workspace_id = ?`
+          ).bind(
+            tokens.instance_url,
+            tokens.access_token,
+            tokens.refresh_token,
+            tokens.expires_in,
+            timestamp,
+            workspaceId
+          ).run();
+
+          // Redirect to integration page with success message
+          return new Response(null, {
+            status: 302,
+            headers: {
+              'Location': 'https://voice-config.channelautomation.com/integrations?salesforce=connected'
+            }
+          });
+        } catch (error: any) {
+          console.error('[Salesforce OAuth] Error:', error);
+          // Redirect to integration page with error
+          return new Response(null, {
+            status: 302,
+            headers: {
+              'Location': `https://voice-config.channelautomation.com/integrations?salesforce=error&message=${encodeURIComponent(error.message)}`
+            }
+          });
+        }
+      }
+
+      // Get Salesforce connection status
+      if (url.pathname === '/api/salesforce/status' && request.method === 'GET') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        // Get user's workspace
+        const userSettings = await env.DB.prepare(
+          'SELECT selected_workspace_id FROM user_settings WHERE user_id = ?'
+        ).bind(userId).first() as any;
+
+        if (!userSettings || !userSettings.selected_workspace_id) {
+          return jsonResponse({ error: 'No workspace selected' }, 400);
+        }
+
+        const workspaceId = userSettings.selected_workspace_id;
+
+        // Get Salesforce settings
+        const settings = await env.DB.prepare(
+          `SELECT salesforce_instance_url, salesforce_access_token,
+                  salesforce_refresh_token, salesforce_token_expires_at
+           FROM workspace_settings
+           WHERE workspace_id = ?`
+        ).bind(workspaceId).first() as any;
+
+        const connected = !!(settings && settings.salesforce_refresh_token);
+        const tokenExpiresAt = settings?.salesforce_token_expires_at || null;
+
+        return jsonResponse({
+          success: true,
+          connected,
+          instanceUrl: connected ? settings.salesforce_instance_url : null,
+          tokenExpiresAt
+        });
+      }
+
+      // Disconnect Salesforce
+      if (url.pathname === '/api/salesforce/disconnect' && request.method === 'DELETE') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        // Get user's workspace
+        const userSettings = await env.DB.prepare(
+          'SELECT selected_workspace_id FROM user_settings WHERE user_id = ?'
+        ).bind(userId).first() as any;
+
+        if (!userSettings || !userSettings.selected_workspace_id) {
+          return jsonResponse({ error: 'No workspace selected' }, 400);
+        }
+
+        const workspaceId = userSettings.selected_workspace_id;
+
+        // Clear Salesforce tokens
+        const timestamp = now();
+        await env.DB.prepare(
+          `UPDATE workspace_settings
+           SET salesforce_instance_url = NULL,
+               salesforce_access_token = NULL,
+               salesforce_refresh_token = NULL,
+               salesforce_token_expires_at = NULL,
+               updated_at = ?
+           WHERE workspace_id = ?`
+        ).bind(timestamp, workspaceId).run();
+
+        return jsonResponse({
+          success: true,
+          message: 'Salesforce disconnected successfully'
+        });
+      }
+
+      // Get Salesforce sync logs
+      if (url.pathname === '/api/salesforce/sync-logs' && request.method === 'GET') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        // Get user's workspace
+        const userSettings = await env.DB.prepare(
+          'SELECT selected_workspace_id FROM user_settings WHERE user_id = ?'
+        ).bind(userId).first() as any;
+
+        if (!userSettings || !userSettings.selected_workspace_id) {
+          return jsonResponse({ error: 'No workspace selected' }, 400);
+        }
+
+        const workspaceId = userSettings.selected_workspace_id;
+
+        // Get query parameters
+        const limit = Math.min(parseInt(url.searchParams.get('limit') || '50'), 100);
+        const offset = parseInt(url.searchParams.get('offset') || '0');
+        const status = url.searchParams.get('status'); // 'success', 'error', 'skipped'
+
+        // Build query
+        let query = `
+          SELECT id, call_id, salesforce_record_id, salesforce_task_id,
+                 salesforce_event_id, appointment_created, status,
+                 error_message, phone_number, created_at
+          FROM salesforce_sync_logs
+          WHERE workspace_id = ?
+        `;
+        const params: any[] = [workspaceId];
+
+        if (status) {
+          query += ' AND status = ?';
+          params.push(status);
+        }
+
+        query += ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
+        params.push(limit, offset);
+
+        const logs = await env.DB.prepare(query).bind(...params).all();
+
+        // Get total count
+        let countQuery = 'SELECT COUNT(*) as count FROM salesforce_sync_logs WHERE workspace_id = ?';
+        const countParams: any[] = [workspaceId];
+
+        if (status) {
+          countQuery += ' AND status = ?';
+          countParams.push(status);
+        }
+
+        const countResult = await env.DB.prepare(countQuery).bind(...countParams).first() as any;
+
+        return jsonResponse({
+          success: true,
+          logs: logs.results || [],
+          total: countResult?.count || 0,
+          limit,
+          offset
+        });
       }
 
       // ============================================

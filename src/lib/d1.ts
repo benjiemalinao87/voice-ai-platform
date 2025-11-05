@@ -466,6 +466,106 @@ class D1Client {
     });
   }
 
+  // ============================================
+  // SALESFORCE INTEGRATION
+  // ============================================
+
+  /**
+   * Initiate Salesforce OAuth flow
+   * Opens a popup window for user to authorize Salesforce access
+   */
+  async initiateSalesforceOAuth(): Promise<{ authUrl: string }> {
+    const response = await this.request<{ success: boolean; authUrl: string }>(
+      '/api/salesforce/oauth/initiate',
+      { method: 'GET' }
+    );
+    return { authUrl: response.authUrl };
+  }
+
+  /**
+   * Get Salesforce connection status
+   * Returns whether Salesforce is connected and token expiration
+   */
+  async getSalesforceStatus(): Promise<{
+    connected: boolean;
+    instanceUrl: string | null;
+    tokenExpiresAt: number | null;
+  }> {
+    const response = await this.request<{
+      success: boolean;
+      connected: boolean;
+      instanceUrl: string | null;
+      tokenExpiresAt: number | null;
+    }>('/api/salesforce/status', { method: 'GET' });
+
+    return {
+      connected: response.connected,
+      instanceUrl: response.instanceUrl,
+      tokenExpiresAt: response.tokenExpiresAt,
+    };
+  }
+
+  /**
+   * Disconnect Salesforce
+   * Removes OAuth tokens and disconnects integration
+   */
+  async disconnectSalesforce(): Promise<{ success: boolean; message: string }> {
+    return this.request<{ success: boolean; message: string }>(
+      '/api/salesforce/disconnect',
+      { method: 'DELETE' }
+    );
+  }
+
+  /**
+   * Get Salesforce sync logs
+   * Returns paginated list of sync attempts with their status
+   */
+  async getSalesforceSyncLogs(params?: {
+    limit?: number;
+    offset?: number;
+    status?: 'success' | 'error' | 'skipped';
+  }): Promise<{
+    logs: Array<{
+      id: string;
+      call_id: string;
+      salesforce_record_id: string | null;
+      salesforce_task_id: string | null;
+      salesforce_event_id: string | null;
+      appointment_created: boolean;
+      status: 'success' | 'error' | 'skipped';
+      error_message: string | null;
+      phone_number: string | null;
+      created_at: number;
+    }>;
+    total: number;
+    limit: number;
+    offset: number;
+  }> {
+    const queryParams = new URLSearchParams();
+    if (params?.limit) queryParams.set('limit', params.limit.toString());
+    if (params?.offset) queryParams.set('offset', params.offset.toString());
+    if (params?.status) queryParams.set('status', params.status);
+
+    const url = `/api/salesforce/sync-logs${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
+
+    return this.request<{
+      success: boolean;
+      logs: Array<any>;
+      total: number;
+      limit: number;
+      offset: number;
+    }>(url, { method: 'GET' }).then(response => ({
+      logs: response.logs,
+      total: response.total,
+      limit: response.limit,
+      offset: response.offset,
+    }));
+  }
+
+  // ============================================
+  // GENERIC HTTP METHODS
+  // ============================================
+
   // Generic HTTP methods for custom API calls
   async get<T = any>(endpoint: string, token?: string): Promise<T> {
     return this.request(endpoint, {

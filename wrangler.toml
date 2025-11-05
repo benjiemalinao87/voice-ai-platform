@@ -13,6 +13,7 @@ routes = [
 binding = "DB"
 database_name = "voice-ai-dashboard"
 database_id = "68edb24b-9705-4b29-b5c5-d702dc78a6fb"
+migrations_dir = "workers/migrations"
 
 # KV namespace for caching
 [[kv_namespaces]]
@@ -28,6 +29,14 @@ bucket_name = "voice-ai-recordings"
 [vars]
 JWT_SECRET = "change-this-to-a-secure-random-string-in-production"
 
-# For production, use: wrangler secret put JWT_SECRET
+# Salesforce OAuth Credentials
+# TODO: Replace with your Salesforce Connected App credentials
+SALESFORCE_CLIENT_ID = "your-salesforce-consumer-key-here"
+SALESFORCE_CLIENT_SECRET = "your-salesforce-consumer-secret-here"
+
+# For production, use:
+# wrangler secret put JWT_SECRET
+# wrangler secret put SALESFORCE_CLIENT_ID
+# wrangler secret put SALESFORCE_CLIENT_SECRET
 # This is a placeholder for local development
 

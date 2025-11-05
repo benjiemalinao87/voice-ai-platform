@@ -113,13 +113,59 @@ export function Integration({ onNavigateToApiConfig }: IntegrationProps = {}) {
   const [savingTwilio, setSavingTwilio] = useState(false);
   const [twilioError, setTwilioError] = useState('');
 
+  // Salesforce State
+  const [salesforceConnected, setSalesforceConnected] = useState(false);
+  const [salesforceInstanceUrl, setSalesforceInstanceUrl] = useState<string | null>(null);
+  const [salesforceNotification, setSalesforceNotification] = useState<{
+    type: 'success' | 'error';
+    message: string;
+  } | null>(null);
+
   useEffect(() => {
     loadIntegrationStatus();
+    checkSalesforceCallback();
   }, []);
+
+  const checkSalesforceCallback = () => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const salesforceStatus = urlParams.get('salesforce');
+
+    if (salesforceStatus === 'connected') {
+      setSalesforceNotification({
+        type: 'success',
+        message: 'Salesforce connected successfully!'
+      });
+      // Clear URL parameters
+      window.history.replaceState({}, '', window.location.pathname);
+      // Auto-dismiss after 5 seconds
+      setTimeout(() => setSalesforceNotification(null), 5000);
+    } else if (salesforceStatus === 'error') {
+      const errorMessage = urlParams.get('message') || 'Failed to connect to Salesforce';
+      setSalesforceNotification({
+        type: 'error',
+        message: errorMessage
+      });
+      // Clear URL parameters
+      window.history.replaceState({}, '', window.location.pathname);
+      // Auto-dismiss after 8 seconds
+      setTimeout(() => setSalesforceNotification(null), 8000);
+    }
+  };
 
   const loadIntegrationStatus = async () => {
     try {
       const settings = await d1Client.getUserSettings();
+
+      // Load Salesforce status
+      let sfConnected = false;
+      try {
+        const sfStatus = await d1Client.getSalesforceStatus();
+        sfConnected = sfStatus.connected;
+        setSalesforceConnected(sfStatus.connected);
+        setSalesforceInstanceUrl(sfStatus.instanceUrl);
+      } catch (error) {
+        console.error('Error loading Salesforce status:', error);
+      }
 
       // Update integration status based on stored credentials
       setIntegrations(prev => prev.map(integration => {
@@ -135,6 +181,13 @@ export function Integration({ onNavigateToApiConfig }: IntegrationProps = {}) {
             ...integration,
             status: settings.twilioAccountSid && settings.twilioAuthToken ? 'connected' : 'disconnected',
             lastSync: settings.twilioAccountSid && settings.twilioAuthToken ? 'Active' : undefined
+          };
+        }
+        if (integration.id === 'salesforce') {
+          return {
+            ...integration,
+            status: sfConnected ? 'connected' : 'disconnected',
+            lastSync: sfConnected ? 'Active' : undefined
           };
         }
         return integration;
@@ -180,12 +233,72 @@ export function Integration({ onNavigateToApiConfig }: IntegrationProps = {}) {
       return;
     }
 
+    if (integrationId === 'salesforce') {
+      // Start Salesforce OAuth flow
+      try {
+        setIsConnecting(integrationId);
+        const { authUrl } = await d1Client.initiateSalesforceOAuth();
+
+        // Open OAuth in popup window
+        const width = 600;
+        const height = 700;
+        const left = window.screen.width / 2 - width / 2;
+        const top = window.screen.height / 2 - height / 2;
+
+        const popup = window.open(
+          authUrl,
+          'Salesforce OAuth',
+          `width=${width},height=${height},left=${left},top=${top}`
+        );
+
+        // Poll for popup closure
+        const pollTimer = setInterval(() => {
+          if (popup?.closed) {
+            clearInterval(pollTimer);
+            setIsConnecting(null);
+            // Reload integration status after OAuth
+            loadIntegrationStatus();
+          }
+        }, 500);
+      } catch (error: any) {
+        console.error('Error initiating Salesforce OAuth:', error);
+        setSalesforceNotification({
+          type: 'error',
+          message: error.message || 'Failed to initiate Salesforce connection'
+        });
+        setIsConnecting(null);
+        setTimeout(() => setSalesforceNotification(null), 8000);
+      }
+      return;
+    }
+
     setIsConnecting(integrationId);
     // Simulate connection process for other integrations
     setTimeout(() => {
       setIsConnecting(null);
       // In a real app, this would update the integration status
     }, 2000);
+  };
+
+  const handleDisconnectSalesforce = async () => {
+    try {
+      await d1Client.disconnectSalesforce();
+      setSalesforceConnected(false);
+      setSalesforceInstanceUrl(null);
+      setSalesforceNotification({
+        type: 'success',
+        message: 'Salesforce disconnected successfully'
+      });
+      await loadIntegrationStatus();
+      setTimeout(() => setSalesforceNotification(null), 5000);
+    } catch (error: any) {
+      console.error('Error disconnecting Salesforce:', error);
+      setSalesforceNotification({
+        type: 'error',
+        message: error.message || 'Failed to disconnect Salesforce'
+      });
+      setTimeout(() => setSalesforceNotification(null), 8000);
+    }
   };
 
   const handleSaveOpenAI = async () => {
@@ -292,6 +405,42 @@ export function Integration({ onNavigateToApiConfig }: IntegrationProps = {}) {
 
   return (
     <div className="space-y-6">
+      {/* Salesforce Notification Banner */}
+      {salesforceNotification && (
+        <div
+          className={`rounded-lg border p-4 ${
+            salesforceNotification.type === 'success'
+              ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800'
+              : 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800'
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              {salesforceNotification.type === 'success' ? (
+                <CheckCircle className="w-5 h-5 text-green-600 dark:text-green-400" />
+              ) : (
+                <AlertCircle className="w-5 h-5 text-red-600 dark:text-red-400" />
+              )}
+              <span
+                className={`text-sm font-medium ${
+                  salesforceNotification.type === 'success'
+                    ? 'text-green-900 dark:text-green-100'
+                    : 'text-red-900 dark:text-red-100'
+                }`}
+              >
+                {salesforceNotification.message}
+              </span>
+            </div>
+            <button
+              onClick={() => setSalesforceNotification(null)}
+              className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+            >
+              <XCircle className="w-5 h-5" />
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
         <div className="flex items-center gap-3 mb-4">
@@ -376,9 +525,10 @@ export function Integration({ onNavigateToApiConfig }: IntegrationProps = {}) {
               </div>
             )}
 
-            {/* Documentation Link for Salesforce */}
+            {/* Salesforce-specific info */}
             {integration.id === 'salesforce' && (
-              <div className="mb-4">
+              <div className="mb-4 space-y-3">
+                {/* Documentation Link */}
                 <a
                   href="https://api.voice-config.channelautomation.com/docs/salesforce-integration/html"
                   target="_blank"
@@ -388,6 +538,16 @@ export function Integration({ onNavigateToApiConfig }: IntegrationProps = {}) {
                   <ExternalLink className="w-3.5 h-3.5" />
                   View Integration Guide
                 </a>
+
+                {/* Instance URL when connected */}
+                {salesforceConnected && salesforceInstanceUrl && (
+                  <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-3">
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Instance URL:</p>
+                    <p className="text-sm font-medium text-gray-900 dark:text-gray-100 break-all">
+                      {salesforceInstanceUrl}
+                    </p>
+                  </div>
+                )}
               </div>
             )}
 
@@ -411,6 +571,14 @@ export function Integration({ onNavigateToApiConfig }: IntegrationProps = {}) {
                       <SettingsIcon className="w-4 h-4" />
                       Manage Twilio Keys
                     </button>
+                  ) : integration.id === 'salesforce' ? (
+                    <button
+                      onClick={handleDisconnectSalesforce}
+                      className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-red-100 dark:bg-red-900/20 text-red-700 dark:text-red-400 rounded-lg hover:bg-red-200 dark:hover:bg-red-900/30 transition-colors"
+                    >
+                      <XCircle className="w-4 h-4" />
+                      Disconnect
+                    </button>
                   ) : (
                     <button
                       onClick={() => setSelectedIntegration(integration.id)}
@@ -420,7 +588,7 @@ export function Integration({ onNavigateToApiConfig }: IntegrationProps = {}) {
                       Configure
                     </button>
                   )}
-                  {integration.id !== 'openai' && integration.id !== 'twilio' && (
+                  {integration.id !== 'openai' && integration.id !== 'twilio' && integration.id !== 'salesforce' && (
                     <button className="flex items-center justify-center gap-2 px-3 py-2 bg-green-100 dark:bg-green-900/20 text-green-700 dark:text-green-400 rounded-lg hover:bg-green-200 dark:hover:bg-green-900/30 transition-colors">
                       <RefreshCw className="w-4 h-4" />
                     </button>
