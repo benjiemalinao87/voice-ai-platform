@@ -54,11 +54,6 @@ export function Settings({ wideView = false, onWideViewChange }: SettingsProps =
   });
   const [showPrivateKey, setShowPrivateKey] = useState(false);
   const [showPublicKey, setShowPublicKey] = useState(false);
-  const [openaiApiKey, setOpenaiApiKey] = useState('');
-  const [showOpenaiKey, setShowOpenaiKey] = useState(false);
-  const [twilioAccountSid, setTwilioAccountSid] = useState('');
-  const [twilioAuthToken, setTwilioAuthToken] = useState('');
-  const [showTwilioToken, setShowTwilioToken] = useState(false);
   const [transferPhoneNumber, setTransferPhoneNumber] = useState('');
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
@@ -105,9 +100,6 @@ export function Settings({ wideView = false, onWideViewChange }: SettingsProps =
       setUserSettings(settings);
       setSelectedAssistantId(settings.selectedAssistantId || '');
       setSelectedPhoneId(settings.selectedPhoneId || '');
-      setOpenaiApiKey(settings.openaiApiKey || '');
-      setTwilioAccountSid(settings.twilioAccountSid || '');
-      setTwilioAuthToken(settings.twilioAuthToken || '');
       setTransferPhoneNumber(settings.transferPhoneNumber || '');
 
       // Store workspace owner status
@@ -226,15 +218,13 @@ export function Settings({ wideView = false, onWideViewChange }: SettingsProps =
 
     try {
       // Save to workspace settings using d1Client
+      // Note: OpenAI and Twilio credentials are now managed in the Integration tab
       await d1Client.updateUserSettings({
         privateKey: credentials.privateKey,
         publicKey: credentials.publicKey || null,
         selectedAssistantId: selectedAssistantId || null,
         selectedPhoneId: selectedPhoneId || null,
         selectedWorkspaceId: userSettings.selectedWorkspaceId,
-        openaiApiKey: openaiApiKey || null,
-        twilioAccountSid: twilioAccountSid || null,
-        twilioAuthToken: twilioAuthToken || null,
         transferPhoneNumber: transferPhoneNumber || null,
       });
 
@@ -256,9 +246,6 @@ export function Settings({ wideView = false, onWideViewChange }: SettingsProps =
   const handleClear = async () => {
     if (confirm('Are you sure you want to clear all settings? You will need to re-enter your API keys.')) {
       setCredentials({ privateKey: '', publicKey: '' });
-      setOpenaiApiKey('');
-      setTwilioAccountSid('');
-      setTwilioAuthToken('');
       setTransferPhoneNumber('');
       setSelectedAssistantId('');
       setSelectedPhoneId('');
@@ -537,91 +524,6 @@ export function Settings({ wideView = false, onWideViewChange }: SettingsProps =
             <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
               Used for Voice Test feature in the Configuration tab
             </p>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              OpenAI API Key (optional)
-            </label>
-            <div className="relative">
-              <input
-                type={showOpenaiKey ? 'text' : 'password'}
-                value={openaiApiKey}
-                onChange={(e) => setOpenaiApiKey(e.target.value)}
-                placeholder="sk-proj-..."
-                disabled={!isWorkspaceOwner}
-                readOnly={!isWorkspaceOwner}
-                className="w-full px-4 py-2 pr-10 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 font-mono text-sm disabled:opacity-60 disabled:cursor-not-allowed"
-              />
-              <button
-                type="button"
-                onClick={() => setShowOpenaiKey(!showOpenaiKey)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
-              >
-                {showOpenaiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-              </button>
-            </div>
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-              Used for AI-powered Intent Analysis on call recordings
-            </p>
-          </div>
-
-          {/* Twilio Integration */}
-          <div className="border-t border-gray-200 dark:border-gray-700 pt-6">
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4 flex items-center gap-2">
-              <Key className="w-5 h-5 text-gray-400" />
-              Twilio Lookup API (optional)
-            </h3>
-            <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-              Enable caller identification and phone number validation for incoming calls
-            </p>
-
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Account SID
-                </label>
-                <input
-                  type="text"
-                  value={twilioAccountSid}
-                  onChange={(e) => setTwilioAccountSid(e.target.value)}
-                  placeholder="AC..."
-                  disabled={!isWorkspaceOwner}
-                  readOnly={!isWorkspaceOwner}
-                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 font-mono text-sm disabled:opacity-60 disabled:cursor-not-allowed"
-                />
-                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                  Your Twilio Account SID (starts with AC)
-                </p>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Auth Token
-                </label>
-                <div className="relative">
-                  <input
-                    type={showTwilioToken ? 'text' : 'password'}
-                    value={twilioAuthToken}
-                    onChange={(e) => setTwilioAuthToken(e.target.value)}
-                    placeholder="Your Twilio Auth Token"
-                    disabled={!isWorkspaceOwner}
-                    readOnly={!isWorkspaceOwner}
-                    className="w-full px-4 py-2 pr-10 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 font-mono text-sm disabled:opacity-60 disabled:cursor-not-allowed"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowTwilioToken(!showTwilioToken)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
-                  >
-                    {showTwilioToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
-                </div>
-                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                  Used to enrich call data with caller name, carrier, and location info
-                </p>
-              </div>
-            </div>
           </div>
 
           {/* Call Control Settings */}

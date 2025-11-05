@@ -4,18 +4,19 @@ import {
   CheckCircle,
   XCircle,
   ExternalLink,
-  Key,
   Database,
   Users,
   Mail,
   Phone,
-  Calendar,
-  FileText,
   AlertCircle,
   RefreshCw,
-  Brain
+  Brain,
+  Eye,
+  EyeOff,
+  Save
 } from 'lucide-react';
 import { d1Client } from '../lib/d1';
+import { useAuth } from '../contexts/AuthContext';
 
 interface Integration {
   id: string;
@@ -81,9 +82,25 @@ interface IntegrationProps {
 }
 
 export function Integration({ onNavigateToApiConfig }: IntegrationProps = {}) {
+  const { token } = useAuth();
   const [integrations, setIntegrations] = useState<Integration[]>(getInitialIntegrations());
   const [selectedIntegration, setSelectedIntegration] = useState<string | null>(null);
   const [isConnecting, setIsConnecting] = useState<string | null>(null);
+  
+  // OpenAI Modal State
+  const [showOpenAIModal, setShowOpenAIModal] = useState(false);
+  const [openaiApiKey, setOpenaiApiKey] = useState('');
+  const [showOpenaiKey, setShowOpenaiKey] = useState(false);
+  const [savingOpenAI, setSavingOpenAI] = useState(false);
+  const [openaiError, setOpenaiError] = useState('');
+  
+  // Twilio Modal State
+  const [showTwilioModal, setShowTwilioModal] = useState(false);
+  const [twilioAccountSid, setTwilioAccountSid] = useState('');
+  const [twilioAuthToken, setTwilioAuthToken] = useState('');
+  const [showTwilioToken, setShowTwilioToken] = useState(false);
+  const [savingTwilio, setSavingTwilio] = useState(false);
+  const [twilioError, setTwilioError] = useState('');
 
   useEffect(() => {
     loadIntegrationStatus();
@@ -117,10 +134,31 @@ export function Integration({ onNavigateToApiConfig }: IntegrationProps = {}) {
   };
 
   const handleConnect = async (integrationId: string) => {
-    if (integrationId === 'openai' || integrationId === 'twilio') {
-      // Navigate to API Configuration tab
-      if (onNavigateToApiConfig) {
-        onNavigateToApiConfig();
+    if (integrationId === 'openai') {
+      // Load existing OpenAI key if available
+      try {
+        const settings = await d1Client.getUserSettings();
+        setOpenaiApiKey(settings.openaiApiKey || '');
+        setShowOpenAIModal(true);
+        setOpenaiError('');
+      } catch (error) {
+        console.error('Error loading OpenAI settings:', error);
+        setShowOpenAIModal(true);
+      }
+      return;
+    }
+
+    if (integrationId === 'twilio') {
+      // Load existing Twilio credentials if available
+      try {
+        const settings = await d1Client.getUserSettings();
+        setTwilioAccountSid(settings.twilioAccountSid || '');
+        setTwilioAuthToken(settings.twilioAuthToken || '');
+        setShowTwilioModal(true);
+        setTwilioError('');
+      } catch (error) {
+        console.error('Error loading Twilio settings:', error);
+        setShowTwilioModal(true);
       }
       return;
     }
@@ -131,6 +169,75 @@ export function Integration({ onNavigateToApiConfig }: IntegrationProps = {}) {
       setIsConnecting(null);
       // In a real app, this would update the integration status
     }, 2000);
+  };
+
+  const handleSaveOpenAI = async () => {
+    if (!token) {
+      setOpenaiError('You must be logged in');
+      return;
+    }
+
+    setSavingOpenAI(true);
+    setOpenaiError('');
+
+    try {
+      const settings = await d1Client.getUserSettings();
+      if (!settings.selectedWorkspaceId) {
+        setOpenaiError('No workspace selected. Please select a workspace first.');
+        setSavingOpenAI(false);
+        return;
+      }
+
+      await d1Client.updateUserSettings({
+        ...settings,
+        selectedWorkspaceId: settings.selectedWorkspaceId,
+        openaiApiKey: openaiApiKey || null,
+      });
+
+      // Reload integration status
+      await loadIntegrationStatus();
+      setShowOpenAIModal(false);
+      setOpenaiError('');
+    } catch (error: any) {
+      setOpenaiError(error.message || 'Failed to save OpenAI API key');
+    } finally {
+      setSavingOpenAI(false);
+    }
+  };
+
+  const handleSaveTwilio = async () => {
+    if (!token) {
+      setTwilioError('You must be logged in');
+      return;
+    }
+
+    setSavingTwilio(true);
+    setTwilioError('');
+
+    try {
+      const settings = await d1Client.getUserSettings();
+      if (!settings.selectedWorkspaceId) {
+        setTwilioError('No workspace selected. Please select a workspace first.');
+        setSavingTwilio(false);
+        return;
+      }
+
+      await d1Client.updateUserSettings({
+        ...settings,
+        selectedWorkspaceId: settings.selectedWorkspaceId,
+        twilioAccountSid: twilioAccountSid || null,
+        twilioAuthToken: twilioAuthToken || null,
+      });
+
+      // Reload integration status
+      await loadIntegrationStatus();
+      setShowTwilioModal(false);
+      setTwilioError('');
+    } catch (error: any) {
+      setTwilioError(error.message || 'Failed to save Twilio credentials');
+    } finally {
+      setSavingTwilio(false);
+    }
   };
 
   const getStatusIcon = (status: string) => {
@@ -256,13 +363,21 @@ export function Integration({ onNavigateToApiConfig }: IntegrationProps = {}) {
             <div className="flex gap-2">
               {integration.status === 'connected' ? (
                 <>
-                  {integration.id === 'openai' || integration.id === 'twilio' ? (
+                  {integration.id === 'openai' ? (
                     <button
-                      onClick={() => onNavigateToApiConfig && onNavigateToApiConfig()}
+                      onClick={() => handleConnect('openai')}
                       className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
                     >
                       <SettingsIcon className="w-4 h-4" />
-                      {integration.id === 'twilio' ? 'Manage Twilio Keys' : 'Manage API Key'}
+                      Manage API Key
+                    </button>
+                  ) : integration.id === 'twilio' ? (
+                    <button
+                      onClick={() => handleConnect('twilio')}
+                      className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+                    >
+                      <SettingsIcon className="w-4 h-4" />
+                      Manage Twilio Keys
                     </button>
                   ) : (
                     <button
@@ -302,6 +417,212 @@ export function Integration({ onNavigateToApiConfig }: IntegrationProps = {}) {
           </div>
         ))}
       </div>
+
+      {/* OpenAI Configuration Modal */}
+      {showOpenAIModal && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 max-w-md w-full p-6 shadow-2xl">
+            <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-green-600 rounded-lg flex items-center justify-center text-white">
+                  <Brain className="w-5 h-5" />
+                </div>
+                <h3 className="text-xl font-bold text-gray-900 dark:text-gray-100">
+                  Configure OpenAI
+                </h3>
+              </div>
+              <button
+                onClick={() => {
+                  setShowOpenAIModal(false);
+                  setOpenaiError('');
+                }}
+                className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+              >
+                <XCircle className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+                <div className="flex items-start gap-3">
+                  <AlertCircle className="w-5 h-5 text-blue-600 dark:text-blue-400 flex-shrink-0 mt-0.5" />
+                  <div className="text-sm text-blue-900 dark:text-blue-100">
+                    <p className="font-medium mb-1">OpenAI Integration</p>
+                    <p className="text-blue-700 dark:text-blue-300">
+                      Used for AI-powered Intent Analysis on call recordings to automatically categorize customer intents, sentiment, and call outcomes.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {openaiError && (
+                <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
+                  <div className="flex items-center gap-2 text-red-900 dark:text-red-100">
+                    <AlertCircle className="w-5 h-5" />
+                    <span className="text-sm font-medium">{openaiError}</span>
+                  </div>
+                </div>
+              )}
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  OpenAI API Key (optional)
+                </label>
+                <div className="relative">
+                  <input
+                    type={showOpenaiKey ? 'text' : 'password'}
+                    value={openaiApiKey}
+                    onChange={(e) => setOpenaiApiKey(e.target.value)}
+                    placeholder="sk-proj-..."
+                    className="w-full px-4 py-2 pr-10 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 font-mono text-sm"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowOpenaiKey(!showOpenaiKey)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                  >
+                    {showOpenaiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                  Used for AI-powered Intent Analysis on call recordings
+                </p>
+              </div>
+
+              <div className="flex gap-3 pt-4 border-t border-gray-200 dark:border-gray-700">
+                <button
+                  onClick={() => {
+                    setShowOpenAIModal(false);
+                    setOpenaiError('');
+                  }}
+                  className="flex-1 px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSaveOpenAI}
+                  disabled={savingOpenAI}
+                  className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  <Save className="w-4 h-4" />
+                  {savingOpenAI ? 'Saving...' : 'Save'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Twilio Configuration Modal */}
+      {showTwilioModal && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 max-w-md w-full p-6 shadow-2xl">
+            <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-red-600 rounded-lg flex items-center justify-center text-white">
+                  <Phone className="w-5 h-5" />
+                </div>
+                <h3 className="text-xl font-bold text-gray-900 dark:text-gray-100">
+                  Configure Twilio Lookup
+                </h3>
+              </div>
+              <button
+                onClick={() => {
+                  setShowTwilioModal(false);
+                  setTwilioError('');
+                }}
+                className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+              >
+                <XCircle className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+                <div className="flex items-start gap-3">
+                  <AlertCircle className="w-5 h-5 text-blue-600 dark:text-blue-400 flex-shrink-0 mt-0.5" />
+                  <div className="text-sm text-blue-900 dark:text-blue-100">
+                    <p className="font-medium mb-1">Twilio Lookup API</p>
+                    <p className="text-blue-700 dark:text-blue-300">
+                      Enable caller identification and phone number validation for incoming calls. Enriches call data with caller name, carrier, and location info.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {twilioError && (
+                <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
+                  <div className="flex items-center gap-2 text-red-900 dark:text-red-100">
+                    <AlertCircle className="w-5 h-5" />
+                    <span className="text-sm font-medium">{twilioError}</span>
+                  </div>
+                </div>
+              )}
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Account SID
+                </label>
+                <input
+                  type="text"
+                  value={twilioAccountSid}
+                  onChange={(e) => setTwilioAccountSid(e.target.value)}
+                  placeholder="AC..."
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 font-mono text-sm"
+                />
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                  Your Twilio Account SID (starts with AC)
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Auth Token
+                </label>
+                <div className="relative">
+                  <input
+                    type={showTwilioToken ? 'text' : 'password'}
+                    value={twilioAuthToken}
+                    onChange={(e) => setTwilioAuthToken(e.target.value)}
+                    placeholder="Your Twilio Auth Token"
+                    className="w-full px-4 py-2 pr-10 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 font-mono text-sm"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowTwilioToken(!showTwilioToken)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                  >
+                    {showTwilioToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                  Used to enrich call data with caller name, carrier, and location info
+                </p>
+              </div>
+
+              <div className="flex gap-3 pt-4 border-t border-gray-200 dark:border-gray-700">
+                <button
+                  onClick={() => {
+                    setShowTwilioModal(false);
+                    setTwilioError('');
+                  }}
+                  className="flex-1 px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSaveTwilio}
+                  disabled={savingTwilio}
+                  className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  <Save className="w-4 h-4" />
+                  {savingTwilio ? 'Saving...' : 'Save'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Integration Details Modal */}
       {selectedIntegration && (

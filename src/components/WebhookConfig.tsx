@@ -10,7 +10,6 @@ import {
   XCircle,
   Tag,
   Loader,
-  ExternalLink,
   Phone
 } from 'lucide-react';
 import { d1Client } from '../lib/d1';
@@ -436,20 +435,6 @@ export function WebhookConfig() {
                   <div>
                     <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Summary</h4>
                     <p className="text-gray-900 dark:text-gray-100">{selectedCall.summary}</p>
-                  </div>
-                )}
-
-                {selectedCall.recording_url && (
-                  <div>
-                    <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Recording</h4>
-                    <a
-                      href={selectedCall.recording_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1"
-                    >
-                      Listen to Recording <ExternalLink className="w-3 h-3" />
-                    </a>
                   </div>
                 )}
 
