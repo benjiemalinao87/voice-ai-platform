@@ -141,8 +141,35 @@ export function PerformanceDashboard({ selectedAgentId, dateRange }: Performance
   const loadData = async () => {
     setLoading(true);
     try {
-      // Load dashboard summary with SQL-optimized metrics (single query, <50ms)
-      const summary = await d1Client.getDashboardSummary();
+      // Load all dashboard data in parallel to reduce total load time
+      // This reduces load time from sum of all calls to max of all calls
+      const [
+        summary,
+        webhookCalls,
+        keywordsData,
+        concurrentData,
+        timeSeriesData,
+        reasonsData
+      ] = await Promise.all([
+        // 1. Dashboard summary with SQL-optimized metrics (single query, <50ms)
+        d1Client.getDashboardSummary(),
+        // 2. Webhook calls for the call volume chart and call list
+        d1Client.getWebhookCalls({ limit: 1000 }),
+        // 3. Keywords data
+        d1Client.getKeywords(),
+        // 4. Concurrent calls data
+        d1Client.getConcurrentCalls().catch(() => ({ current: 0, peak: 0 })),
+        // 5. Concurrent calls time-series
+        d1Client.getConcurrentCallsTimeSeries({
+          granularity: granularity,
+          limit: 1000
+        }).catch(() => ({ data: [], labels: [] })),
+        // 6. Call ended reasons data
+        d1Client.getCallEndedReasons({
+          start_date: dateRange.from,
+          end_date: dateRange.to
+        }).catch(() => ({ dates: [], reasons: {}, colors: {} }))
+      ]);
 
       // Calculate derived metrics
       const qualificationRate = summary.answeredCalls > 0
@@ -177,9 +204,7 @@ export function PerformanceDashboard({ selectedAgentId, dateRange }: Performance
         { label: 'Negative', value: summary.negativeCalls, color: '#ef4444' }
       ];
 
-      // We still need webhook calls for the call volume chart and call list
-      // But now we don't need to process them for metrics
-      const webhookCalls = await d1Client.getWebhookCalls({ limit: 1000 });
+      // Convert webhook calls to Call format
       const convertedCalls: Call[] = webhookCalls.map(call => ({
         id: call.id,
         agent_id: '',
@@ -198,9 +223,6 @@ export function PerformanceDashboard({ selectedAgentId, dateRange }: Performance
         customer_name: call.customer_name || call.caller_name || call.structured_data?.name || call.structured_data?.customerName || null
       }));
 
-      // Load keywords from API
-      const keywordsData = await d1Client.getKeywords();
-
       // Transform keywords to KeywordTrend format
       const keywordTrends: KeywordTrend[] = keywordsData.map((kw, index) => ({
         keyword: kw.keyword,
@@ -212,32 +234,9 @@ export function PerformanceDashboard({ selectedAgentId, dateRange }: Performance
       setCalls(convertedCalls);
       setKeywords(keywordTrends);
       setSentimentData(sentimentBreakdown);
-
-      // Load concurrent calls data
-      try {
-        const concurrentData = await d1Client.getConcurrentCalls();
-        setConcurrentCalls(concurrentData);
-
-        // Load concurrent calls time-series
-        const timeSeriesData = await d1Client.getConcurrentCallsTimeSeries({
-          granularity: granularity,
-          limit: 1000
-        });
-        setConcurrentCallsTimeSeries(timeSeriesData);
-      } catch (error) {
-        console.error('Error loading concurrent calls:', error);
-      }
-
-      // Load call ended reasons data
-      try {
-        const reasonsData = await d1Client.getCallEndedReasons({
-          start_date: dateRange.from,
-          end_date: dateRange.to
-        });
-        setCallEndedReasons(reasonsData);
-      } catch (error) {
-        console.error('Error loading call ended reasons:', error);
-      }
+      setConcurrentCalls(concurrentData);
+      setConcurrentCallsTimeSeries(timeSeriesData);
+      setCallEndedReasons(reasonsData);
     } catch (error) {
       console.error('Error loading dashboard data:', error);
       // Set empty state on error
