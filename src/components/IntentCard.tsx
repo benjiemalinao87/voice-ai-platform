@@ -25,11 +25,11 @@ interface IntentCardProps {
   enhancedData?: any;
 }
 
-type TabType = 'intent' | 'mood' | 'enhanced' | 'outputs';
+type TabType = 'outputs' | 'enhanced';
 
 export function IntentCard({ callIntent, enhancedData }: IntentCardProps) {
   const [isExpanded, setIsExpanded] = useState(false);
-  const [activeTab, setActiveTab] = useState<TabType>('intent');
+  const [activeTab, setActiveTab] = useState<TabType>('outputs');
 
   const getIntentColor = (intent: string) => {
     switch (intent.toLowerCase()) {
@@ -145,36 +145,6 @@ export function IntentCard({ callIntent, enhancedData }: IntentCardProps) {
 
             {/* Tab Navigation in Header */}
             <div className="flex gap-1 ml-auto">
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setActiveTab('intent');
-                  if (!isExpanded) setIsExpanded(true);
-                }}
-                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all duration-300 ${
-                  activeTab === 'intent' && isExpanded
-                    ? 'bg-blue-600 dark:bg-blue-500 text-white'
-                    : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'
-                }`}
-              >
-                <Brain className="w-3.5 h-3.5" />
-                Intent
-              </button>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setActiveTab('mood');
-                  if (!isExpanded) setIsExpanded(true);
-                }}
-                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all duration-300 ${
-                  activeTab === 'mood' && isExpanded
-                    ? 'bg-green-600 dark:bg-green-500 text-white'
-                    : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'
-                }`}
-              >
-                <Heart className="w-3.5 h-3.5" />
-                Mood
-              </button>
               {callIntent.structured_outputs && Object.keys(callIntent.structured_outputs).length > 0 && (
                 <button
                   onClick={(e) => {
@@ -285,28 +255,6 @@ export function IntentCard({ callIntent, enhancedData }: IntentCardProps) {
         <div className="pt-6 border-t border-gray-200 dark:border-gray-700 animate-in slide-in-from-top-2 duration-300">
           {/* Tab Content */}
           <div className="space-y-4">
-            {activeTab === 'intent' && (
-              <div className="group animate-in fade-in duration-300">
-                <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">Analyzed from call summary and transcript</p>
-                <div className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 rounded-xl p-4 border border-blue-100 dark:border-blue-800/30 transition-all duration-300">
-                  <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">
-                    {callIntent.intent_reasoning}
-                  </p>
-                </div>
-              </div>
-            )}
-
-            {activeTab === 'mood' && (
-              <div className="group animate-in fade-in duration-300">
-                <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">Determined from call analysis</p>
-                <div className="bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-900/20 dark:to-emerald-900/20 rounded-xl p-4 border border-green-100 dark:border-green-800/30 transition-all duration-300">
-                  <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">
-                    {callIntent.mood_reasoning}
-                  </p>
-                </div>
-              </div>
-            )}
-
             {activeTab === 'outputs' && callIntent.structured_outputs && (
               <div className="group animate-in fade-in duration-300">
                 <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">Structured outputs from AI analysis</p>

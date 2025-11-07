@@ -170,7 +170,7 @@ export function IntentDashboard() {
                   const payload = typeof call.raw_payload === 'string'
                     ? JSON.parse(call.raw_payload)
                     : call.raw_payload;
-                  
+
                   if (payload.message?.call?.startedAt && payload.message?.call?.endedAt) {
                     const startTime = new Date(payload.message.call.startedAt).getTime();
                     const endTime = new Date(payload.message.call.endedAt).getTime();
@@ -187,6 +187,8 @@ export function IntentDashboard() {
             transcript_excerpt: transcriptExcerpt || call.summary?.substring(0, 200) + '...' || 'No transcript available',
             customer_name: customerName,
             phone_number: call.phone_number || 'N/A',
+            structured_data: call.structured_data || {},
+            structured_outputs: call.structured_outputs || {},
             enhancedData: enhancedData
           };
         });
