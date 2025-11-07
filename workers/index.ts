@@ -3589,6 +3589,34 @@ export default {
         });
       }
 
+      // Get agent distribution - call count by voice agent
+      if (url.pathname === '/api/agent-distribution' && request.method === 'GET') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        // Get effective user ID for workspace context
+        const { effectiveUserId } = await getEffectiveUserId(env, userId);
+
+        // Query to get call distribution by assistant
+        // Using JSON extraction to get assistant ID from raw_payload, then joining with assistants_cache
+        const { results } = await env.DB.prepare(
+          `SELECT
+            json_extract(ac.vapi_data, '$.name') as assistant_name,
+            COUNT(*) as call_count
+          FROM webhook_calls wc
+          JOIN assistants_cache ac ON json_extract(wc.raw_payload, '$.message.call.assistantId') = ac.id
+          WHERE wc.user_id = ?
+            AND wc.raw_payload IS NOT NULL
+            AND wc.customer_number IS NOT NULL
+          GROUP BY assistant_name
+          ORDER BY call_count DESC`
+        ).bind(effectiveUserId).all();
+
+        return jsonResponse(results || []);
+      }
+
       // Get reason call ended data
       // Get call ended reasons (supports workspace context)
       if (url.pathname === '/api/call-ended-reasons' && request.method === 'GET') {
@@ -4186,6 +4214,143 @@ export default {
         }
 
         return jsonResponse(summaryData);
+      }
+
+      // Get appointments data from structured outputs
+      if (url.pathname === '/api/appointments' && request.method === 'GET') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        // Get effective user ID for workspace context
+        const { effectiveUserId } = await getEffectiveUserId(env, userId);
+
+        // Fetch calls with structured outputs that contain appointment data
+        const { results } = await env.DB.prepare(
+          `SELECT
+            wc.id,
+            wc.vapi_call_id,
+            wc.phone_number,
+            wc.customer_number,
+            wc.customer_name,
+            wc.raw_payload,
+            wc.structured_data,
+            wc.created_at
+          FROM webhook_calls wc
+          WHERE wc.user_id = ?
+            AND wc.raw_payload IS NOT NULL
+            AND wc.customer_number IS NOT NULL
+          ORDER BY wc.created_at DESC
+          LIMIT 100`
+        ).bind(effectiveUserId).all();
+
+        // Parse and extract appointment data from structured outputs
+        const appointments = (results || []).map((row: any) => {
+          try {
+            const rawPayload = row.raw_payload ? JSON.parse(row.raw_payload) : null;
+            const structuredOutputs = rawPayload?.message?.analysis?.structuredOutputs ||
+                                     rawPayload?.message?.artifact?.structuredOutputs || {};
+
+            // Extract values from structured outputs
+            let appointmentDate = null;
+            let appointmentTime = null;
+            let qualityScore = null;
+            let issueType = null;
+            let customerFrustrated = null;
+            let escalationRequired = null;
+            let callSummary = null;
+            let product = null;
+
+            // Extract data from structured outputs
+            Object.entries(structuredOutputs).forEach(([key, value]: [string, any]) => {
+              if (typeof value === 'object' && value !== null && 'name' in value && 'result' in value) {
+                const name = value.name.toLowerCase();
+                const result = value.result;
+
+                if (name.includes('appointment date') || name.includes('appointmentdate')) {
+                  appointmentDate = result;
+                } else if (name.includes('appointment time') || name.includes('appointmenttime')) {
+                  appointmentTime = result;
+                } else if (name.includes('quality score') || name.includes('qualityscore')) {
+                  qualityScore = typeof result === 'number' ? result : parseInt(result);
+                } else if (name.includes('issue type') || name.includes('issuetype')) {
+                  issueType = result;
+                } else if (name.includes('customer frustrated') || name.includes('customerfrustrated')) {
+                  customerFrustrated = typeof result === 'boolean' ? result : result === 'true';
+                } else if (name.includes('escalation required') || name.includes('escalationrequired')) {
+                  escalationRequired = typeof result === 'boolean' ? result : result === 'true';
+                } else if (name.includes('call summary') || name.includes('callsummary') || name.includes('summary')) {
+                  callSummary = result;
+                } else if (name.includes('product')) {
+                  product = result;
+                }
+              }
+            });
+
+            // Also check structured_data for product and appointment time fields
+            if (row.structured_data) {
+              try {
+                const structuredData = JSON.parse(row.structured_data);
+                if (!product) {
+                  product = structuredData?.product || null;
+                }
+                if (!appointmentTime) {
+                  appointmentTime = structuredData?.['appointment time'] ||
+                                   structuredData?.['Appointment time'] ||
+                                   structuredData?.['appointmentTime'] || null;
+                }
+              } catch (e) {
+                // Ignore parse error
+              }
+            }
+
+            // Get phone number from customer number or phone_number field
+            const phoneNumber = row.customer_number || row.phone_number || null;
+
+            return {
+              id: row.id,
+              vapi_call_id: row.vapi_call_id,
+              phone_number: phoneNumber,
+              customer_name: row.customer_name,
+              appointment_date: appointmentDate,
+              appointment_time: appointmentTime,
+              quality_score: qualityScore,
+              issue_type: issueType,
+              customer_frustrated: customerFrustrated,
+              escalation_required: escalationRequired,
+              call_summary: callSummary,
+              product: product,
+              created_at: row.created_at
+            };
+          } catch (error) {
+            console.error('Error parsing appointment data:', error);
+            return null;
+          }
+        }).filter((apt: any) => {
+          if (!apt) return false;
+          if (!apt.appointment_date && !apt.call_summary) return false;
+
+          // Filter out appointments with dates in the past
+          if (apt.appointment_date) {
+            try {
+              const appointmentDate = new Date(apt.appointment_date);
+              const today = new Date();
+              today.setHours(0, 0, 0, 0); // Reset time to start of day
+
+              // Exclude if date is before today
+              if (appointmentDate < today) {
+                return false;
+              }
+            } catch (e) {
+              // If date parsing fails, keep the appointment
+            }
+          }
+
+          return true;
+        });
+
+        return jsonResponse(appointments);
       }
 
       // Generate demo data for vic@channelautomation.com

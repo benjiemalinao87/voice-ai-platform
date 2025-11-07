@@ -402,21 +402,6 @@ export function AgentConfig({ agentId }: AgentConfigProps) {
               <div className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    System Prompt
-                  </label>
-                  <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
-                    Defines the AI's personality, behavior, and instructions
-                  </p>
-                  <textarea
-                    value={formData.system_prompt}
-                    onChange={(e) => setFormData({ ...formData, system_prompt: e.target.value })}
-                    rows={8}
-                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent font-mono text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
-                    placeholder="Enter system prompt..."
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                     First Message
                   </label>
                   <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
@@ -428,6 +413,21 @@ export function AgentConfig({ agentId }: AgentConfigProps) {
                     rows={3}
                     className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent font-mono text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
                     placeholder="E.g., Thank you for calling Wellness Partners. This is Riley, your scheduling assistant. How may I help you today?"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    System Prompt
+                  </label>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
+                    Defines the AI's personality, behavior, and instructions
+                  </p>
+                  <textarea
+                    value={formData.system_prompt}
+                    onChange={(e) => setFormData({ ...formData, system_prompt: e.target.value })}
+                    rows={8}
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent font-mono text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+                    placeholder="Enter system prompt..."
                   />
                 </div>
                 <div className="flex gap-2">
@@ -454,12 +454,12 @@ export function AgentConfig({ agentId }: AgentConfigProps) {
             ) : (
               <div className="space-y-4">
                 <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-4">
-                  <p className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-2">System Prompt</p>
-                  <p className="text-sm text-gray-900 dark:text-gray-100 font-mono whitespace-pre-wrap">{agent.system_prompt}</p>
-                </div>
-                <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-4">
                   <p className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-2">First Message</p>
                   <p className="text-sm text-gray-900 dark:text-gray-100 font-mono whitespace-pre-wrap">{agent.conversation_prompt}</p>
+                </div>
+                <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-4">
+                  <p className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-2">System Prompt</p>
+                  <p className="text-sm text-gray-900 dark:text-gray-100 font-mono whitespace-pre-wrap">{agent.system_prompt}</p>
                 </div>
               </div>
             )}

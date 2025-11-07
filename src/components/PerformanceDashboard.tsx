@@ -40,6 +40,8 @@ export function PerformanceDashboard({ selectedAgentId, dateRange }: Performance
   const [concurrentCallsTimeSeries, setConcurrentCallsTimeSeries] = useState<{ data: number[]; labels: string[] } | null>(null);
   const [callEndedReasons, setCallEndedReasons] = useState<{ dates: string[]; reasons: Record<string, number[]>; colors: Record<string, string> } | null>(null);
   const [granularity, setGranularity] = useState<'minute' | 'hour' | 'day'>('minute');
+  const [assistantNames, setAssistantNames] = useState<Record<string, string>>({});
+  const [agentDistribution, setAgentDistribution] = useState<Array<{ label: string; value: number; color: string }>>([]);
 
   useEffect(() => {
     loadData();
@@ -149,7 +151,8 @@ export function PerformanceDashboard({ selectedAgentId, dateRange }: Performance
         keywordsData,
         concurrentData,
         timeSeriesData,
-        reasonsData
+        reasonsData,
+        agentDistributionData
       ] = await Promise.all([
         // 1. Dashboard summary with SQL-optimized metrics (single query, <50ms)
         d1Client.getDashboardSummary(),
@@ -168,7 +171,9 @@ export function PerformanceDashboard({ selectedAgentId, dateRange }: Performance
         d1Client.getCallEndedReasons({
           start_date: dateRange.from,
           end_date: dateRange.to
-        }).catch(() => ({ dates: [], reasons: {}, colors: {} }))
+        }).catch(() => ({ dates: [], reasons: {}, colors: {} })),
+        // 7. Agent distribution data
+        d1Client.getAgentDistribution().catch(() => [])
       ]);
 
       // Calculate derived metrics
@@ -205,30 +210,72 @@ export function PerformanceDashboard({ selectedAgentId, dateRange }: Performance
       ];
 
       // Convert webhook calls to Call format
-      const convertedCalls: Call[] = webhookCalls.map(call => ({
-        id: call.id,
-        agent_id: '',
-        call_date: new Date(call.created_at * 1000).toISOString(),
-        duration_seconds: call.duration_seconds || 0,
-        was_answered: !!call.recording_url,
-        language: 'en',
-        summary: call.summary || null,
-        summary_length: call.summary?.length || 0,
-        is_qualified_lead: call.outcome === 'Successful',
-        has_appointment_intent: call.intent === 'Scheduling',
-        crm_lead_created: false,
-        crm_sync_status: 'pending',
-        sentiment_score: call.sentiment === 'Positive' ? 0.7 : call.sentiment === 'Negative' ? -0.7 : 0,
-        phone_number: call.customer_number || call.phone_number || '',
-        customer_name: call.customer_name || call.caller_name || call.structured_data?.name || call.structured_data?.customerName || null
-      }));
+      const convertedCalls: Call[] = webhookCalls.map(call => {
+        // Extract assistant ID from raw_payload
+        let assistantId = '';
+        try {
+          if (call.raw_payload?.message?.call?.assistantId) {
+            assistantId = call.raw_payload.message.call.assistantId;
+          }
+        } catch (error) {
+          console.error('Error extracting assistantId from raw_payload:', error);
+        }
+
+        return {
+          id: call.id,
+          agent_id: assistantId,
+          call_date: new Date(call.created_at * 1000).toISOString(),
+          duration_seconds: call.duration_seconds || 0,
+          was_answered: !!call.recording_url,
+          language: 'en',
+          summary: call.summary || null,
+          summary_length: call.summary?.length || 0,
+          is_qualified_lead: call.outcome === 'Successful',
+          has_appointment_intent: call.intent === 'Scheduling',
+          crm_lead_created: false,
+          crm_sync_status: 'pending',
+          sentiment_score: call.sentiment === 'Positive' ? 0.7 : call.sentiment === 'Negative' ? -0.7 : 0,
+          phone_number: call.customer_number || call.phone_number || '',
+          customer_name: call.customer_name || call.caller_name || call.structured_data?.name || call.structured_data?.customerName || null,
+          transcript: null,
+          created_at: new Date(call.created_at * 1000).toISOString()
+        };
+      });
 
       // Transform keywords to KeywordTrend format
-      const keywordTrends: KeywordTrend[] = keywordsData.map((kw, index) => ({
+      const keywordTrends: KeywordTrend[] = keywordsData.map((kw) => ({
         keyword: kw.keyword,
         count: kw.count,
         trend: 0 // We don't track trends yet
       }));
+
+      // Transform agent distribution data with colors
+      const colorPalette = ['#3b82f6', '#10b981', '#8b5cf6', '#f59e0b', '#ec4899', '#06b6d4', '#f97316', '#14b8a6'];
+      const agentDistChart = agentDistributionData.map((agent, index) => ({
+        label: agent.assistant_name,
+        value: agent.call_count,
+        color: colorPalette[index % colorPalette.length]
+      }));
+
+      // Fetch assistant names for all unique assistant IDs
+      const uniqueAssistantIds = [...new Set(convertedCalls.map(call => call.agent_id).filter(id => id))];
+      const assistantNamesMap: Record<string, string> = {};
+
+      // Fetch assistant details in parallel
+      await Promise.all(
+        uniqueAssistantIds.map(async (assistantId) => {
+          try {
+            const { assistant } = await d1Client.getAssistant(assistantId);
+            assistantNamesMap[assistantId] = assistant?.name || assistantId;
+          } catch (error: any) {
+            // Silently handle 404s (deleted assistants) - just use the ID
+            if (!error.message?.includes('404')) {
+              console.error(`Error fetching assistant ${assistantId}:`, error);
+            }
+            assistantNamesMap[assistantId] = assistantId.substring(0, 8) + '...'; // Show truncated ID for deleted assistants
+          }
+        })
+      );
 
       setMetrics(metricsData);
       setCalls(convertedCalls);
@@ -237,6 +284,8 @@ export function PerformanceDashboard({ selectedAgentId, dateRange }: Performance
       setConcurrentCalls(concurrentData);
       setConcurrentCallsTimeSeries(timeSeriesData);
       setCallEndedReasons(reasonsData);
+      setAssistantNames(assistantNamesMap);
+      setAgentDistribution(agentDistChart);
     } catch (error) {
       console.error('Error loading dashboard data:', error);
       // Set empty state on error
@@ -277,8 +326,77 @@ export function PerformanceDashboard({ selectedAgentId, dateRange }: Performance
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 dark:border-blue-400"></div>
+      <div className="space-y-6">
+        {/* Top Metrics Skeleton */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          {[...Array(4)].map((_, index) => (
+            <div key={index} className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+              <div className="flex items-start justify-between">
+                <div className="flex-1">
+                  <div className="h-4 w-24 bg-gray-200 dark:bg-gray-700 rounded animate-pulse mb-3"></div>
+                  <div className="h-8 w-20 bg-gray-200 dark:bg-gray-700 rounded animate-pulse mb-2"></div>
+                  <div className="h-3 w-32 bg-gray-200 dark:bg-gray-700 rounded animate-pulse"></div>
+                </div>
+                <div className="w-10 h-10 bg-gray-200 dark:bg-gray-700 rounded-lg animate-pulse"></div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Charts Row Skeleton */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {[...Array(2)].map((_, index) => (
+            <div key={index} className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+              <div className="flex items-center justify-between mb-4">
+                <div className="h-5 w-40 bg-gray-200 dark:bg-gray-700 rounded animate-pulse"></div>
+                <div className="w-5 h-5 bg-gray-200 dark:bg-gray-700 rounded animate-pulse"></div>
+              </div>
+              <div className="h-[200px] bg-gray-100 dark:bg-gray-700/50 rounded animate-pulse"></div>
+            </div>
+          ))}
+        </div>
+
+        {/* Second Metrics Row Skeleton */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          {[...Array(4)].map((_, index) => (
+            <div key={index} className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+              <div className="flex items-start justify-between">
+                <div className="flex-1">
+                  <div className="h-4 w-24 bg-gray-200 dark:bg-gray-700 rounded animate-pulse mb-3"></div>
+                  <div className="h-8 w-20 bg-gray-200 dark:bg-gray-700 rounded animate-pulse mb-2"></div>
+                  <div className="h-3 w-32 bg-gray-200 dark:bg-gray-700 rounded animate-pulse"></div>
+                </div>
+                <div className="w-10 h-10 bg-gray-200 dark:bg-gray-700 rounded-lg animate-pulse"></div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Additional Charts Skeleton */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {[...Array(2)].map((_, index) => (
+            <div key={index} className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+              <div className="flex items-center justify-between mb-4">
+                <div className="h-5 w-36 bg-gray-200 dark:bg-gray-700 rounded animate-pulse"></div>
+                <div className="w-5 h-5 bg-gray-200 dark:bg-gray-700 rounded animate-pulse"></div>
+              </div>
+              <div className="h-[250px] bg-gray-100 dark:bg-gray-700/50 rounded animate-pulse"></div>
+            </div>
+          ))}
+        </div>
+
+        {/* Bottom Charts Row Skeleton */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {[...Array(2)].map((_, index) => (
+            <div key={index} className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+              <div className="flex items-center justify-between mb-4">
+                <div className="h-5 w-44 bg-gray-200 dark:bg-gray-700 rounded animate-pulse"></div>
+                <div className="w-5 h-5 bg-gray-200 dark:bg-gray-700 rounded animate-pulse"></div>
+              </div>
+              <div className="h-[300px] bg-gray-100 dark:bg-gray-700/50 rounded animate-pulse"></div>
+            </div>
+          ))}
+        </div>
       </div>
     );
   }
@@ -335,11 +453,17 @@ export function PerformanceDashboard({ selectedAgentId, dateRange }: Performance
 
         <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Language Distribution</h3>
-            <Globe className="w-5 h-5 text-gray-400 dark:text-gray-500" />
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Call Distribution by Voice Agent</h3>
+            <Users className="w-5 h-5 text-gray-400 dark:text-gray-500" />
           </div>
           <div className="flex justify-center py-4">
-            <DonutChart data={languageData} size={200} innerSize={70} />
+            {agentDistribution.length > 0 ? (
+              <DonutChart data={agentDistribution} size={200} innerSize={70} />
+            ) : (
+              <div className="flex items-center justify-center h-[200px] text-gray-400 dark:text-gray-500">
+                No agent distribution data available
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -411,12 +535,11 @@ export function PerformanceDashboard({ selectedAgentId, dateRange }: Performance
               <tr className="border-b border-gray-200 dark:border-gray-700">
                 <th className="text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider py-3 px-4">Date</th>
                 <th className="text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider py-3 px-4">Caller</th>
+                <th className="text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider py-3 px-4">Assistant</th>
                 <th className="text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider py-3 px-4">Phone</th>
                 <th className="text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider py-3 px-4">Duration</th>
-                <th className="text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider py-3 px-4">Language</th>
                 <th className="text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider py-3 px-4">Status</th>
                 <th className="text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider py-3 px-4">Qualified</th>
-                <th className="text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider py-3 px-4">CRM</th>
                 <th className="text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider py-3 px-4">Sentiment</th>
               </tr>
             </thead>
@@ -434,18 +557,20 @@ export function PerformanceDashboard({ selectedAgentId, dateRange }: Performance
                   <td className="py-3 px-4 text-sm text-gray-900 dark:text-gray-100">
                     {call.customer_name || 'Unknown'}
                   </td>
+                  <td className="py-3 px-4 text-sm text-gray-900 dark:text-gray-100">
+                    {call.agent_id ? (
+                      <span title={call.agent_id}>
+                        {assistantNames[call.agent_id] || call.agent_id}
+                      </span>
+                    ) : (
+                      <span className="text-gray-400 dark:text-gray-500">-</span>
+                    )}
+                  </td>
                   <td className="py-3 px-4 text-sm text-gray-600 dark:text-gray-400">
                     {call.phone_number || '-'}
                   </td>
                   <td className="py-3 px-4 text-sm text-gray-600 dark:text-gray-400">
                     {Math.floor(call.duration_seconds / 60)}:{String(call.duration_seconds % 60).padStart(2, '0')}
-                  </td>
-                  <td className="py-3 px-4">
-                    <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                      call.language === 'es' ? 'bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400' : 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400'
-                    }`}>
-                      {call.language.toUpperCase()}
-                    </span>
                   </td>
                   <td className="py-3 px-4">
                     {call.was_answered ? (
@@ -466,15 +591,6 @@ export function PerformanceDashboard({ selectedAgentId, dateRange }: Performance
                     ) : (
                       <span className="text-gray-400 dark:text-gray-500 text-xs">No</span>
                     )}
-                  </td>
-                  <td className="py-3 px-4">
-                    <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                      call.crm_sync_status === 'success' ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' :
-                      call.crm_sync_status === 'error' ? 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400' :
-                      'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-400'
-                    }`}>
-                      {call.crm_sync_status}
-                    </span>
                   </td>
                   <td className="py-3 px-4">
                     <div className="flex items-center gap-2">

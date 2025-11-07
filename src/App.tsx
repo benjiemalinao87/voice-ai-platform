@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { BarChart3, Settings as SettingsIcon, Calendar, Moon, Sun, Mic, Brain, Bot } from 'lucide-react';
+import { BarChart3, Settings as SettingsIcon, Calendar, Moon, Sun, Mic, Brain, Bot, CalendarCheck } from 'lucide-react';
 import { PerformanceDashboard } from './components/PerformanceDashboard';
 import { AgentConfig } from './components/AgentConfig';
 import { Recordings } from './components/Recordings';
@@ -13,12 +13,13 @@ import { LiveCallFeed } from './components/LiveCallFeed';
 import { VoiceAgentsList } from './components/VoiceAgentsList';
 import { CreateAgentModal } from './components/CreateAgentModal';
 import { WhatsNew } from './components/WhatsNew';
+import { AppointmentsByAI } from './components/AppointmentsByAI';
 import { useAuth } from './contexts/AuthContext';
 import { useVapi } from './contexts/VapiContext';
 import { agentApi } from './lib/api';
 import type { Agent } from './types';
 
-type View = 'dashboard' | 'config' | 'recordings' | 'settings' | 'flow' | 'intent' | 'livechat' | 'board';
+type View = 'dashboard' | 'config' | 'recordings' | 'settings' | 'flow' | 'intent' | 'livechat' | 'board' | 'appointments';
 
 function App() {
   const { isAuthenticated, isLoading } = useAuth();
@@ -188,6 +189,17 @@ function App() {
                       <BarChart3 className="w-4 h-4" />
                       Dashboard
                     </button>
+                    <button
+                      onClick={() => setCurrentView('appointments')}
+                      className={`flex items-center gap-2 px-4 py-2 rounded-md font-medium transition-colors ${
+                        currentView === 'appointments'
+                          ? 'bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 shadow-sm'
+                          : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100'
+                      }`}
+                    >
+                      <CalendarCheck className="w-4 h-4" />
+                      Appointment by AI
+                    </button>
                     {/* <button
                       onClick={() => setCurrentView('board')}
                       className={`flex items-center gap-2 px-4 py-2 rounded-md font-medium transition-colors ${
@@ -303,6 +315,10 @@ function App() {
               dateRange={dateRange}
             />
           </div>
+        )}
+
+        {currentView === 'appointments' && (
+          <AppointmentsByAI />
         )}
 
         {currentView === 'recordings' && (

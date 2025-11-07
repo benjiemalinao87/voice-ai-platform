@@ -237,6 +237,27 @@ class D1Client {
     });
   }
 
+  // Get appointments data from structured outputs
+  async getAppointments(): Promise<Array<{
+    id: string;
+    vapi_call_id: string;
+    phone_number: string | null;
+    customer_name: string | null;
+    appointment_date: string | null;
+    appointment_time: string | null;
+    quality_score: number | null;
+    issue_type: string | null;
+    customer_frustrated: boolean | null;
+    escalation_required: boolean | null;
+    call_summary: string | null;
+    product: string | null;
+    created_at: number;
+  }>> {
+    return this.request('/api/appointments', {
+      method: 'GET',
+    });
+  }
+
   // Get top keywords with sentiment
   async getKeywords(): Promise<Array<{
     keyword: string;
@@ -462,6 +483,16 @@ class D1Client {
     neutralCalls: number;
   }> {
     return this.request('/api/dashboard-summary', {
+      method: 'GET',
+    });
+  }
+
+  // Get call distribution by voice agent
+  async getAgentDistribution(): Promise<Array<{
+    assistant_name: string;
+    call_count: number;
+  }>> {
+    return this.request('/api/agent-distribution', {
       method: 'GET',
     });
   }
