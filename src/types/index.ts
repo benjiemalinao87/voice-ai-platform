@@ -117,6 +117,8 @@ export interface CallIntent {
   transcript_excerpt: string;
   customer_name?: string;
   phone_number?: string;
+  structured_data?: Record<string, any>;
+  structured_outputs?: Record<string, any>;
 }
 
 // ============================================

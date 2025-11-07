@@ -375,24 +375,33 @@ export async function createEngagement(
 
     for (const [key, value] of Object.entries(structuredOutputs)) {
       if (value !== null && value !== undefined) {
-        const formattedKey = key
-          .replace(/([A-Z])/g, ' $1')
-          .replace(/_/g, ' ')
-          .replace(/\b\w/g, (l) => l.toUpperCase())
-          .trim();
+        // Extract clean field name and value
+        let fieldName = key;
+        let fieldValue = value;
 
-        // Format the output
-        let formattedValue = value;
-        if (typeof value === 'object') {
+        if (typeof value === 'object' && value !== null) {
           // Check if it has name and result properties (structured output format)
           if ('name' in value && 'result' in value) {
-            formattedValue = `${value.name}: ${JSON.stringify(value.result)}`;
+            fieldName = value.name;
+            fieldValue = value.result;
           } else {
-            formattedValue = JSON.stringify(value, null, 2);
+            fieldValue = JSON.stringify(value, null, 2);
           }
         }
 
-        noteBody += `\n- **${formattedKey}:** ${formattedValue}`;
+        // Format the value for display
+        let displayValue = fieldValue;
+        if (typeof fieldValue === 'boolean') {
+          displayValue = fieldValue ? 'Yes' : 'No';
+        } else if (typeof fieldValue === 'string') {
+          displayValue = fieldValue;
+        } else if (typeof fieldValue === 'number') {
+          displayValue = fieldValue.toString();
+        } else {
+          displayValue = JSON.stringify(fieldValue);
+        }
+
+        noteBody += `\n- **${fieldName}:** ${displayValue}`;
       }
     }
   }

@@ -4136,11 +4136,21 @@ export default {
             enhancedData = generateMockEnhancedData(index);
           }
 
+          // Parse raw_payload to extract structured outputs
+          let structuredOutputs = {};
+          if (row.raw_payload) {
+            const rawPayload = JSON.parse(row.raw_payload);
+            const analysis = rawPayload?.message?.analysis || {};
+            const artifact = rawPayload?.message?.artifact || {};
+            structuredOutputs = analysis?.structuredOutputs || artifact?.structuredOutputs || {};
+          }
+
           return {
             ...row,
             structured_data: row.structured_data ? JSON.parse(row.structured_data) : null,
             raw_payload: row.raw_payload ? JSON.parse(row.raw_payload) : null,
-            enhanced_data: enhancedData
+            enhanced_data: enhancedData,
+            structured_outputs: structuredOutputs
           };
         });
 

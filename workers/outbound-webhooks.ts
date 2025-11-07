@@ -73,6 +73,7 @@ function buildOutboundPayload(
     summary?: string;
     structuredData?: any;
     conversation?: Array<{ role: string; message: string }>;
+    structuredOutputs?: any;
     recordingUrl?: string | null;
   }
 ): any {
@@ -91,14 +92,15 @@ function buildOutboundPayload(
     };
   }
 
-  // call.ended event
+  // call.ended event - formatted like HubSpot sync
   return {
     ...basePayload,
     duration_seconds: data.durationSeconds || 0,
     ended_reason: data.endedReason || 'unknown',
-    summary: data.summary || '',
-    structured_data: data.structuredData || {},
-    conversation: data.conversation || [],
+    call_summary: data.summary || '',
+    call_details: data.structuredData || {},
+    structured_outputs: data.structuredOutputs || {},
+    conversation_transcript: data.conversation || [],
     recording_url: data.recordingUrl || null,
   };
 }
@@ -297,17 +299,25 @@ export async function dispatchToOutboundWebhooks(
         continue;
       }
 
-      // Extract conversation from raw payload if available
+      // Extract conversation and structured outputs from raw payload if available
       let conversation: Array<{ role: string; message: string }> = [];
+      let structuredOutputs: any = {};
+
       if (eventType === 'call.ended' && callData.rawPayload) {
         const messages = callData.rawPayload?.message?.artifact?.messages || [];
         conversation = extractConversation(messages);
+
+        // Extract structured outputs from VAPI payload
+        const analysis = callData.rawPayload?.message?.analysis || {};
+        const artifact = callData.rawPayload?.message?.artifact || {};
+        structuredOutputs = analysis?.structuredOutputs || artifact?.structuredOutputs || {};
       }
 
       // Build payload
       const payload = buildOutboundPayload(eventType, {
         ...callData,
         conversation,
+        structuredOutputs,
         recordingUrl: r2RecordingUrl,
       });
 
