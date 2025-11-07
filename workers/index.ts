@@ -3234,6 +3234,7 @@ export default {
         console.log(`Cache MISS for recordings: user=${effectiveUserId}, page=${page}, limit=${limit}${cacheBust ? ' (cache-bust requested)' : ''}`);
 
         // Fetch from database with enhanced data (using effectiveUserId for workspace context)
+        // Filter out test calls (those without customer_number)
         let query = env.DB.prepare(
           `SELECT
             wc.id,
@@ -3262,10 +3263,11 @@ export default {
           FROM webhook_calls wc
           LEFT JOIN addon_results ar ON ar.call_id = wc.id AND ar.addon_type = 'enhanced_data' AND ar.status = 'success'
           WHERE wc.user_id = ?
+          AND wc.customer_number IS NOT NULL
           ${webhookId ? 'AND wc.webhook_id = ?' : ''}
-          ORDER BY CASE 
-            WHEN wc.created_at > 1000000000000 THEN wc.created_at / 1000 
-            ELSE wc.created_at 
+          ORDER BY CASE
+            WHEN wc.created_at > 1000000000000 THEN wc.created_at / 1000
+            ELSE wc.created_at
           END DESC
           LIMIT ? OFFSET ?`
         );
@@ -3345,11 +3347,13 @@ export default {
 
         // Get historical peak concurrent calls
         // We'll analyze webhook_calls to find the maximum number of overlapping calls
+        // Filter out test calls (those without customer_number)
         const { results } = await env.DB.prepare(
           `SELECT raw_payload, created_at
           FROM webhook_calls
           WHERE user_id = ?
           AND raw_payload IS NOT NULL
+          AND customer_number IS NOT NULL
           ORDER BY created_at DESC
           LIMIT 1000`
         ).bind(effectiveUserId).all();
@@ -3427,11 +3431,13 @@ export default {
         const limit = parseInt(url.searchParams.get('limit') || '1000');
 
         // Fetch recent calls with their time ranges (using effectiveUserId)
+        // Filter out test calls (those without customer_number)
         const { results } = await env.DB.prepare(
           `SELECT raw_payload, created_at
           FROM webhook_calls
           WHERE user_id = ?
           AND raw_payload IS NOT NULL
+          AND customer_number IS NOT NULL
           ORDER BY created_at DESC
           LIMIT ?`
         ).bind(effectiveUserId, limit).all();
@@ -3529,6 +3535,7 @@ export default {
 
         // Single SQL query to calculate all dashboard metrics
         // This runs in <50ms on the database vs seconds of JavaScript processing
+        // Filter out test calls (those without customer_number)
         const result = await env.DB.prepare(
           `SELECT
             COUNT(*) as total_calls,
@@ -3544,7 +3551,7 @@ export default {
             COUNT(CASE WHEN sentiment = 'Negative' THEN 1 END) as negative_calls,
             COUNT(*) - COUNT(CASE WHEN sentiment = 'Positive' THEN 1 END) - COUNT(CASE WHEN sentiment = 'Negative' THEN 1 END) as neutral_calls
           FROM webhook_calls
-          WHERE user_id = ?`
+          WHERE user_id = ? AND customer_number IS NOT NULL`
         ).bind(effectiveUserId).first() as any;
 
         if (!result) {
@@ -3598,14 +3605,16 @@ export default {
 
         // Build query with optional date filtering
         // Filter out rows where created_at is null or ended_reason is null
-        let queryStr = `SELECT 
+        // Filter out test calls (those without customer_number)
+        let queryStr = `SELECT
           ended_reason,
           DATE(datetime(created_at, 'unixepoch')) as call_date,
           COUNT(*) as count
         FROM webhook_calls
         WHERE user_id = ?
         AND ended_reason IS NOT NULL
-        AND created_at IS NOT NULL`;
+        AND created_at IS NOT NULL
+        AND customer_number IS NOT NULL`;
         
         const params: any[] = [effectiveUserId];
         
@@ -3953,6 +3962,7 @@ export default {
         console.log(`Cache MISS for intent analysis: user=${effectiveUserId}`);
 
         // Fetch analyzed calls from database with enhanced data (using effectiveUserId)
+        // Filter out test calls (those without customer_number)
         const { results } = await env.DB.prepare(
           `SELECT
             wc.id,
@@ -3980,7 +3990,7 @@ export default {
             ar.result_data as enhanced_data
           FROM webhook_calls wc
           LEFT JOIN addon_results ar ON ar.call_id = wc.id AND ar.addon_type = 'enhanced_data' AND ar.status = 'success'
-          WHERE wc.user_id = ? AND wc.analysis_completed = 1
+          WHERE wc.user_id = ? AND wc.analysis_completed = 1 AND wc.customer_number IS NOT NULL
           ORDER BY wc.created_at DESC
           LIMIT ? OFFSET ?`
         ).bind(effectiveUserId, limit, offset).all();
@@ -5854,9 +5864,15 @@ Need help? Contact our support team anytime!
           }
         }
 
+        // Filter out test calls - skip saving if there's no customer number
+        if (!customerNumber) {
+          console.log('[Webhook] Skipping test call - no customer number present');
+          return jsonResponse({ success: true, message: 'Test call ignored (no customer number)' });
+        }
+
         // Calculate duration - check multiple locations in payload
         let durationSeconds: number | null = null;
-        
+
         // First, try to use durationSeconds directly from message
         if (message.durationSeconds) {
           durationSeconds = Math.floor(message.durationSeconds);

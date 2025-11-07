@@ -94,16 +94,25 @@ export function PhoneNumbers() {
 
   const loadAssistants = async () => {
     try {
-      // Use cached endpoint (cache-first, falls back to Vapi if needed)
-      const { assistants } = await d1Client.getAssistants();
-      
-      setAssistants(assistants.map((a: any) => ({
+      // Get user settings for API key
+      const settings = await d1Client.getUserSettings();
+      if (!settings.privateKey) {
+        setAssistants([]);
+        return;
+      }
+
+      // Fetch directly from VAPI to get fresh data (bypass cache)
+      const client = new VapiClient(settings.privateKey);
+      const vapiAssistants = await client.listAssistants() as any[];
+
+      setAssistants(vapiAssistants.map((a: any) => ({
         id: a.id,
         name: a.name || 'Unnamed Assistant'
       })));
     } catch (error: any) {
       console.error('Failed to load assistants:', error);
       // Don't show error - assistants are optional for display
+      setAssistants([]);
     }
   };
 
