@@ -563,6 +563,97 @@ class D1Client {
   }
 
   // ============================================
+  // HUBSPOT INTEGRATION
+  // ============================================
+
+  /**
+   * Initiate HubSpot OAuth flow
+   * Opens a popup window for user to authorize HubSpot access
+   */
+  async initiateHubSpotOAuth(): Promise<{ authUrl: string }> {
+    const response = await this.request<{ success: boolean; authUrl: string }>(
+      '/api/hubspot/oauth/initiate',
+      { method: 'GET' }
+    );
+    return { authUrl: response.authUrl };
+  }
+
+  /**
+   * Get HubSpot connection status
+   * Returns whether HubSpot is connected and token expiration
+   */
+  async getHubSpotStatus(): Promise<{
+    connected: boolean;
+    tokenExpiresAt: number | null;
+  }> {
+    const response = await this.request<{
+      success: boolean;
+      connected: boolean;
+      tokenExpiresAt: number | null;
+    }>('/api/hubspot/status', { method: 'GET' });
+
+    return {
+      connected: response.connected,
+      tokenExpiresAt: response.tokenExpiresAt,
+    };
+  }
+
+  /**
+   * Disconnect HubSpot
+   * Removes OAuth tokens and disconnects integration
+   */
+  async disconnectHubSpot(): Promise<{ success: boolean; message: string }> {
+    return this.request<{ success: boolean; message: string }>(
+      '/api/hubspot/disconnect',
+      { method: 'DELETE' }
+    );
+  }
+
+  /**
+   * Get HubSpot sync logs
+   * Returns paginated list of sync attempts with their status
+   */
+  async getHubSpotSyncLogs(params?: {
+    limit?: number;
+    offset?: number;
+    status?: 'success' | 'error' | 'skipped';
+  }): Promise<{
+    logs: Array<{
+      id: string;
+      call_id: string;
+      contact_id: string | null;
+      engagement_id: string | null;
+      status: 'success' | 'error' | 'skipped';
+      error_message: string | null;
+      phone_number: string | null;
+      created_at: number;
+    }>;
+    total: number;
+    limit: number;
+    offset: number;
+  }> {
+    const queryParams = new URLSearchParams();
+    if (params?.limit) queryParams.set('limit', params.limit.toString());
+    if (params?.offset) queryParams.set('offset', params.offset.toString());
+    if (params?.status) queryParams.set('status', params.status);
+
+    const url = `/api/hubspot/sync-logs${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
+
+    return this.request<{
+      success: boolean;
+      logs: Array<any>;
+      total: number;
+      limit: number;
+      offset: number;
+    }>(url, { method: 'GET' }).then(response => ({
+      logs: response.logs,
+      total: response.total,
+      limit: response.limit,
+      offset: response.offset,
+    }));
+  }
+
+  // ============================================
   // GENERIC HTTP METHODS
   // ============================================
 

@@ -121,9 +121,20 @@ export function Integration({ onNavigateToApiConfig }: IntegrationProps = {}) {
     message: string;
   } | null>(null);
 
+  // HubSpot State
+  const [hubspotConnected, setHubspotConnected] = useState(false);
+  const [hubspotNotification, setHubspotNotification] = useState<{
+    type: 'success' | 'error';
+    message: string;
+  } | null>(null);
+  const [showHubSpotLogsModal, setShowHubSpotLogsModal] = useState(false);
+  const [hubspotSyncLogs, setHubspotSyncLogs] = useState<any[]>([]);
+  const [loadingHubSpotLogs, setLoadingHubSpotLogs] = useState(false);
+
   useEffect(() => {
     loadIntegrationStatus();
     checkSalesforceCallback();
+    checkHubSpotCallback();
   }, []);
 
   const checkSalesforceCallback = () => {
@@ -152,6 +163,30 @@ export function Integration({ onNavigateToApiConfig }: IntegrationProps = {}) {
     }
   };
 
+  const checkHubSpotCallback = async () => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const hubspotStatus = urlParams.get('hubspot');
+
+    if (hubspotStatus === 'connected') {
+      setHubspotNotification({
+        type: 'success',
+        message: 'HubSpot connected successfully!'
+      });
+      window.history.replaceState({}, '', window.location.pathname);
+      setTimeout(() => setHubspotNotification(null), 5000);
+      // Reload integration status to update the UI
+      await loadIntegrationStatus();
+    } else if (hubspotStatus === 'error') {
+      const errorMessage = urlParams.get('message') || 'Failed to connect to HubSpot';
+      setHubspotNotification({
+        type: 'error',
+        message: errorMessage
+      });
+      window.history.replaceState({}, '', window.location.pathname);
+      setTimeout(() => setHubspotNotification(null), 8000);
+    }
+  };
+
   const loadIntegrationStatus = async () => {
     try {
       const settings = await d1Client.getUserSettings();
@@ -165,6 +200,16 @@ export function Integration({ onNavigateToApiConfig }: IntegrationProps = {}) {
         setSalesforceInstanceUrl(sfStatus.instanceUrl);
       } catch (error) {
         console.error('Error loading Salesforce status:', error);
+      }
+
+      // Load HubSpot status
+      let hsConnected = false;
+      try {
+        const hsStatus = await d1Client.getHubSpotStatus();
+        hsConnected = hsStatus.connected;
+        setHubspotConnected(hsStatus.connected);
+      } catch (error) {
+        console.error('Error loading HubSpot status:', error);
       }
 
       // Update integration status based on stored credentials
@@ -188,6 +233,13 @@ export function Integration({ onNavigateToApiConfig }: IntegrationProps = {}) {
             ...integration,
             status: sfConnected ? 'connected' : 'disconnected',
             lastSync: sfConnected ? 'Active' : undefined
+          };
+        }
+        if (integration.id === 'hubspot') {
+          return {
+            ...integration,
+            status: hsConnected ? 'connected' : 'disconnected',
+            lastSync: hsConnected ? 'Active' : undefined
           };
         }
         return integration;
@@ -272,6 +324,45 @@ export function Integration({ onNavigateToApiConfig }: IntegrationProps = {}) {
       return;
     }
 
+    if (integrationId === 'hubspot') {
+      // Start HubSpot OAuth flow
+      try {
+        setIsConnecting(integrationId);
+        const { authUrl } = await d1Client.initiateHubSpotOAuth();
+
+        // Open OAuth in popup window
+        const width = 600;
+        const height = 700;
+        const left = window.screen.width / 2 - width / 2;
+        const top = window.screen.height / 2 - height / 2;
+
+        const popup = window.open(
+          authUrl,
+          'HubSpot OAuth',
+          `width=${width},height=${height},left=${left},top=${top}`
+        );
+
+        // Poll for popup closure
+        const pollTimer = setInterval(() => {
+          if (popup?.closed) {
+            clearInterval(pollTimer);
+            setIsConnecting(null);
+            // Reload integration status after OAuth
+            loadIntegrationStatus();
+          }
+        }, 500);
+      } catch (error: any) {
+        console.error('Error initiating HubSpot OAuth:', error);
+        setHubspotNotification({
+          type: 'error',
+          message: error.message || 'Failed to initiate HubSpot connection'
+        });
+        setIsConnecting(null);
+        setTimeout(() => setHubspotNotification(null), 8000);
+      }
+      return;
+    }
+
     setIsConnecting(integrationId);
     // Simulate connection process for other integrations
     setTimeout(() => {
@@ -299,6 +390,43 @@ export function Integration({ onNavigateToApiConfig }: IntegrationProps = {}) {
       });
       setTimeout(() => setSalesforceNotification(null), 8000);
     }
+  };
+
+  const handleDisconnectHubSpot = async () => {
+    try {
+      await d1Client.disconnectHubSpot();
+      setHubspotConnected(false);
+      setHubspotNotification({
+        type: 'success',
+        message: 'HubSpot disconnected successfully'
+      });
+      await loadIntegrationStatus();
+      setTimeout(() => setHubspotNotification(null), 5000);
+    } catch (error: any) {
+      console.error('Error disconnecting HubSpot:', error);
+      setHubspotNotification({
+        type: 'error',
+        message: error.message || 'Failed to disconnect HubSpot'
+      });
+      setTimeout(() => setHubspotNotification(null), 8000);
+    }
+  };
+
+  const loadHubSpotSyncLogs = async () => {
+    setLoadingHubSpotLogs(true);
+    try {
+      const logs = await d1Client.getHubSpotSyncLogs();
+      setHubspotSyncLogs(logs.logs || []);
+    } catch (error) {
+      console.error('Error loading HubSpot sync logs:', error);
+    } finally {
+      setLoadingHubSpotLogs(false);
+    }
+  };
+
+  const handleOpenHubSpotLogs = async () => {
+    setShowHubSpotLogsModal(true);
+    await loadHubSpotSyncLogs();
   };
 
   const handleSaveOpenAI = async () => {
@@ -433,6 +561,42 @@ export function Integration({ onNavigateToApiConfig }: IntegrationProps = {}) {
             </div>
             <button
               onClick={() => setSalesforceNotification(null)}
+              className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+            >
+              <XCircle className="w-5 h-5" />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* HubSpot Notification Banner */}
+      {hubspotNotification && (
+        <div
+          className={`rounded-lg border p-4 ${
+            hubspotNotification.type === 'success'
+              ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800'
+              : 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800'
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              {hubspotNotification.type === 'success' ? (
+                <CheckCircle className="w-5 h-5 text-green-600 dark:text-green-400" />
+              ) : (
+                <AlertCircle className="w-5 h-5 text-red-600 dark:text-red-400" />
+              )}
+              <span
+                className={`text-sm font-medium ${
+                  hubspotNotification.type === 'success'
+                    ? 'text-green-900 dark:text-green-100'
+                    : 'text-red-900 dark:text-red-100'
+                }`}
+              >
+                {hubspotNotification.message}
+              </span>
+            </div>
+            <button
+              onClick={() => setHubspotNotification(null)}
               className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
             >
               <XCircle className="w-5 h-5" />
@@ -579,6 +743,23 @@ export function Integration({ onNavigateToApiConfig }: IntegrationProps = {}) {
                       <XCircle className="w-4 h-4" />
                       Disconnect
                     </button>
+                  ) : integration.id === 'hubspot' ? (
+                    <>
+                      <button
+                        onClick={handleOpenHubSpotLogs}
+                        className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-blue-100 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400 rounded-lg hover:bg-blue-200 dark:hover:bg-blue-900/30 transition-colors"
+                      >
+                        <Eye className="w-4 h-4" />
+                        View History
+                      </button>
+                      <button
+                        onClick={handleDisconnectHubSpot}
+                        className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-red-100 dark:bg-red-900/20 text-red-700 dark:text-red-400 rounded-lg hover:bg-red-200 dark:hover:bg-red-900/30 transition-colors"
+                      >
+                        <XCircle className="w-4 h-4" />
+                        Disconnect
+                      </button>
+                    </>
                   ) : (
                     <button
                       onClick={() => setSelectedIntegration(integration.id)}
@@ -588,7 +769,7 @@ export function Integration({ onNavigateToApiConfig }: IntegrationProps = {}) {
                       Configure
                     </button>
                   )}
-                  {integration.id !== 'openai' && integration.id !== 'twilio' && integration.id !== 'salesforce' && (
+                  {integration.id !== 'openai' && integration.id !== 'twilio' && integration.id !== 'salesforce' && integration.id !== 'hubspot' && (
                     <button className="flex items-center justify-center gap-2 px-3 py-2 bg-green-100 dark:bg-green-900/20 text-green-700 dark:text-green-400 rounded-lg hover:bg-green-200 dark:hover:bg-green-900/30 transition-colors">
                       <RefreshCw className="w-4 h-4" />
                     </button>
@@ -937,6 +1118,128 @@ export function Integration({ onNavigateToApiConfig }: IntegrationProps = {}) {
           </div>
         </div>
         )
+      )}
+
+      {/* HubSpot Sync Logs Modal */}
+      {showHubSpotLogsModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white dark:bg-gray-800 rounded-lg max-w-4xl w-full max-h-[80vh] overflow-hidden flex flex-col">
+            <div className="p-6 border-b border-gray-200 dark:border-gray-700">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+                    HubSpot Sync History
+                  </h2>
+                  <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                    View all call sync attempts to HubSpot
+                  </p>
+                </div>
+                <button
+                  onClick={() => setShowHubSpotLogsModal(false)}
+                  className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+                >
+                  <XCircle className="w-5 h-5 text-gray-500 dark:text-gray-400" />
+                </button>
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-6">
+              {loadingHubSpotLogs ? (
+                <div className="flex items-center justify-center py-12">
+                  <RefreshCw className="w-8 h-8 text-blue-600 dark:text-blue-400 animate-spin" />
+                </div>
+              ) : hubspotSyncLogs.length === 0 ? (
+                <div className="text-center py-12">
+                  <AlertCircle className="w-12 h-12 text-gray-400 dark:text-gray-500 mx-auto mb-3" />
+                  <p className="text-gray-500 dark:text-gray-400">No sync logs found</p>
+                  <p className="text-sm text-gray-400 dark:text-gray-500 mt-1">
+                    Sync logs will appear here after calls are synced to HubSpot
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {hubspotSyncLogs.map((log: any) => (
+                    <div
+                      key={log.id}
+                      className="bg-gray-50 dark:bg-gray-700 rounded-lg p-4 border border-gray-200 dark:border-gray-600"
+                    >
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 mb-2">
+                            {log.status === 'success' ? (
+                              <CheckCircle className="w-5 h-5 text-green-600 dark:text-green-400" />
+                            ) : log.status === 'skipped' ? (
+                              <AlertCircle className="w-5 h-5 text-yellow-600 dark:text-yellow-400" />
+                            ) : (
+                              <XCircle className="w-5 h-5 text-red-600 dark:text-red-400" />
+                            )}
+                            <span className={`text-sm font-medium ${
+                              log.status === 'success'
+                                ? 'text-green-700 dark:text-green-400'
+                                : log.status === 'skipped'
+                                ? 'text-yellow-700 dark:text-yellow-400'
+                                : 'text-red-700 dark:text-red-400'
+                            }`}>
+                              {log.status.toUpperCase()}
+                            </span>
+                            <span className="text-xs text-gray-500 dark:text-gray-400">
+                              {new Date(log.created_at).toLocaleString()}
+                            </span>
+                          </div>
+
+                          <div className="space-y-1 text-sm">
+                            <div className="flex items-center gap-2">
+                              <span className="text-gray-600 dark:text-gray-400">Phone:</span>
+                              <span className="text-gray-900 dark:text-gray-100 font-mono">
+                                {log.phone_number || 'N/A'}
+                              </span>
+                            </div>
+
+                            {log.contact_id && (
+                              <div className="flex items-center gap-2">
+                                <span className="text-gray-600 dark:text-gray-400">Contact ID:</span>
+                                <span className="text-gray-900 dark:text-gray-100 font-mono">
+                                  {log.contact_id}
+                                </span>
+                              </div>
+                            )}
+
+                            {log.engagement_id && (
+                              <div className="flex items-center gap-2">
+                                <span className="text-gray-600 dark:text-gray-400">Engagement ID:</span>
+                                <span className="text-gray-900 dark:text-gray-100 font-mono">
+                                  {log.engagement_id}
+                                </span>
+                              </div>
+                            )}
+
+                            {log.error_message && (
+                              <div className="flex items-start gap-2 mt-2">
+                                <span className="text-gray-600 dark:text-gray-400">Error:</span>
+                                <span className="text-red-700 dark:text-red-400 flex-1">
+                                  {log.error_message}
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="p-6 border-t border-gray-200 dark:border-gray-700">
+              <button
+                onClick={() => setShowHubSpotLogsModal(false)}
+                className="w-full px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

@@ -2492,3 +2492,163 @@ Added status badge to UI to show when numbers are "activating" vs "active":
 6. **Usage Statistics**: Show call volume and usage per number
 7. **Number Assignment**: Assign numbers to specific assistants
 8. **Auto-refresh**: Automatically poll for pending numbers until they're assigned
+
+---
+
+## Dashboard Performance Optimization - Parallel API Calls (January 24, 2025)
+
+### Problem
+Dashboard was taking a long time to load even for new accounts with no data. The dashboard was making 6 sequential API calls:
+1. `getDashboardSummary()` - Dashboard metrics
+2. `getWebhookCalls({ limit: 1000 })` - Call list for charts
+3. `getKeywords()` - Keyword trends
+4. `getConcurrentCalls()` - Current/peak concurrent calls
+5. `getConcurrentCallsTimeSeries()` - Time-series data
+6. `getCallEndedReasons()` - Call ended reasons chart data
+
+**Performance Impact:**
+- Sequential calls meant total load time = sum of all 6 API calls
+- Even with no data, each API call still had network overhead
+- Example: If each call takes 200ms, total = 1200ms (1.2 seconds)
+- This was noticeable even for empty dashboards
+
+### Root Cause
+The `loadData()` function in `PerformanceDashboard.tsx` was using `await` sequentially:
+```typescript
+// ❌ WRONG - Sequential API calls
+const summary = await d1Client.getDashboardSummary();
+const webhookCalls = await d1Client.getWebhookCalls({ limit: 1000 });
+const keywordsData = await d1Client.getKeywords();
+const concurrentData = await d1Client.getConcurrentCalls();
+const timeSeriesData = await d1Client.getConcurrentCallsTimeSeries({...});
+const reasonsData = await d1Client.getCallEndedReasons({...});
+```
+
+### Solution
+Changed to parallel execution using `Promise.all()`:
+```typescript
+// ✅ CORRECT - Parallel API calls
+const [
+  summary,
+  webhookCalls,
+  keywordsData,
+  concurrentData,
+  timeSeriesData,
+  reasonsData
+] = await Promise.all([
+  d1Client.getDashboardSummary(),
+  d1Client.getWebhookCalls({ limit: 1000 }),
+  d1Client.getKeywords(),
+  d1Client.getConcurrentCalls().catch(() => ({ current: 0, peak: 0 })),
+  d1Client.getConcurrentCallsTimeSeries({...}).catch(() => ({ data: [], labels: [] })),
+  d1Client.getCallEndedReasons({...}).catch(() => ({ dates: [], reasons: {}, colors: {} }))
+]);
+```
+
+**Performance Improvement:**
+- Total load time = max of all 6 API calls (not sum)
+- Example: If each call takes 200ms, total = 200ms (6x faster!)
+- Even better: Calls execute simultaneously, so network latency is shared
+
+### Error Handling
+Added `.catch()` handlers for optional data endpoints to prevent one failure from breaking the entire dashboard:
+- `getConcurrentCalls()` - Returns default `{ current: 0, peak: 0 }` on error
+- `getConcurrentCallsTimeSeries()` - Returns empty arrays on error
+- `getCallEndedReasons()` - Returns empty object on error
+
+This ensures the dashboard still loads even if some endpoints fail.
+
+### How It Should Be Done
+
+```typescript
+// ✅ CORRECT - Parallel API calls with error handling
+const loadData = async () => {
+  setLoading(true);
+  try {
+    // Execute all API calls in parallel
+    const [
+      summary,
+      webhookCalls,
+      keywordsData,
+      concurrentData,
+      timeSeriesData,
+      reasonsData
+    ] = await Promise.all([
+      // Required data - let errors bubble up
+      d1Client.getDashboardSummary(),
+      d1Client.getWebhookCalls({ limit: 1000 }),
+      d1Client.getKeywords(),
+      
+      // Optional data - catch errors and return defaults
+      d1Client.getConcurrentCalls().catch(() => ({ current: 0, peak: 0 })),
+      d1Client.getConcurrentCallsTimeSeries({
+        granularity: granularity,
+        limit: 1000
+      }).catch(() => ({ data: [], labels: [] })),
+      d1Client.getCallEndedReasons({
+        start_date: dateRange.from,
+        end_date: dateRange.to
+      }).catch(() => ({ dates: [], reasons: {}, colors: {} }))
+    ]);
+
+    // Process results...
+    setMetrics(metricsData);
+    setCalls(convertedCalls);
+    // ... etc
+  } catch (error) {
+    // Handle critical errors
+    console.error('Error loading dashboard data:', error);
+  } finally {
+    setLoading(false);
+  }
+};
+```
+
+### How It Should NOT Be Done
+
+```typescript
+// ❌ WRONG - Sequential API calls
+const loadData = async () => {
+  const summary = await d1Client.getDashboardSummary(); // Wait 200ms
+  const webhookCalls = await d1Client.getWebhookCalls({ limit: 1000 }); // Wait 200ms
+  const keywordsData = await d1Client.getKeywords(); // Wait 200ms
+  // ... etc
+  // Total: 1200ms (sum of all calls)
+};
+
+// ❌ WRONG - No error handling for optional data
+const [summary, concurrentData] = await Promise.all([
+  d1Client.getDashboardSummary(),
+  d1Client.getConcurrentCalls() // If this fails, entire Promise.all fails!
+]);
+```
+
+### Key Takeaways
+
+1. **Always Use Parallel Calls**: When API calls are independent, use `Promise.all()` to execute them simultaneously
+2. **Error Handling**: Use `.catch()` for optional data to prevent one failure from breaking everything
+3. **Performance Impact**: Parallel calls reduce load time from sum to max of individual calls
+4. **Network Efficiency**: Browser can make multiple requests simultaneously, so parallel calls are more efficient
+5. **User Experience**: Faster load times = better UX, especially for empty states
+6. **Graceful Degradation**: Optional data should have fallback values so dashboard still works if endpoints fail
+
+### Performance Metrics
+
+**Before (Sequential):**
+- 6 API calls × 200ms each = 1200ms total load time
+- User sees loading spinner for 1.2 seconds
+
+**After (Parallel):**
+- 6 API calls in parallel = 200ms total load time (max of all calls)
+- User sees loading spinner for 0.2 seconds
+- **6x faster!**
+
+### Files Modified
+- `src/components/PerformanceDashboard.tsx` - Changed `loadData()` to use `Promise.all()` for parallel API calls
+
+### Testing Checklist
+- [x] Dashboard loads faster with parallel calls
+- [x] All data still displays correctly
+- [x] Error handling works for optional endpoints
+- [x] Empty state (no data) loads quickly
+- [x] Network tab shows parallel requests

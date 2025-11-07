@@ -28,6 +28,12 @@ import {
   exchangeCodeForToken,
   ensureValidToken
 } from './salesforce-service';
+import {
+  buildAuthUrl as buildHubSpotAuthUrl,
+  exchangeCodeForToken as exchangeHubSpotCodeForToken,
+  ensureValidToken as ensureValidHubSpotToken,
+  syncCallToHubSpot
+} from './hubspot-service';
 
 // Cloudflare Worker types
 interface D1Database {
@@ -559,7 +565,7 @@ async function getWorkspaceSettingsForUser(env: Env, userId: string): Promise<{
 
     if (ownedWorkspace) {
       const wsSettings = await env.DB.prepare(
-        'SELECT private_key, openai_api_key, twilio_account_sid, twilio_auth_token, transfer_phone_number FROM workspace_settings WHERE workspace_id = ?'
+        'SELECT workspace_id, private_key, openai_api_key, twilio_account_sid, twilio_auth_token, transfer_phone_number FROM workspace_settings WHERE workspace_id = ?'
       ).bind(ownedWorkspace.id).first() as any;
       return wsSettings || null;
     }
@@ -568,7 +574,7 @@ async function getWorkspaceSettingsForUser(env: Env, userId: string): Promise<{
 
   const workspaceId = userSettings.selected_workspace_id;
   let wsSettings = await env.DB.prepare(
-    'SELECT private_key, openai_api_key, twilio_account_sid, twilio_auth_token, transfer_phone_number FROM workspace_settings WHERE workspace_id = ?'
+    'SELECT workspace_id, private_key, openai_api_key, twilio_account_sid, twilio_auth_token, transfer_phone_number FROM workspace_settings WHERE workspace_id = ?'
   ).bind(workspaceId).first() as any;
 
   // FALLBACK: If workspace_settings is empty, try user_settings (migration path)
@@ -1314,6 +1320,250 @@ export default {
         // Get total count
         let countQuery = 'SELECT COUNT(*) as count FROM salesforce_sync_logs WHERE workspace_id = ?';
         const countParams: any[] = [workspaceId];
+
+        if (status) {
+          countQuery += ' AND status = ?';
+          countParams.push(status);
+        }
+
+        const countResult = await env.DB.prepare(countQuery).bind(...countParams).first() as any;
+
+        return jsonResponse({
+          success: true,
+          logs: logs.results || [],
+          total: countResult?.count || 0,
+          limit,
+          offset
+        });
+      }
+
+      // ============================================
+      // HUBSPOT INTEGRATION ENDPOINTS (Protected)
+      // ============================================
+
+      // Initiate HubSpot OAuth flow
+      if (url.pathname === '/api/hubspot/oauth/initiate' && request.method === 'GET') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        // Get user's workspace
+        const userSettings = await env.DB.prepare(
+          'SELECT selected_workspace_id FROM user_settings WHERE user_id = ?'
+        ).bind(userId).first() as any;
+
+        if (!userSettings || !userSettings.selected_workspace_id) {
+          return jsonResponse({ error: 'No workspace selected' }, 400);
+        }
+
+        const workspaceId = userSettings.selected_workspace_id;
+
+        // Generate OAuth URL
+        const authUrl = buildHubSpotAuthUrl(workspaceId, env);
+
+        return jsonResponse({
+          success: true,
+          authUrl
+        });
+      }
+
+      // Handle HubSpot OAuth callback
+      if (url.pathname === '/api/hubspot/oauth/callback' && request.method === 'GET') {
+        try {
+          // Extract code and state from query params
+          const code = url.searchParams.get('code');
+          const workspaceId = url.searchParams.get('state'); // We passed workspace ID as state
+
+          if (!code || !workspaceId) {
+            return new Response('Missing code or state parameter', { status: 400 });
+          }
+
+          // Exchange code for tokens
+          const tokens = await exchangeHubSpotCodeForToken(code, env);
+
+          // Get workspace owner
+          const workspace = await env.DB.prepare(
+            'SELECT owner_user_id FROM workspaces WHERE id = ?'
+          ).bind(workspaceId).first() as any;
+
+          if (!workspace) {
+            return new Response('Workspace not found', { status: 404 });
+          }
+
+          const userId = workspace.owner_user_id;
+
+          // Check if token entry exists
+          const existing = await env.DB.prepare(
+            'SELECT id FROM hubspot_oauth_tokens WHERE user_id = ? AND workspace_id = ?'
+          ).bind(userId, workspaceId).first();
+
+          const timestamp = now();
+          const tokenId = generateId();
+
+          if (existing) {
+            // Update existing tokens
+            await env.DB.prepare(
+              `UPDATE hubspot_oauth_tokens
+               SET access_token = ?,
+                   refresh_token = ?,
+                   expires_at = ?,
+                   updated_at = ?
+               WHERE user_id = ? AND workspace_id = ?`
+            ).bind(
+              tokens.access_token,
+              tokens.refresh_token,
+              tokens.expires_in,
+              timestamp,
+              userId,
+              workspaceId
+            ).run();
+          } else {
+            // Insert new tokens
+            await env.DB.prepare(
+              `INSERT INTO hubspot_oauth_tokens (
+                id, user_id, workspace_id, access_token, refresh_token,
+                expires_at, created_at, updated_at
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+            ).bind(
+              tokenId,
+              userId,
+              workspaceId,
+              tokens.access_token,
+              tokens.refresh_token,
+              tokens.expires_in,
+              timestamp,
+              timestamp
+            ).run();
+          }
+
+          // Redirect back to integration page with success message
+          return new Response(null, {
+            status: 302,
+            headers: {
+              'Location': 'https://voice-config.channelautomation.com/?hubspot=connected',
+              ...corsHeaders
+            }
+          });
+        } catch (error: any) {
+          console.error('[HubSpot OAuth Error]:', error);
+          return new Response(null, {
+            status: 302,
+            headers: {
+              'Location': `https://voice-config.channelautomation.com/?hubspot=error&message=${encodeURIComponent(error.message)}`,
+              ...corsHeaders
+            }
+          });
+        }
+      }
+
+      // Get HubSpot connection status
+      if (url.pathname === '/api/hubspot/status' && request.method === 'GET') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        // Get user's workspace
+        const userSettings = await env.DB.prepare(
+          'SELECT selected_workspace_id FROM user_settings WHERE user_id = ?'
+        ).bind(userId).first() as any;
+
+        if (!userSettings || !userSettings.selected_workspace_id) {
+          return jsonResponse({ error: 'No workspace selected' }, 400);
+        }
+
+        const workspaceId = userSettings.selected_workspace_id;
+
+        // Get HubSpot tokens
+        const tokens = await env.DB.prepare(
+          'SELECT access_token, refresh_token, expires_at FROM hubspot_oauth_tokens WHERE user_id = ? AND workspace_id = ?'
+        ).bind(userId, workspaceId).first() as any;
+
+        const connected = !!(tokens && tokens.refresh_token);
+        const tokenExpiresAt = tokens?.expires_at || null;
+
+        return jsonResponse({
+          success: true,
+          connected,
+          tokenExpiresAt
+        });
+      }
+
+      // Disconnect HubSpot
+      if (url.pathname === '/api/hubspot/disconnect' && request.method === 'DELETE') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        // Get user's workspace
+        const userSettings = await env.DB.prepare(
+          'SELECT selected_workspace_id FROM user_settings WHERE user_id = ?'
+        ).bind(userId).first() as any;
+
+        if (!userSettings || !userSettings.selected_workspace_id) {
+          return jsonResponse({ error: 'No workspace selected' }, 400);
+        }
+
+        const workspaceId = userSettings.selected_workspace_id;
+
+        // Delete HubSpot tokens
+        await env.DB.prepare(
+          'DELETE FROM hubspot_oauth_tokens WHERE user_id = ? AND workspace_id = ?'
+        ).bind(userId, workspaceId).run();
+
+        return jsonResponse({
+          success: true,
+          message: 'HubSpot disconnected successfully'
+        });
+      }
+
+      // Get HubSpot sync logs
+      if (url.pathname === '/api/hubspot/sync-logs' && request.method === 'GET') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        // Get user's workspace
+        const userSettings = await env.DB.prepare(
+          'SELECT selected_workspace_id FROM user_settings WHERE user_id = ?'
+        ).bind(userId).first() as any;
+
+        if (!userSettings || !userSettings.selected_workspace_id) {
+          return jsonResponse({ error: 'No workspace selected' }, 400);
+        }
+
+        const workspaceId = userSettings.selected_workspace_id;
+
+        // Get query parameters
+        const limit = Math.min(parseInt(url.searchParams.get('limit') || '50'), 100);
+        const offset = parseInt(url.searchParams.get('offset') || '0');
+        const status = url.searchParams.get('status'); // 'success', 'error', 'skipped'
+
+        // Build query
+        let query = `
+          SELECT id, call_id, contact_id, engagement_id, status,
+                 error_message, phone_number, created_at
+          FROM hubspot_sync_logs
+          WHERE user_id = ? AND workspace_id = ?
+        `;
+        const params: any[] = [userId, workspaceId];
+
+        if (status) {
+          query += ' AND status = ?';
+          params.push(status);
+        }
+
+        query += ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
+        params.push(limit, offset);
+
+        const logs = await env.DB.prepare(query).bind(...params).all();
+
+        // Get total count
+        let countQuery = 'SELECT COUNT(*) as count FROM hubspot_sync_logs WHERE user_id = ? AND workspace_id = ?';
+        const countParams: any[] = [userId, workspaceId];
 
         if (status) {
           countQuery += ' AND status = ?';
@@ -2101,16 +2351,21 @@ export default {
         }
 
         try {
-          // Check cache first (assistants cached within last 5 minutes are considered fresh)
-          const cacheAgeLimit = now() - (5 * 60); // 5 minutes ago
-          const cached = await env.DB.prepare(
-            'SELECT id, vapi_data, cached_at, updated_at FROM assistants_cache WHERE user_id = ? AND cached_at > ? ORDER BY cached_at DESC'
-          ).bind(effectiveUserId, cacheAgeLimit).all();
+          // Check cache first - get ALL assistants for this user
+          const allCached = await env.DB.prepare(
+            'SELECT id, vapi_data, cached_at, updated_at FROM assistants_cache WHERE user_id = ? ORDER BY cached_at DESC'
+          ).bind(effectiveUserId).all();
 
-          if (cached && cached.results && cached.results.length > 0) {
-            // Return cached data
-            const assistants = cached.results.map((row: any) => JSON.parse(row.vapi_data));
-            return jsonResponse({ assistants, cached: true });
+          // Check if we have fresh cache data (any assistant cached within last 5 minutes means full list is fresh)
+          if (allCached && allCached.results && allCached.results.length > 0) {
+            const cacheAgeLimit = now() - (5 * 60); // 5 minutes ago
+            const mostRecentCache = allCached.results[0] as any;
+
+            // If the most recently cached assistant is still fresh, return ALL cached assistants
+            if (mostRecentCache.cached_at > cacheAgeLimit) {
+              const assistants = allCached.results.map((row: any) => JSON.parse(row.vapi_data));
+              return jsonResponse({ assistants, cached: true });
+            }
           }
 
           // Cache miss or stale - fetch from Vapi
@@ -2266,9 +2521,56 @@ export default {
           return jsonResponse({ error: 'Assistant ID required' }, 400);
         }
 
-        const settings = await env.DB.prepare(
-          'SELECT private_key FROM user_settings WHERE user_id = ?'
+        // Get user's selected workspace
+        const userSettings = await env.DB.prepare(
+          'SELECT selected_workspace_id FROM user_settings WHERE user_id = ?'
         ).bind(userId).first() as any;
+
+        let settings;
+
+        // If user has selected a workspace, use workspace settings
+        if (userSettings?.selected_workspace_id) {
+          const workspaceId = userSettings.selected_workspace_id;
+
+          // Verify workspace access
+          const workspace = await env.DB.prepare(
+            'SELECT owner_user_id FROM workspaces WHERE id = ?'
+          ).bind(workspaceId).first() as any;
+
+          if (!workspace) {
+            return jsonResponse({ error: 'Workspace not found' }, 404);
+          }
+
+          const isOwner = workspace.owner_user_id === userId;
+          const membership = await env.DB.prepare(
+            'SELECT status FROM workspace_members WHERE workspace_id = ? AND user_id = ? AND status = "active"'
+          ).bind(workspaceId, userId).first() as any;
+
+          if (!isOwner && !membership) {
+            return jsonResponse({ error: 'Access denied to workspace' }, 403);
+          }
+
+          // Get workspace settings
+          settings = await env.DB.prepare(
+            'SELECT private_key FROM workspace_settings WHERE workspace_id = ?'
+          ).bind(workspaceId).first() as any;
+
+          // FALLBACK: If workspace_settings is empty, try user_settings
+          if (!settings || !settings.private_key) {
+            const ownerSettings = await env.DB.prepare(
+              'SELECT private_key FROM user_settings WHERE user_id = ?'
+            ).bind(workspace.owner_user_id).first() as any;
+
+            if (ownerSettings && ownerSettings.private_key) {
+              settings = ownerSettings;
+            }
+          }
+        } else {
+          // No workspace selected, use user settings
+          settings = await env.DB.prepare(
+            'SELECT private_key FROM user_settings WHERE user_id = ?'
+          ).bind(userId).first() as any;
+        }
 
         if (!settings || !settings.private_key) {
           return jsonResponse({ error: 'CHAU Voice Engine API key not configured' }, 400);
@@ -5766,6 +6068,9 @@ Need help? Contact our support team anytime!
                   callId,
                   customer.number
                 );
+
+                // Note: HubSpot sync now happens in outbound webhook dispatcher
+                // after recording is uploaded to R2
               } catch (error) {
                 console.error('Background processing error:', error);
               }

@@ -93,8 +93,10 @@ export const agentApi = {
   async getAll(vapiClient?: VapiClient | null, filterOptions?: { orgId?: string | null; namePattern?: string | null }): Promise<Agent[]> {
     // Try cached endpoint first (via D1 backend)
     try {
+      console.log('[agentApi.getAll] Fetching assistants from cached endpoint...');
       const { assistants, cached } = await d1Client.getAssistants();
-      
+      console.log(`[agentApi.getAll] Received ${assistants.length} assistants (cached: ${cached})`);
+
       // Convert VapiAssistant to Agent format
       let filteredAssistants = assistants as VapiAssistant[];
 
@@ -127,11 +129,13 @@ export const agentApi = {
         }
       }
 
-      return filteredAssistants.map(assistant => 
+      const result = filteredAssistants.map(assistant =>
         convertVapiAssistantToAgent(assistant, phoneNumberMap.get(assistant.id))
       );
+      console.log(`[agentApi.getAll] Returning ${result.length} filtered assistants`);
+      return result;
     } catch (error) {
-      console.error('Cached endpoint error, falling back to direct Vapi call:', error);
+      console.error('[agentApi.getAll] Cached endpoint error, falling back to direct Vapi call:', error);
       
       // Fallback to direct Vapi API call if cached endpoint fails
       if (vapiClient) {

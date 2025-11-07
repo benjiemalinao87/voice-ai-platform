@@ -34,9 +34,15 @@ JWT_SECRET = "change-this-to-a-secure-random-string-in-production"
 SALESFORCE_CLIENT_ID = "your-salesforce-consumer-key-here"
 SALESFORCE_CLIENT_SECRET = "your-salesforce-consumer-secret-here"
 
+# HubSpot OAuth Credentials
+# Configured via wrangler secrets:
+# wrangler secret put HUBSPOT_CLIENT_ID
+# wrangler secret put HUBSPOT_CLIENT_SECRET
+
 # For production, use:
 # wrangler secret put JWT_SECRET
 # wrangler secret put SALESFORCE_CLIENT_ID
 # wrangler secret put SALESFORCE_CLIENT_SECRET
-# This is a placeholder for local development
+# wrangler secret put HUBSPOT_CLIENT_ID
+# wrangler secret put HUBSPOT_CLIENT_SECRET
 

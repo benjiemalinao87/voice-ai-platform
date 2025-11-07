@@ -4,6 +4,7 @@
  */
 
 import type { Env } from './index';
+import { syncCallToHubSpot } from './hubspot-service';
 
 // Helper to generate unique ID
 function generateId(): string {
@@ -201,6 +202,7 @@ export async function dispatchToOutboundWebhooks(
     recordingUrl?: string | null;
   }
 ): Promise<void> {
+  console.log(`[DEBUG] dispatchToOutboundWebhooks called for user ${userId}, event: ${eventType}`);
   try {
     // Get all active outbound webhooks for this user
     const webhooks = await env.DB.prepare(
@@ -215,21 +217,84 @@ export async function dispatchToOutboundWebhooks(
 
     console.log(`[Outbound Webhook] Found ${webhooks.results.length} active webhook(s) for user ${userId}`);
 
+    // For call.ended, download and save recording to R2 ONCE before processing webhooks
+    let r2RecordingUrl = callData.recordingUrl;
+    if (eventType === 'call.ended' && callData.recordingUrl) {
+      const savedUrl = await downloadAndSaveRecording(env, callData.recordingUrl, callData.callId);
+      if (savedUrl) {
+        r2RecordingUrl = savedUrl;
+        console.log('[R2] Using R2 recording URL for all webhooks:', r2RecordingUrl);
+      }
+    }
+
+    // Sync to HubSpot AFTER recording is uploaded to R2 (once per call)
+    console.log('[HubSpot] Checking sync - eventType:', eventType, 'hasRecording:', !!r2RecordingUrl, 'hasPhone:', !!callData.customerPhone, 'hasSummary:', !!callData.summary);
+
+    // Debug: Log to database to see what's happening
+    try {
+      await env.DB.prepare(
+        'INSERT INTO hubspot_sync_logs (id, user_id, workspace_id, call_id, status, error_message, phone_number, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+      ).bind(
+        `debug_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`,
+        userId,
+        'debug',
+        callData.callId,
+        'debug',
+        `Event:${eventType} RecURL:${r2RecordingUrl ? 'YES' : 'NO'} Phone:${callData.customerPhone || 'NO'} Summary:${callData.summary ? 'YES' : 'NO'}`,
+        callData.customerPhone || 'none',
+        Date.now()
+      ).run();
+    } catch (e) {
+      console.error('[DEBUG] Failed to log debug info:', e);
+    }
+
+    if (eventType === 'call.ended' && r2RecordingUrl && callData.customerPhone && callData.summary) {
+      try {
+        // Get workspace settings
+        const wsSettings = await env.DB.prepare(
+          'SELECT workspace_id FROM user_settings WHERE user_id = ? LIMIT 1'
+        ).bind(userId).first() as any;
+
+        console.log('[HubSpot] Workspace settings:', wsSettings);
+
+        // Check if HubSpot is connected
+        const hubspotTokens = await env.DB.prepare(
+          'SELECT access_token FROM hubspot_oauth_tokens WHERE user_id = ? AND workspace_id = ?'
+        ).bind(userId, wsSettings?.workspace_id).first() as any;
+
+        console.log('[HubSpot] HubSpot tokens:', hubspotTokens ? 'Found' : 'Not found');
+
+        if (hubspotTokens) {
+          console.log('[HubSpot] Syncing call with R2 recording URL:', r2RecordingUrl);
+          await syncCallToHubSpot(
+            env.DB,
+            userId,
+            wsSettings?.workspace_id || '',
+            callData.callId,
+            {
+              phoneNumber: callData.customerPhone,
+              summary: callData.summary,
+              recordingUrl: r2RecordingUrl, // Use R2 URL
+            },
+            env
+          );
+        } else {
+          console.log('[HubSpot] Skipping sync - HubSpot not connected for user:', userId);
+        }
+      } catch (hubspotError) {
+        console.error('[HubSpot] Sync error in outbound webhook:', hubspotError);
+      }
+    } else {
+      console.log('[HubSpot] Skipping sync - missing required fields');
+    }
+
+    // Now dispatch to all webhooks with the R2 URL
     for (const webhook of webhooks.results) {
       // Check if this webhook is subscribed to this event type
       const subscribedEvents = webhook.events?.split(',') || ['call.ended'];
       if (!subscribedEvents.includes(eventType)) {
         console.log(`[Outbound Webhook] Skipping ${webhook.destination_url} - not subscribed to ${eventType}`);
         continue;
-      }
-
-      // For call.ended, download and save recording to R2
-      let r2RecordingUrl = callData.recordingUrl;
-      if (eventType === 'call.ended' && callData.recordingUrl) {
-        const savedUrl = await downloadAndSaveRecording(env, callData.recordingUrl, callData.callId);
-        if (savedUrl) {
-          r2RecordingUrl = savedUrl;
-        }
       }
 
       // Extract conversation from raw payload if available
