@@ -6092,10 +6092,22 @@ Need help? Contact our support team anytime!
                   ).bind(webhook.user_id, wsSettings?.workspace_id).first() as any;
 
                   const hasSummary = analysis?.summary || message.summary;
-                  const vapiRecordingUrl = message.recordingUrl || artifact.recordingUrl;
 
-                  if (hubspotTokens && customer.number && hasSummary && vapiRecordingUrl) {
+                  if (hubspotTokens && customer.number && hasSummary) {
                     console.log('[HubSpot] Syncing call to HubSpot...');
+
+                    // Extract conversation from artifact messages
+                    const messages = artifact?.messages || [];
+                    const conversation = messages
+                      .filter((msg: any) => msg.role === 'user' || msg.role === 'bot' || msg.role === 'assistant')
+                      .map((msg: any) => ({
+                        role: msg.role === 'bot' ? 'assistant' : msg.role,
+                        message: msg.message || msg.content || '',
+                      }));
+
+                    // Extract structured outputs (VAPI format)
+                    const structuredOutputs = analysis?.structuredOutputs || artifact?.structuredOutputs || null;
+
                     await syncCallToHubSpot(
                       env.DB,
                       webhook.user_id,
@@ -6104,8 +6116,9 @@ Need help? Contact our support team anytime!
                       {
                         phoneNumber: customer.number,
                         summary: analysis?.summary || message.summary || '',
-                        recordingUrl: vapiRecordingUrl,
                         structuredData: analysis?.structuredData || {},
+                        conversation,
+                        structuredOutputs,
                       },
                       env
                     );
@@ -6114,7 +6127,6 @@ Need help? Contact our support team anytime!
                       hasTokens: !!hubspotTokens,
                       hasPhone: !!customer.number,
                       hasSummary,
-                      hasRecording: !!vapiRecordingUrl
                     });
                   }
                 } catch (hubspotError) {

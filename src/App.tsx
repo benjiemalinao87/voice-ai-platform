@@ -47,7 +47,7 @@ function App() {
     to: new Date().toISOString()
   });
 
-  // Reload agents when VAPI client, selected org, or workspace changes
+  // Reload agents when API client, selected org, or workspace changes
   useEffect(() => {
     if (isAuthenticated) {
       loadAgents();
@@ -82,7 +82,7 @@ function App() {
 
   const handleCreateAgent = async (agentData: Omit<Agent, 'id' | 'created_at' | 'updated_at' | 'api_key'>, webhookUrl?: string) => {
     if (!vapiClient) {
-      throw new Error('VAPI client not initialized');
+      throw new Error('API client not initialized');
     }
 
     try {
@@ -102,7 +102,7 @@ function App() {
 
   const handleDeleteAgent = async (agentId: string) => {
     if (!vapiClient) {
-      throw new Error('VAPI client not initialized');
+      throw new Error('API client not initialized');
     }
 
     try {

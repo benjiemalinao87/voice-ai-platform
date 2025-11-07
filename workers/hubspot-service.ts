@@ -332,15 +332,16 @@ export async function searchContactByPhone(
 // ============================================
 
 /**
- * Create an Engagement (Note) with call summary, structured data, and recording URL
+ * Create an Engagement (Note) with call summary, structured data, and conversation transcript
  * Note appears in contact's timeline
  */
 export async function createEngagement(
   accessToken: string,
   contactId: number,
   summary: string,
-  recordingUrl: string,
-  structuredData?: Record<string, any>
+  structuredData?: Record<string, any>,
+  conversation?: Array<{ role: string; message: string }>,
+  structuredOutputs?: Record<string, any>
 ): Promise<{ id: number }> {
   let noteBody = `**Call Summary:**\n\n${summary}`;
 
@@ -368,7 +369,43 @@ export async function createEngagement(
     }
   }
 
-  noteBody += `\n\n**Recording:** [Listen to Recording](${recordingUrl})`;
+  // Add structured outputs if available (from VAPI structured output)
+  if (structuredOutputs && Object.keys(structuredOutputs).length > 0) {
+    noteBody += '\n\n**Structured Outputs:**\n';
+
+    for (const [key, value] of Object.entries(structuredOutputs)) {
+      if (value !== null && value !== undefined) {
+        const formattedKey = key
+          .replace(/([A-Z])/g, ' $1')
+          .replace(/_/g, ' ')
+          .replace(/\b\w/g, (l) => l.toUpperCase())
+          .trim();
+
+        // Format the output
+        let formattedValue = value;
+        if (typeof value === 'object') {
+          // Check if it has name and result properties (structured output format)
+          if ('name' in value && 'result' in value) {
+            formattedValue = `${value.name}: ${JSON.stringify(value.result)}`;
+          } else {
+            formattedValue = JSON.stringify(value, null, 2);
+          }
+        }
+
+        noteBody += `\n- **${formattedKey}:** ${formattedValue}`;
+      }
+    }
+  }
+
+  // Add conversation transcript if available
+  if (conversation && conversation.length > 0) {
+    noteBody += '\n\n**Conversation Transcript:**\n';
+
+    for (const turn of conversation) {
+      const speaker = turn.role === 'assistant' ? 'AI Assistant' : 'Customer';
+      noteBody += `\n**${speaker}:** ${turn.message}\n`;
+    }
+  }
 
   const engagementPayload = {
     engagement: {
@@ -421,8 +458,9 @@ export async function syncCallToHubSpot(
   callData: {
     phoneNumber: string;
     summary: string;
-    recordingUrl: string;
     structuredData?: Record<string, any>;
+    conversation?: Array<{ role: string; message: string }>;
+    structuredOutputs?: Record<string, any>;
   },
   env: Env
 ): Promise<{
@@ -464,8 +502,9 @@ export async function syncCallToHubSpot(
       accessToken,
       contact.vid,
       callData.summary,
-      callData.recordingUrl,
-      callData.structuredData
+      callData.structuredData,
+      callData.conversation,
+      callData.structuredOutputs
     );
 
     // Step 4: Log success

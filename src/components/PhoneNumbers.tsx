@@ -101,7 +101,7 @@ export function PhoneNumbers() {
         return;
       }
 
-      // Fetch directly from VAPI to get fresh data (bypass cache)
+      // Fetch directly from API to get fresh data (bypass cache)
       const client = new VapiClient(settings.privateKey);
       const vapiAssistants = await client.listAssistants() as any[];
 

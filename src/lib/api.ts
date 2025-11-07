@@ -93,9 +93,9 @@ export const agentApi = {
     // ALWAYS fetch directly from VAPI API (no cache) for real-time updates
     if (vapiClient) {
       try {
-        console.log('[agentApi.getAll] Fetching assistants directly from VAPI API...');
+        console.log('[agentApi.getAll] Fetching assistants directly from API...');
         const assistants = await vapiClient.listAssistants() as VapiAssistant[];
-        console.log(`[agentApi.getAll] Received ${assistants.length} assistants from VAPI`);
+        console.log(`[agentApi.getAll] Received ${assistants.length} assistants from API`);
 
         let filteredAssistants = assistants;
 
@@ -131,12 +131,12 @@ export const agentApi = {
         console.log(`[agentApi.getAll] Returning ${result.length} filtered assistants`);
         return result;
       } catch (vapiError) {
-        console.error('[agentApi.getAll] Direct VAPI API error:', vapiError);
+        console.error('[agentApi.getAll] API error:', vapiError);
       }
     }
 
     // Fallback to demo data if no client or error
-    console.warn('[agentApi.getAll] No VAPI client available, returning demo data');
+    console.warn('[agentApi.getAll] No client available, returning demo data');
     return Promise.resolve([mockAgent]);
   },
 
@@ -144,7 +144,7 @@ export const agentApi = {
     // ALWAYS fetch directly from VAPI API (no cache) for real-time updates
     if (vapiClient) {
       try {
-        console.log(`[agentApi.getById] Fetching assistant ${id} directly from VAPI API...`);
+        console.log(`[agentApi.getById] Fetching assistant ${id} directly from API...`);
         const assistant = await vapiClient.getAssistant(id) as VapiAssistant;
 
         // Fetch phone numbers to find the one assigned to this assistant
@@ -159,23 +159,23 @@ export const agentApi = {
 
         return convertVapiAssistantToAgent(assistant, phoneNumber);
       } catch (vapiError) {
-        console.error('[agentApi.getById] Direct VAPI API error:', vapiError);
+        console.error('[agentApi.getById] API error:', vapiError);
       }
     }
 
     // Fallback to demo data if no client or error
-    console.warn('[agentApi.getById] No VAPI client available, returning demo data');
+    console.warn('[agentApi.getById] No client available, returning demo data');
     return Promise.resolve(mockAgent);
   },
 
   async update(id: string, updates: Partial<Agent>, vapiClient?: VapiClient | null): Promise<Agent> {
     // ALWAYS use direct VAPI API (no cache) for real-time updates
     if (!vapiClient) {
-      throw new Error('VAPI client is required for updating assistants');
+      throw new Error('API client is required for updating assistants');
     }
 
     try {
-      console.log(`[agentApi.update] Updating assistant ${id} directly via VAPI API...`);
+      console.log(`[agentApi.update] Updating assistant ${id} directly via API...`);
 
       // First get the current assistant to preserve all fields
       const currentAssistant = await vapiClient.getAssistant(id) as VapiAssistant;
@@ -226,11 +226,11 @@ export const agentApi = {
   async create(agent: Omit<Agent, 'id' | 'created_at' | 'updated_at'>, vapiClient?: VapiClient | null, serverUrl?: string): Promise<Agent> {
     // ALWAYS use direct VAPI API (no cache) for real-time updates
     if (!vapiClient) {
-      throw new Error('VAPI client is required for creating assistants');
+      throw new Error('API client is required for creating assistants');
     }
 
     try {
-      console.log('[agentApi.create] Creating assistant directly via VAPI API...');
+      console.log('[agentApi.create] Creating assistant directly via API...');
 
       const vapiAgent: any = {
         name: agent.name,
@@ -268,11 +268,11 @@ export const agentApi = {
   async delete(id: string, vapiClient?: VapiClient | null): Promise<void> {
     // ALWAYS use direct VAPI API (no cache) for real-time updates
     if (!vapiClient) {
-      throw new Error('VAPI client is required for deleting assistants');
+      throw new Error('API client is required for deleting assistants');
     }
 
     try {
-      console.log(`[agentApi.delete] Deleting assistant ${id} directly via VAPI API...`);
+      console.log(`[agentApi.delete] Deleting assistant ${id} directly via API...`);
       await vapiClient.deleteAssistant(id);
       console.log('[agentApi.delete] Assistant deleted successfully');
     } catch (error) {

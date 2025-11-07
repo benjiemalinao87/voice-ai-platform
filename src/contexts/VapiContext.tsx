@@ -52,7 +52,7 @@ export function VapiProvider({ children }: { children: ReactNode }) {
 
       console.log('Loading CHAU Voice AI keys...');
 
-      // Create VAPI client with user's private key
+      // Create API client with user's private key
       const client = new VapiClient(settings.privateKey);
       setVapiClient(client);
 
