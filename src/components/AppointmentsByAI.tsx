@@ -59,7 +59,7 @@ export function AppointmentsByAI() {
 
     // For each phone number, get the most recent appointment
     const deduped: DedupedAppointment[] = [];
-    phoneMap.forEach((apts, phone) => {
+    phoneMap.forEach((apts) => {
       // Sort by created_at descending (most recent first)
       const sorted = [...apts].sort((a, b) => b.created_at - a.created_at);
       const latest = sorted[0];
@@ -202,172 +202,172 @@ export function AppointmentsByAI() {
 
       {/* Table */}
       <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead className="bg-gray-50 dark:bg-gray-700 border-b border-gray-200 dark:border-gray-600">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider">
-                  <div className="flex items-center gap-2">
-                    <Phone className="w-4 h-4" />
-                    Phone
-                  </div>
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider">
-                  <div className="flex items-center gap-2">
-                    <User className="w-4 h-4" />
-                    Name
-                  </div>
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider">
-                  <div className="flex items-center gap-2">
-                    <Calendar className="w-4 h-4" />
-                    Date
-                  </div>
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider">
-                  <div className="flex items-center gap-2">
-                    <Clock className="w-4 h-4" />
-                    Time
-                  </div>
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider">
-                  <div className="flex items-center gap-2">
-                    <Package className="w-4 h-4" />
-                    Product
-                  </div>
-                </th>
-                <th className="px-6 py-3 text-center text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider">
-                  <div className="flex items-center justify-center gap-2">
-                    <Star className="w-4 h-4" />
-                    Quality Score
-                  </div>
-                </th>
-                <th className="px-6 py-3 text-center text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider">
-                  Escalation Required
-                </th>
-                <th className="px-6 py-3 text-center text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider">
-                  <div className="flex items-center justify-center gap-2">
-                    <FileText className="w-4 h-4" />
-                    Summary
-                  </div>
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-              {dedupedAppointments.length === 0 ? (
-                <tr>
-                  <td colSpan={8} className="px-6 py-12 text-center text-sm text-gray-500 dark:text-gray-400">
-                    No appointments found
-                  </td>
-                </tr>
-              ) : (
-                dedupedAppointments.map((appointment) => (
-                  <tr
-                    key={appointment.id}
-                    className="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors cursor-pointer"
-                    onClick={() => setSelectedAppointment(appointment)}
-                  >
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
-                        <div className="flex items-center gap-2">
-                          <span>{appointment.phone_number || 'N/A'}</span>
-                          {appointment.appointmentCount > 1 && (
-                            <span className="inline-flex items-center justify-center px-2 py-0.5 text-xs font-bold bg-blue-600 dark:bg-blue-500 text-white rounded-full">
-                              {appointment.appointmentCount}
-                            </span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
-                        {appointment.customer_name || (
-                          <span className="text-gray-400 dark:text-gray-500 italic">Not available</span>
-                        )}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
-                        {formatDate(appointment.appointment_date)}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
-                        {formatTime(appointment.appointment_time)}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        {appointment.product ? (
-                          <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 capitalize">
-                            {appointment.product}
-                          </span>
-                        ) : (
-                          <span className="text-gray-400 dark:text-gray-500">-</span>
-                        )}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-center">
-                        {appointment.quality_score !== null ? (
-                          <div className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800">
-                            <Star className="w-4 h-4 text-yellow-500" />
-                            <span className="text-sm font-semibold text-yellow-700 dark:text-yellow-400">
-                              {appointment.quality_score}
-                            </span>
-                          </div>
-                        ) : (
-                          <span className="text-gray-400 dark:text-gray-500">-</span>
-                        )}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-center">
-                        {appointment.escalation_required !== null ? (
-                          appointment.escalation_required ? (
-                            <div className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-red-100 dark:bg-red-900/30">
-                              <AlertCircle className="w-4 h-4 text-red-600 dark:text-red-400" />
-                            </div>
-                          ) : (
-                            <div className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-green-100 dark:bg-green-900/30">
-                              <span className="text-green-600 dark:text-green-400 text-sm font-bold">✓</span>
-                            </div>
-                          )
-                        ) : (
-                          <span className="text-gray-400 dark:text-gray-500">-</span>
-                        )}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-center">
-                        {appointment.call_summary ? (
-                          <FileText className="w-5 h-5 text-blue-600 dark:text-blue-400 mx-auto" />
-                        ) : (
-                          <span className="text-gray-400 dark:text-gray-500">-</span>
-                        )}
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead className="bg-gray-50 dark:bg-gray-700 border-b border-gray-200 dark:border-gray-600">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider">
+                      <div className="flex items-center gap-2">
+                        <Phone className="w-4 h-4" />
+                        Phone
+                      </div>
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider">
+                      <div className="flex items-center gap-2">
+                        <User className="w-4 h-4" />
+                        Name
+                      </div>
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider">
+                      <div className="flex items-center gap-2">
+                        <Calendar className="w-4 h-4" />
+                        Date
+                      </div>
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider">
+                      <div className="flex items-center gap-2">
+                        <Clock className="w-4 h-4" />
+                        Time
+                      </div>
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider">
+                      <div className="flex items-center gap-2">
+                        <Package className="w-4 h-4" />
+                        Product
+                      </div>
+                    </th>
+                    <th className="px-6 py-3 text-center text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider">
+                      <div className="flex items-center justify-center gap-2">
+                        <Star className="w-4 h-4" />
+                        Quality Score
+                      </div>
+                    </th>
+                    <th className="px-6 py-3 text-center text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider">
+                      Escalation Required
+                    </th>
+                    <th className="px-6 py-3 text-center text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider">
+                      <div className="flex items-center justify-center gap-2">
+                        <FileText className="w-4 h-4" />
+                        Summary
+                      </div>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                  {dedupedAppointments.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} className="px-6 py-12 text-center text-sm text-gray-500 dark:text-gray-400">
+                        No appointments found
                       </td>
                     </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+                  ) : (
+                    dedupedAppointments.map((appointment) => (
+                      <tr
+                        key={appointment.id}
+                        className="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors cursor-pointer"
+                        onClick={() => setSelectedAppointment(appointment)}
+                      >
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
+                          <div className="flex items-center gap-2">
+                            <span>{appointment.phone_number || 'N/A'}</span>
+                            {appointment.appointmentCount > 1 && (
+                              <span className="inline-flex items-center justify-center px-2 py-0.5 text-xs font-bold bg-blue-600 dark:bg-blue-500 text-white rounded-full">
+                                {appointment.appointmentCount}
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
+                          {appointment.customer_name || (
+                            <span className="text-gray-400 dark:text-gray-500 italic">Not available</span>
+                          )}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
+                          {formatDate(appointment.appointment_date)}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
+                          {formatTime(appointment.appointment_time)}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          {appointment.product ? (
+                            <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 capitalize">
+                              {appointment.product}
+                            </span>
+                          ) : (
+                            <span className="text-gray-400 dark:text-gray-500">-</span>
+                          )}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-center">
+                          {appointment.quality_score !== null ? (
+                            <div className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800">
+                              <Star className="w-4 h-4 text-yellow-500" />
+                              <span className="text-sm font-semibold text-yellow-700 dark:text-yellow-400">
+                                {appointment.quality_score}
+                              </span>
+                            </div>
+                          ) : (
+                            <span className="text-gray-400 dark:text-gray-500">-</span>
+                          )}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-center">
+                          {appointment.escalation_required !== null ? (
+                            appointment.escalation_required ? (
+                              <div className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-red-100 dark:bg-red-900/30">
+                                <AlertCircle className="w-4 h-4 text-red-600 dark:text-red-400" />
+                              </div>
+                            ) : (
+                              <div className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-green-100 dark:bg-green-900/30">
+                                <span className="text-green-600 dark:text-green-400 text-sm font-bold">✓</span>
+                              </div>
+                            )
+                          ) : (
+                            <span className="text-gray-400 dark:text-gray-500">-</span>
+                          )}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-center">
+                          {appointment.call_summary ? (
+                            <FileText className="w-5 h-5 text-blue-600 dark:text-blue-400 mx-auto" />
+                          ) : (
+                            <span className="text-gray-400 dark:text-gray-500">-</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
       </div>
 
-      {/* Right Drawer Panel */}
+      {/* Right Drawer Panel - Fixed Overlay */}
       {selectedAppointment && (
         <>
           {/* Backdrop */}
           <div
-            className="fixed inset-0 bg-black/50 z-40 transition-opacity"
+            className="fixed inset-0 bg-black/20 z-40 transition-opacity"
             onClick={() => setSelectedAppointment(null)}
           />
 
           {/* Drawer */}
-          <div className="fixed inset-y-0 right-0 w-full max-w-2xl bg-white dark:bg-gray-800 shadow-2xl z-50 overflow-y-auto">
+          <div className="fixed inset-y-0 right-0 w-full max-w-md bg-white dark:bg-gray-800 shadow-2xl z-50 overflow-hidden flex flex-col transform transition-transform duration-300 ease-in-out">
             {/* Header */}
-            <div className="sticky top-0 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-4 flex items-center justify-between z-10">
-              <div>
-                <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Appointment Details</h3>
-                <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-                  {selectedAppointment.phone_number || 'N/A'}
-                </p>
+            <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-4 flex items-center justify-between flex-shrink-0">
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Appointment Details</h3>
+                  <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                    {selectedAppointment.phone_number || 'N/A'}
+                  </p>
+                </div>
+                <button
+                  onClick={() => setSelectedAppointment(null)}
+                  className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+                >
+                  <X className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+                </button>
               </div>
-              <button
-                onClick={() => setSelectedAppointment(null)}
-                className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
-              >
-                <X className="w-5 h-5 text-gray-600 dark:text-gray-400" />
-              </button>
-            </div>
 
-            {/* Content */}
-            <div className="p-6 space-y-6">
+              {/* Content */}
+              <div className="p-6 space-y-6 overflow-y-auto flex-1">
               {/* Main Appointment Info */}
               <div className="grid grid-cols-2 gap-4">
                 <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-4">
