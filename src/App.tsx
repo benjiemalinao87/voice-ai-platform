@@ -87,9 +87,12 @@ function App() {
 
     try {
       const newAgent = await agentApi.create(agentData, vapiClient, webhookUrl);
-      setAgents([...agents, newAgent]);
       setShowCreateAgentModal(false);
-      // Optionally select the newly created agent
+
+      // Reload agents list from VAPI to get real-time data
+      await loadAgents();
+
+      // Select the newly created agent
       setSelectedAgentId(newAgent.id);
     } catch (error) {
       console.error('Error creating agent:', error);
@@ -104,12 +107,14 @@ function App() {
 
     try {
       await agentApi.delete(agentId, vapiClient);
-      // Remove agent from local state
-      setAgents(agents.filter(a => a.id !== agentId));
+
       // Clear selection if the deleted agent was selected
       if (selectedAgentId === agentId) {
         setSelectedAgentId(undefined);
       }
+
+      // Reload agents list from VAPI to get real-time data
+      await loadAgents();
     } catch (error) {
       console.error('Error deleting agent:', error);
       alert('Failed to delete agent. Please try again.');

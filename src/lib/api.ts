@@ -1,5 +1,4 @@
 import { VapiClient, type VapiAssistant, type VapiCall, type VapiPhoneNumber } from './vapi';
-import { d1Client } from './d1';
 import type { Agent, Call, MetricsSummary, DashboardMetrics, KeywordTrend } from '../types';
 
 // Helper functions to convert Voice AI API data to our format
@@ -91,31 +90,30 @@ const mockCalls: Call[] = Array.from({ length: 30 }, (_, i) => ({
 
 export const agentApi = {
   async getAll(vapiClient?: VapiClient | null, filterOptions?: { orgId?: string | null; namePattern?: string | null }): Promise<Agent[]> {
-    // Try cached endpoint first (via D1 backend)
-    try {
-      console.log('[agentApi.getAll] Fetching assistants from cached endpoint...');
-      const { assistants, cached } = await d1Client.getAssistants();
-      console.log(`[agentApi.getAll] Received ${assistants.length} assistants (cached: ${cached})`);
+    // ALWAYS fetch directly from VAPI API (no cache) for real-time updates
+    if (vapiClient) {
+      try {
+        console.log('[agentApi.getAll] Fetching assistants directly from VAPI API...');
+        const assistants = await vapiClient.listAssistants() as VapiAssistant[];
+        console.log(`[agentApi.getAll] Received ${assistants.length} assistants from VAPI`);
 
-      // Convert VapiAssistant to Agent format
-      let filteredAssistants = assistants as VapiAssistant[];
+        let filteredAssistants = assistants;
 
-      // Filter by organization if orgId is provided
-      if (filterOptions?.orgId) {
-        filteredAssistants = filteredAssistants.filter(a => a.orgId === filterOptions.orgId);
-      }
+        // Filter by organization if orgId is provided
+        if (filterOptions?.orgId) {
+          filteredAssistants = filteredAssistants.filter(a => a.orgId === filterOptions.orgId);
+        }
 
-      // Filter by name pattern if provided (case-insensitive partial match)
-      if (filterOptions?.namePattern) {
-        const pattern = filterOptions.namePattern.toLowerCase();
-        filteredAssistants = filteredAssistants.filter(a =>
-          a.name?.toLowerCase().includes(pattern)
-        );
-      }
+        // Filter by name pattern if provided (case-insensitive partial match)
+        if (filterOptions?.namePattern) {
+          const pattern = filterOptions.namePattern.toLowerCase();
+          filteredAssistants = filteredAssistants.filter(a =>
+            a.name?.toLowerCase().includes(pattern)
+          );
+        }
 
-      // Fetch phone numbers and create a map of assistantId -> phone number
-      let phoneNumberMap = new Map<string, string>();
-      if (vapiClient) {
+        // Fetch phone numbers and create a map of assistantId -> phone number
+        let phoneNumberMap = new Map<string, string>();
         try {
           const phoneNumbers = await vapiClient.listPhoneNumbers() as VapiPhoneNumber[];
           phoneNumbers.forEach(phone => {
@@ -125,68 +123,32 @@ export const agentApi = {
           });
         } catch (phoneError) {
           console.warn('Failed to fetch phone numbers:', phoneError);
-          // Continue without phone numbers if the API call fails
         }
-      }
 
-      const result = filteredAssistants.map(assistant =>
-        convertVapiAssistantToAgent(assistant, phoneNumberMap.get(assistant.id))
-      );
-      console.log(`[agentApi.getAll] Returning ${result.length} filtered assistants`);
-      return result;
-    } catch (error) {
-      console.error('[agentApi.getAll] Cached endpoint error, falling back to direct Vapi call:', error);
-      
-      // Fallback to direct Vapi API call if cached endpoint fails
-      if (vapiClient) {
-        try {
-          const assistants = await vapiClient.listAssistants() as VapiAssistant[];
-          let filteredAssistants = assistants;
-
-          if (filterOptions?.orgId) {
-            filteredAssistants = filteredAssistants.filter(a => a.orgId === filterOptions.orgId);
-          }
-
-          if (filterOptions?.namePattern) {
-            const pattern = filterOptions.namePattern.toLowerCase();
-            filteredAssistants = filteredAssistants.filter(a =>
-              a.name?.toLowerCase().includes(pattern)
-            );
-          }
-
-          let phoneNumberMap = new Map<string, string>();
-          try {
-            const phoneNumbers = await vapiClient.listPhoneNumbers() as VapiPhoneNumber[];
-            phoneNumbers.forEach(phone => {
-              if (phone.assistantId && phone.number) {
-                phoneNumberMap.set(phone.assistantId, phone.number);
-              }
-            });
-          } catch (phoneError) {
-            console.warn('Failed to fetch phone numbers:', phoneError);
-          }
-
-          return filteredAssistants.map(assistant => 
-            convertVapiAssistantToAgent(assistant, phoneNumberMap.get(assistant.id))
-          );
-        } catch (vapiError) {
-          console.error('Direct Vapi API error:', vapiError);
-        }
+        const result = filteredAssistants.map(assistant =>
+          convertVapiAssistantToAgent(assistant, phoneNumberMap.get(assistant.id))
+        );
+        console.log(`[agentApi.getAll] Returning ${result.length} filtered assistants`);
+        return result;
+      } catch (vapiError) {
+        console.error('[agentApi.getAll] Direct VAPI API error:', vapiError);
       }
     }
 
-    // Fallback to demo data
+    // Fallback to demo data if no client or error
+    console.warn('[agentApi.getAll] No VAPI client available, returning demo data');
     return Promise.resolve([mockAgent]);
   },
 
   async getById(id: string, vapiClient?: VapiClient | null): Promise<Agent | null> {
-    // Try cached endpoint first
-    try {
-      const { assistant, cached } = await d1Client.getAssistant(id);
-      
-      // Fetch phone numbers to find the one assigned to this assistant
-      let phoneNumber: string | null = null;
-      if (vapiClient) {
+    // ALWAYS fetch directly from VAPI API (no cache) for real-time updates
+    if (vapiClient) {
+      try {
+        console.log(`[agentApi.getById] Fetching assistant ${id} directly from VAPI API...`);
+        const assistant = await vapiClient.getAssistant(id) as VapiAssistant;
+
+        // Fetch phone numbers to find the one assigned to this assistant
+        let phoneNumber: string | null = null;
         try {
           const phoneNumbers = await vapiClient.listPhoneNumbers() as VapiPhoneNumber[];
           const assignedPhone = phoneNumbers.find(phone => phone.assistantId === id);
@@ -194,50 +156,29 @@ export const agentApi = {
         } catch (phoneError) {
           console.warn('Failed to fetch phone numbers:', phoneError);
         }
-      }
-      
-      return convertVapiAssistantToAgent(assistant as VapiAssistant, phoneNumber);
-    } catch (error) {
-      console.error('Cached endpoint error, falling back to direct Vapi call:', error);
-      
-      // Fallback to direct Vapi API call
-      if (vapiClient) {
-        try {
-          const assistant = await vapiClient.getAssistant(id) as VapiAssistant;
-          
-          let phoneNumber: string | null = null;
-          try {
-            const phoneNumbers = await vapiClient.listPhoneNumbers() as VapiPhoneNumber[];
-            const assignedPhone = phoneNumbers.find(phone => phone.assistantId === id);
-            phoneNumber = assignedPhone?.number || null;
-          } catch (phoneError) {
-            console.warn('Failed to fetch phone numbers:', phoneError);
-          }
-          
-          return convertVapiAssistantToAgent(assistant, phoneNumber);
-        } catch (vapiError) {
-          console.error('Direct Vapi API error:', vapiError);
-        }
+
+        return convertVapiAssistantToAgent(assistant, phoneNumber);
+      } catch (vapiError) {
+        console.error('[agentApi.getById] Direct VAPI API error:', vapiError);
       }
     }
 
-    // Fallback to demo data
+    // Fallback to demo data if no client or error
+    console.warn('[agentApi.getById] No VAPI client available, returning demo data');
     return Promise.resolve(mockAgent);
   },
 
   async update(id: string, updates: Partial<Agent>, vapiClient?: VapiClient | null): Promise<Agent> {
-    // Use cached endpoint (write-through: updates Vapi + D1 cache)
+    // ALWAYS use direct VAPI API (no cache) for real-time updates
+    if (!vapiClient) {
+      throw new Error('VAPI client is required for updating assistants');
+    }
+
     try {
+      console.log(`[agentApi.update] Updating assistant ${id} directly via VAPI API...`);
+
       // First get the current assistant to preserve all fields
-      let currentAssistant: VapiAssistant;
-      try {
-        const cached = await d1Client.getAssistant(id);
-        currentAssistant = cached.assistant as VapiAssistant;
-      } catch {
-        // Fallback to direct Vapi call if cache fails
-        if (!vapiClient) throw new Error('No Vapi client available');
-        currentAssistant = await vapiClient.getAssistant(id) as VapiAssistant;
-      }
+      const currentAssistant = await vapiClient.getAssistant(id) as VapiAssistant;
 
       // Build update object, preserving existing values if not being updated
       const vapiUpdates: any = {};
@@ -271,18 +212,26 @@ export const agentApi = {
         vapiUpdates.firstMessage = updates.conversation_prompt;
       }
 
-      // Update via cached endpoint (write-through: updates Vapi + D1)
-      const { assistant } = await d1Client.updateAssistant(id, vapiUpdates);
-      return convertVapiAssistantToAgent(assistant as VapiAssistant);
+      // Update directly via VAPI API
+      const updatedAssistant = await vapiClient.updateAssistant(id, vapiUpdates) as VapiAssistant;
+      console.log('[agentApi.update] Assistant updated successfully');
+
+      return convertVapiAssistantToAgent(updatedAssistant);
     } catch (error) {
-      console.error('Update error:', error);
+      console.error('[agentApi.update] Update error:', error);
       throw error;
     }
   },
 
   async create(agent: Omit<Agent, 'id' | 'created_at' | 'updated_at'>, vapiClient?: VapiClient | null, serverUrl?: string): Promise<Agent> {
-    // Use cached endpoint (write-through: creates in Vapi + D1 cache)
+    // ALWAYS use direct VAPI API (no cache) for real-time updates
+    if (!vapiClient) {
+      throw new Error('VAPI client is required for creating assistants');
+    }
+
     try {
+      console.log('[agentApi.create] Creating assistant directly via VAPI API...');
+
       const vapiAgent: any = {
         name: agent.name,
         voice: {
@@ -305,21 +254,29 @@ export const agentApi = {
         };
       }
 
-      // Create via cached endpoint (write-through: creates in Vapi + D1)
-      const { assistant } = await d1Client.createAssistant(vapiAgent);
-      return convertVapiAssistantToAgent(assistant as VapiAssistant);
+      // Create directly via VAPI API
+      const createdAssistant = await vapiClient.createAssistant(vapiAgent) as VapiAssistant;
+      console.log('[agentApi.create] Assistant created successfully:', createdAssistant.id);
+
+      return convertVapiAssistantToAgent(createdAssistant);
     } catch (error) {
-      console.error('Create error:', error);
+      console.error('[agentApi.create] Create error:', error);
       throw error;
     }
   },
 
   async delete(id: string, vapiClient?: VapiClient | null): Promise<void> {
-    // Use cached endpoint (write-through: deletes from Vapi + D1 cache)
+    // ALWAYS use direct VAPI API (no cache) for real-time updates
+    if (!vapiClient) {
+      throw new Error('VAPI client is required for deleting assistants');
+    }
+
     try {
-      await d1Client.deleteAssistant(id);
+      console.log(`[agentApi.delete] Deleting assistant ${id} directly via VAPI API...`);
+      await vapiClient.deleteAssistant(id);
+      console.log('[agentApi.delete] Assistant deleted successfully');
     } catch (error) {
-      console.error('Delete error:', error);
+      console.error('[agentApi.delete] Delete error:', error);
       throw error;
     }
   }
