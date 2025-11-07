@@ -332,16 +332,43 @@ export async function searchContactByPhone(
 // ============================================
 
 /**
- * Create an Engagement (Note) with call summary and recording URL
+ * Create an Engagement (Note) with call summary, structured data, and recording URL
  * Note appears in contact's timeline
  */
 export async function createEngagement(
   accessToken: string,
   contactId: number,
   summary: string,
-  recordingUrl: string
+  recordingUrl: string,
+  structuredData?: Record<string, any>
 ): Promise<{ id: number }> {
-  const noteBody = `**Call Summary:**\n\n${summary}\n\n**Recording:** [Listen to Recording](${recordingUrl})`;
+  let noteBody = `**Call Summary:**\n\n${summary}`;
+
+  // Add structured data if available
+  if (structuredData && Object.keys(structuredData).length > 0) {
+    noteBody += '\n\n**Call Details:**\n';
+
+    for (const [key, value] of Object.entries(structuredData)) {
+      if (value !== null && value !== undefined && value !== '') {
+        // Convert camelCase or snake_case to Title Case
+        const formattedKey = key
+          .replace(/([A-Z])/g, ' $1')
+          .replace(/_/g, ' ')
+          .replace(/\b\w/g, (l) => l.toUpperCase())
+          .trim();
+
+        // Format the value
+        let formattedValue = value;
+        if (typeof value === 'object') {
+          formattedValue = JSON.stringify(value, null, 2);
+        }
+
+        noteBody += `\n- **${formattedKey}:** ${formattedValue}`;
+      }
+    }
+  }
+
+  noteBody += `\n\n**Recording:** [Listen to Recording](${recordingUrl})`;
 
   const engagementPayload = {
     engagement: {
@@ -384,7 +411,7 @@ export async function createEngagement(
 /**
  * Main function: Sync call to HubSpot
  * 1. Search for Contact by phone
- * 2. Create Engagement (note) with call summary and recording URL
+ * 2. Create Engagement (note) with call summary, structured data, and recording URL
  */
 export async function syncCallToHubSpot(
   db: D1Database,
@@ -395,6 +422,7 @@ export async function syncCallToHubSpot(
     phoneNumber: string;
     summary: string;
     recordingUrl: string;
+    structuredData?: Record<string, any>;
   },
   env: Env
 ): Promise<{
@@ -436,7 +464,8 @@ export async function syncCallToHubSpot(
       accessToken,
       contact.vid,
       callData.summary,
-      callData.recordingUrl
+      callData.recordingUrl,
+      callData.structuredData
     );
 
     // Step 4: Log success

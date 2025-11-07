@@ -6069,8 +6069,42 @@ Need help? Contact our support team anytime!
                   customer.number
                 );
 
-                // Note: HubSpot sync now happens in outbound webhook dispatcher
-                // after recording is uploaded to R2
+                // Sync to HubSpot if connected
+                try {
+                  const hubspotTokens = await env.DB.prepare(
+                    'SELECT access_token FROM hubspot_oauth_tokens WHERE user_id = ? AND workspace_id = ?'
+                  ).bind(webhook.user_id, wsSettings?.workspace_id).first() as any;
+
+                  const hasSummary = analysis?.summary || message.summary;
+                  const vapiRecordingUrl = message.recordingUrl || artifact.recordingUrl;
+
+                  if (hubspotTokens && customer.number && hasSummary && vapiRecordingUrl) {
+                    console.log('[HubSpot] Syncing call to HubSpot...');
+                    await syncCallToHubSpot(
+                      env.DB,
+                      webhook.user_id,
+                      wsSettings?.workspace_id || '',
+                      callId,
+                      {
+                        phoneNumber: customer.number,
+                        summary: analysis?.summary || message.summary || '',
+                        recordingUrl: vapiRecordingUrl,
+                        structuredData: analysis?.structuredData || {},
+                      },
+                      env
+                    );
+                  } else {
+                    console.log('[HubSpot] Skipping sync - missing required data:', {
+                      hasTokens: !!hubspotTokens,
+                      hasPhone: !!customer.number,
+                      hasSummary,
+                      hasRecording: !!vapiRecordingUrl
+                    });
+                  }
+                } catch (hubspotError) {
+                  console.error('[HubSpot] Sync error:', hubspotError);
+                  // Don't fail the webhook if HubSpot sync fails
+                }
               } catch (error) {
                 console.error('Background processing error:', error);
               }
