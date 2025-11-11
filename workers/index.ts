@@ -34,6 +34,12 @@ import {
   ensureValidToken as ensureValidHubSpotToken,
   syncCallToHubSpot
 } from './hubspot-service';
+import {
+  buildAuthUrl as buildDynamicsAuthUrl,
+  exchangeCodeForToken as exchangeDynamicsCodeForToken,
+  ensureValidToken as ensureValidDynamicsToken,
+  syncCallToDynamics
+} from './dynamics-service';
 
 // Cloudflare Worker types
 interface D1Database {
@@ -86,6 +92,13 @@ export interface Env {
   CACHE: KVNamespace;
   RECORDINGS: R2Bucket;
   JWT_SECRET: string; // Set this in wrangler.toml as a secret
+  SALESFORCE_CLIENT_ID: string;
+  SALESFORCE_CLIENT_SECRET: string;
+  HUBSPOT_CLIENT_ID: string;
+  HUBSPOT_CLIENT_SECRET: string;
+  DYNAMICS_CLIENT_ID: string;
+  DYNAMICS_CLIENT_SECRET: string;
+  DYNAMICS_TENANT_ID: string;
 }
 
 // CORS headers
@@ -1119,6 +1132,86 @@ export default {
       }
 
       // ============================================
+      // TRANSLATION ENDPOINT (Protected)
+      // ============================================
+      if (url.pathname === '/api/translate' && request.method === 'POST') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        const { text, targetLanguage } = await request.json() as { text: string; targetLanguage: string };
+
+        if (!text || !targetLanguage) {
+          return jsonResponse({ error: 'Missing required fields: text, targetLanguage' }, 400);
+        }
+
+        // Get user's workspace settings to retrieve OpenAI API key
+        const userSettings = await env.DB.prepare(
+          'SELECT selected_workspace_id FROM user_settings WHERE user_id = ?'
+        ).bind(userId).first() as any;
+
+        if (!userSettings || !userSettings.selected_workspace_id) {
+          return jsonResponse({ error: 'No workspace selected' }, 400);
+        }
+
+        const workspaceSettings = await env.DB.prepare(
+          'SELECT openai_api_key FROM workspace_settings WHERE workspace_id = ?'
+        ).bind(userSettings.selected_workspace_id).first() as any;
+
+        if (!workspaceSettings || !workspaceSettings.openai_api_key) {
+          return jsonResponse({
+            success: false,
+            error: 'OpenAI API key not configured. Please add it in Settings.'
+          });
+        }
+
+        try {
+          // Call OpenAI API to translate
+          const openaiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${workspaceSettings.openai_api_key}`
+            },
+            body: JSON.stringify({
+              model: 'gpt-4o-mini',
+              messages: [
+                {
+                  role: 'system',
+                  content: `You are a professional translator. Translate the following English text to ${targetLanguage}, maintaining the same tone and meaning.`
+                },
+                {
+                  role: 'user',
+                  content: text
+                }
+              ],
+              temperature: 0.3
+            })
+          });
+
+          if (!openaiResponse.ok) {
+            const errorText = await openaiResponse.text();
+            throw new Error(`OpenAI API error: ${openaiResponse.status} ${errorText}`);
+          }
+
+          const data = await openaiResponse.json() as any;
+          const translatedText = data.choices[0].message.content;
+
+          return jsonResponse({
+            success: true,
+            translatedText
+          });
+        } catch (error: any) {
+          console.error('[Translation] Error:', error);
+          return jsonResponse({
+            success: false,
+            error: error.message || 'Translation failed'
+          });
+        }
+      }
+
+      // ============================================
       // SALESFORCE INTEGRATION ENDPOINTS (Protected)
       // ============================================
 
@@ -1564,6 +1657,234 @@ export default {
         // Get total count
         let countQuery = 'SELECT COUNT(*) as count FROM hubspot_sync_logs WHERE user_id = ? AND workspace_id = ?';
         const countParams: any[] = [userId, workspaceId];
+
+        if (status) {
+          countQuery += ' AND status = ?';
+          countParams.push(status);
+        }
+
+        const countResult = await env.DB.prepare(countQuery).bind(...countParams).first() as any;
+
+        return jsonResponse({
+          success: true,
+          logs: logs.results || [],
+          total: countResult?.count || 0,
+          limit,
+          offset
+        });
+      }
+
+      // ============================================
+      // DYNAMICS 365 INTEGRATION ENDPOINTS (Protected)
+      // ============================================
+
+      // Initiate Dynamics 365 OAuth flow
+      if (url.pathname === '/api/dynamics/oauth/initiate' && request.method === 'GET') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        // Get user's workspace
+        const userSettings = await env.DB.prepare(
+          'SELECT selected_workspace_id FROM user_settings WHERE user_id = ?'
+        ).bind(userId).first() as any;
+
+        if (!userSettings || !userSettings.selected_workspace_id) {
+          return jsonResponse({ error: 'No workspace selected' }, 400);
+        }
+
+        const workspaceId = userSettings.selected_workspace_id;
+
+        // Get instance URL from query parameter (user must provide their D365 instance)
+        const instanceUrl = url.searchParams.get('instanceUrl');
+        if (!instanceUrl) {
+          return jsonResponse({ error: 'Instance URL is required' }, 400);
+        }
+
+        // Generate OAuth URL
+        const authUrl = buildDynamicsAuthUrl(workspaceId, env, instanceUrl);
+
+        return jsonResponse({
+          success: true,
+          authUrl
+        });
+      }
+
+      // Handle Dynamics 365 OAuth callback
+      if (url.pathname === '/api/dynamics/oauth/callback' && request.method === 'GET') {
+        try {
+          // Extract code and state from query params
+          const code = url.searchParams.get('code');
+          const state = url.searchParams.get('state'); // Contains "workspaceId|instanceUrl"
+
+          if (!code || !state) {
+            return new Response('Missing code or state parameter', { status: 400 });
+          }
+
+          // Parse state
+          const [workspaceId, instanceUrl] = state.split('|');
+
+          // Exchange code for tokens
+          const tokens = await exchangeDynamicsCodeForToken(code, env, instanceUrl);
+
+          // Store tokens in database
+          const timestamp = now();
+          await env.DB.prepare(
+            `UPDATE workspace_settings
+             SET dynamics_instance_url = ?,
+                 dynamics_access_token = ?,
+                 dynamics_refresh_token = ?,
+                 dynamics_token_expires_at = ?,
+                 updated_at = ?
+             WHERE workspace_id = ?`
+          ).bind(
+            instanceUrl,
+            tokens.access_token,
+            tokens.refresh_token,
+            tokens.expires_in,
+            timestamp,
+            workspaceId
+          ).run();
+
+          // Redirect to integration page with success message
+          return new Response(null, {
+            status: 302,
+            headers: {
+              'Location': 'https://voice-config.channelautomation.com/integrations?dynamics=connected'
+            }
+          });
+        } catch (error: any) {
+          console.error('[Dynamics 365 OAuth] Error:', error);
+          // Redirect to integration page with error
+          return new Response(null, {
+            status: 302,
+            headers: {
+              'Location': `https://voice-config.channelautomation.com/integrations?dynamics=error&message=${encodeURIComponent(error.message)}`
+            }
+          });
+        }
+      }
+
+      // Get Dynamics 365 connection status
+      if (url.pathname === '/api/dynamics/status' && request.method === 'GET') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        // Get user's workspace
+        const userSettings = await env.DB.prepare(
+          'SELECT selected_workspace_id FROM user_settings WHERE user_id = ?'
+        ).bind(userId).first() as any;
+
+        if (!userSettings || !userSettings.selected_workspace_id) {
+          return jsonResponse({ error: 'No workspace selected' }, 400);
+        }
+
+        const workspaceId = userSettings.selected_workspace_id;
+
+        // Get Dynamics 365 settings
+        const settings = await env.DB.prepare(
+          `SELECT dynamics_instance_url, dynamics_access_token,
+                  dynamics_refresh_token, dynamics_token_expires_at
+           FROM workspace_settings
+           WHERE workspace_id = ?`
+        ).bind(workspaceId).first() as any;
+
+        const connected = !!(settings && settings.dynamics_refresh_token);
+        const tokenExpiresAt = settings?.dynamics_token_expires_at || null;
+
+        return jsonResponse({
+          success: true,
+          connected,
+          instanceUrl: connected ? settings.dynamics_instance_url : null,
+          tokenExpiresAt
+        });
+      }
+
+      // Disconnect Dynamics 365
+      if (url.pathname === '/api/dynamics/disconnect' && request.method === 'DELETE') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        // Get user's workspace
+        const userSettings = await env.DB.prepare(
+          'SELECT selected_workspace_id FROM user_settings WHERE user_id = ?'
+        ).bind(userId).first() as any;
+
+        if (!userSettings || !userSettings.selected_workspace_id) {
+          return jsonResponse({ error: 'No workspace selected' }, 400);
+        }
+
+        const workspaceId = userSettings.selected_workspace_id;
+
+        // Clear Dynamics 365 tokens
+        const timestamp = now();
+        await env.DB.prepare(
+          `UPDATE workspace_settings
+           SET dynamics_instance_url = NULL,
+               dynamics_access_token = NULL,
+               dynamics_refresh_token = NULL,
+               dynamics_token_expires_at = NULL,
+               updated_at = ?
+           WHERE workspace_id = ?`
+        ).bind(timestamp, workspaceId).run();
+
+        return jsonResponse({
+          success: true,
+          message: 'Dynamics 365 disconnected successfully'
+        });
+      }
+
+      // Get Dynamics 365 sync logs
+      if (url.pathname === '/api/dynamics/sync-logs' && request.method === 'GET') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        // Get user's workspace
+        const userSettings = await env.DB.prepare(
+          'SELECT selected_workspace_id FROM user_settings WHERE user_id = ?'
+        ).bind(userId).first() as any;
+
+        if (!userSettings || !userSettings.selected_workspace_id) {
+          return jsonResponse({ error: 'No workspace selected' }, 400);
+        }
+
+        const workspaceId = userSettings.selected_workspace_id;
+
+        // Get query parameters
+        const limit = Math.min(parseInt(url.searchParams.get('limit') || '50'), 100);
+        const offset = parseInt(url.searchParams.get('offset') || '0');
+        const status = url.searchParams.get('status'); // 'success', 'error', 'skipped'
+
+        // Build query
+        let query = `
+          SELECT id, call_id, dynamics_record_id, dynamics_activity_id,
+                 dynamics_appointment_id, appointment_created, status,
+                 error_message, phone_number, created_at
+          FROM dynamics_sync_logs
+          WHERE workspace_id = ?
+        `;
+        const params: any[] = [workspaceId];
+
+        if (status) {
+          query += ' AND status = ?';
+          params.push(status);
+        }
+
+        query += ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
+        params.push(limit, offset);
+
+        const logs = await env.DB.prepare(query).bind(...params).all();
+
+        // Get total count
+        let countQuery = 'SELECT COUNT(*) as count FROM dynamics_sync_logs WHERE workspace_id = ?';
+        const countParams: any[] = [workspaceId];
 
         if (status) {
           countQuery += ' AND status = ?';
@@ -6260,13 +6581,14 @@ Need help? Contact our support team anytime!
                   customer.number
                 );
 
+                // Define hasSummary once for both HubSpot and Dynamics sync
+                const hasSummary = analysis?.summary || message.summary;
+
                 // Sync to HubSpot if connected
                 try {
                   const hubspotTokens = await env.DB.prepare(
                     'SELECT access_token FROM hubspot_oauth_tokens WHERE user_id = ? AND workspace_id = ?'
                   ).bind(webhook.user_id, wsSettings?.workspace_id).first() as any;
-
-                  const hasSummary = analysis?.summary || message.summary;
 
                   if (hubspotTokens && customer.number && hasSummary) {
                     console.log('[HubSpot] Syncing call to HubSpot...');
@@ -6307,6 +6629,80 @@ Need help? Contact our support team anytime!
                 } catch (hubspotError) {
                   console.error('[HubSpot] Sync error:', hubspotError);
                   // Don't fail the webhook if HubSpot sync fails
+                }
+
+                // ============================================
+                // DYNAMICS 365 SYNC
+                // ============================================
+                try {
+                  console.log('[Dynamics 365] Starting sync check...', {
+                    workspaceId: wsSettings?.workspace_id,
+                    customerNumber: customer.number,
+                    hasSummary,
+                  });
+
+                  // Check if Dynamics 365 is connected
+                  const dynamicsSettings = await env.DB.prepare(
+                    'SELECT dynamics_access_token, dynamics_refresh_token, dynamics_token_expires_at, dynamics_instance_url FROM workspace_settings WHERE workspace_id = ?'
+                  ).bind(wsSettings?.workspace_id || '').first();
+
+                  console.log('[Dynamics 365] Settings check:', {
+                    hasSettings: !!dynamicsSettings,
+                    hasAccessToken: !!(dynamicsSettings && dynamicsSettings.dynamics_access_token),
+                    hasRefreshToken: !!(dynamicsSettings && dynamicsSettings.dynamics_refresh_token),
+                  });
+
+                  const hasDynamicsTokens = dynamicsSettings && dynamicsSettings.dynamics_access_token && dynamicsSettings.dynamics_refresh_token;
+
+                  if (hasDynamicsTokens && customer.number && hasSummary) {
+                    console.log('[Dynamics 365] All checks passed, syncing call to Dynamics 365...');
+
+                    // Parse appointment data if available
+                    let appointmentData = null;
+                    const structuredOutputs = analysis?.structuredOutputs || artifact?.structuredOutputs || null;
+
+                    if (structuredOutputs && typeof structuredOutputs === 'object') {
+                      // Check for appointment in various possible locations
+                      const appointment =
+                        structuredOutputs.appointment ||
+                        structuredOutputs.scheduled_appointment ||
+                        structuredOutputs.appointmentDetails;
+
+                      if (appointment && appointment.date && appointment.time) {
+                        appointmentData = {
+                          date: appointment.date,
+                          time: appointment.time,
+                          type: appointment.type || appointment.appointmentType || 'Call',
+                          notes: appointment.notes || appointment.description || '',
+                          duration: appointment.duration || 60, // Default 60 minutes
+                        };
+                      }
+                    }
+
+                    await syncCallToDynamics(
+                      env.DB,
+                      wsSettings?.workspace_id || '',
+                      callId,
+                      {
+                        phoneNumber: customer.number,
+                        duration: Math.floor(call.duration || 0),
+                        summary: analysis?.summary || message.summary || '',
+                        callType: call.type === 'outboundPhoneCall' ? 'outbound' : 'inbound',
+                        callStartTime: call.startedAt || new Date().toISOString(),
+                        appointmentData,
+                      },
+                      env
+                    );
+                  } else {
+                    console.log('[Dynamics 365] Skipping sync - missing required data:', {
+                      hasTokens: !!hasDynamicsTokens,
+                      hasPhone: !!customer.number,
+                      hasSummary,
+                    });
+                  }
+                } catch (dynamicsError) {
+                  console.error('[Dynamics 365] Sync error:', dynamicsError);
+                  // Don't fail the webhook if Dynamics sync fails
                 }
               } catch (error) {
                 console.error('Background processing error:', error);

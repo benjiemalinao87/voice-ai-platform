@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Play, Pause, Phone, Clock, Calendar, User, MapPin, Download, MessageSquare, ChevronDown, ChevronUp } from 'lucide-react';
+import { Play, Pause, Phone, Clock, Calendar, User, MapPin, Download, MessageSquare, ChevronDown, ChevronUp, Languages, Loader2 } from 'lucide-react';
 import { d1Client } from '../lib/d1';
 import type { WebhookCall } from '../types';
 import { CustomerProfile } from './CustomerProfile';
@@ -177,6 +177,8 @@ export function Recordings() {
   const [hasMore, setHasMore] = useState(true);
   const [limit] = useState(10); // Show 10 at a time
   const [offset, setOffset] = useState(0);
+  const [translations, setTranslations] = useState<{ [key: string]: string }>({});
+  const [translating, setTranslating] = useState<{ [key: string]: boolean }>({});
 
   useEffect(() => {
     loadRecordings(true);
@@ -422,6 +424,26 @@ export function Recordings() {
       hour: '2-digit',
       minute: '2-digit'
     });
+  };
+
+  const translateToSpanish = async (recordingId: string, text: string) => {
+    try {
+      setTranslating(prev => ({ ...prev, [recordingId]: true }));
+
+      // Call our backend API to translate (backend will fetch OpenAI key from D1)
+      const response = await d1Client.translateText(text, 'spanish');
+
+      if (!response.success) {
+        throw new Error(response.error || 'Translation failed');
+      }
+
+      setTranslations(prev => ({ ...prev, [recordingId]: response.translatedText }));
+    } catch (error) {
+      console.error('Error translating text:', error);
+      alert('Failed to translate. Please try again.');
+    } finally {
+      setTranslating(prev => ({ ...prev, [recordingId]: false }));
+    }
   };
 
   const handlePlayPause = (recordingId: string) => {
@@ -721,12 +743,51 @@ export function Recordings() {
                 {/* Call Summary */}
                 {recording.summary && (
                   <div className="mb-2 bg-blue-50 dark:bg-blue-900/20 rounded-lg p-2.5 border border-blue-100 dark:border-blue-800">
-                    <h4 className="text-xs font-semibold text-blue-900 dark:text-blue-200 mb-1 flex items-center gap-1.5">
-                      <MessageSquare className="w-3.5 h-3.5" />
-                      Call Summary
-                    </h4>
+                    <div className="flex items-center justify-between mb-1">
+                      <h4 className="text-xs font-semibold text-blue-900 dark:text-blue-200 flex items-center gap-1.5">
+                        <MessageSquare className="w-3.5 h-3.5" />
+                        Call Summary
+                        {translations[recording.id] && (
+                          <span className="text-[10px] font-normal text-blue-600 dark:text-blue-400">(Spanish)</span>
+                        )}
+                      </h4>
+                      <button
+                        onClick={() => {
+                          if (translations[recording.id]) {
+                            // Clear translation to show original
+                            setTranslations(prev => {
+                              const updated = { ...prev };
+                              delete updated[recording.id];
+                              return updated;
+                            });
+                          } else {
+                            // Translate to Spanish
+                            translateToSpanish(recording.id, recording.summary);
+                          }
+                        }}
+                        disabled={translating[recording.id]}
+                        className="flex items-center gap-1 px-2 py-0.5 text-[10px] font-medium text-blue-700 dark:text-blue-300 bg-blue-100 dark:bg-blue-900/40 rounded hover:bg-blue-200 dark:hover:bg-blue-900/60 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {translating[recording.id] ? (
+                          <>
+                            <Loader2 className="w-3 h-3 animate-spin" />
+                            Translating...
+                          </>
+                        ) : translations[recording.id] ? (
+                          <>
+                            <Languages className="w-3 h-3" />
+                            Show Original
+                          </>
+                        ) : (
+                          <>
+                            <Languages className="w-3 h-3" />
+                            Translate to Spanish
+                          </>
+                        )}
+                      </button>
+                    </div>
                     <p className="text-xs text-blue-800 dark:text-blue-300 leading-relaxed">
-                      {recording.summary}
+                      {translations[recording.id] || recording.summary}
                     </p>
                     {recording.endedReason && (
                       <p className="text-xs text-blue-600 dark:text-blue-400 mt-1.5">

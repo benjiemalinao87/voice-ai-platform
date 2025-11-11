@@ -273,6 +273,18 @@ class D1Client {
     });
   }
 
+  // Translate text using OpenAI
+  async translateText(text: string, targetLanguage: string): Promise<{
+    success: boolean;
+    translatedText?: string;
+    error?: string;
+  }> {
+    return this.request('/api/translate', {
+      method: 'POST',
+      body: JSON.stringify({ text, targetLanguage }),
+    });
+  }
+
   // Get concurrent calls stats
   async getConcurrentCalls(): Promise<{
     current: number;
@@ -669,6 +681,103 @@ class D1Client {
     if (params?.status) queryParams.set('status', params.status);
 
     const url = `/api/hubspot/sync-logs${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
+
+    return this.request<{
+      success: boolean;
+      logs: Array<any>;
+      total: number;
+      limit: number;
+      offset: number;
+    }>(url, { method: 'GET' }).then(response => ({
+      logs: response.logs,
+      total: response.total,
+      limit: response.limit,
+      offset: response.offset,
+    }));
+  }
+
+  // ============================================
+  // DYNAMICS 365 INTEGRATION
+  // ============================================
+
+  /**
+   * Initiate Dynamics 365 OAuth flow
+   * Opens a popup window for user to authorize Dynamics 365 access
+   */
+  async initiateDynamicsOAuth(instanceUrl: string): Promise<{ authUrl: string }> {
+    const response = await this.request<{ success: boolean; authUrl: string }>(
+      `/api/dynamics/oauth/initiate?instanceUrl=${encodeURIComponent(instanceUrl)}`,
+      { method: 'GET' }
+    );
+    return { authUrl: response.authUrl };
+  }
+
+  /**
+   * Get Dynamics 365 connection status
+   * Returns whether Dynamics 365 is connected and token expiration
+   */
+  async getDynamicsStatus(): Promise<{
+    connected: boolean;
+    instanceUrl: string | null;
+    tokenExpiresAt: number | null;
+  }> {
+    const response = await this.request<{
+      success: boolean;
+      connected: boolean;
+      instanceUrl: string | null;
+      tokenExpiresAt: number | null;
+    }>('/api/dynamics/status', { method: 'GET' });
+
+    return {
+      connected: response.connected,
+      instanceUrl: response.instanceUrl,
+      tokenExpiresAt: response.tokenExpiresAt,
+    };
+  }
+
+  /**
+   * Disconnect Dynamics 365
+   * Removes OAuth tokens and disconnects integration
+   */
+  async disconnectDynamics(): Promise<{ success: boolean; message: string }> {
+    return this.request<{ success: boolean; message: string }>(
+      '/api/dynamics/disconnect',
+      { method: 'DELETE' }
+    );
+  }
+
+  /**
+   * Get Dynamics 365 sync logs
+   * Returns paginated list of sync attempts with their status
+   */
+  async getDynamicsSyncLogs(params?: {
+    limit?: number;
+    offset?: number;
+    status?: 'success' | 'error' | 'skipped';
+  }): Promise<{
+    logs: Array<{
+      id: string;
+      call_id: string;
+      dynamics_record_id: string | null;
+      dynamics_activity_id: string | null;
+      dynamics_appointment_id: string | null;
+      appointment_created: boolean;
+      lead_created: boolean;
+      status: 'success' | 'error' | 'skipped';
+      error_message: string | null;
+      phone_number: string | null;
+      created_at: number;
+    }>;
+    total: number;
+    limit: number;
+    offset: number;
+  }> {
+    const queryParams = new URLSearchParams();
+    if (params?.limit) queryParams.set('limit', params.limit.toString());
+    if (params?.offset) queryParams.set('offset', params.offset.toString());
+    if (params?.status) queryParams.set('status', params.status);
+
+    const url = `/api/dynamics/sync-logs${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
 
     return this.request<{
       success: boolean;

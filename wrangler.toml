@@ -39,10 +39,19 @@ SALESFORCE_CLIENT_SECRET = "your-salesforce-consumer-secret-here"
 # wrangler secret put HUBSPOT_CLIENT_ID
 # wrangler secret put HUBSPOT_CLIENT_SECRET
 
+# Microsoft Dynamics 365 OAuth Credentials
+# Configured via wrangler secrets:
+# wrangler secret put DYNAMICS_CLIENT_ID
+# wrangler secret put DYNAMICS_CLIENT_SECRET
+# wrangler secret put DYNAMICS_TENANT_ID
+
 # For production, use:
 # wrangler secret put JWT_SECRET
 # wrangler secret put SALESFORCE_CLIENT_ID
 # wrangler secret put SALESFORCE_CLIENT_SECRET
 # wrangler secret put HUBSPOT_CLIENT_ID
 # wrangler secret put HUBSPOT_CLIENT_SECRET
+# wrangler secret put DYNAMICS_CLIENT_ID
+# wrangler secret put DYNAMICS_CLIENT_SECRET
+# wrangler secret put DYNAMICS_TENANT_ID
 

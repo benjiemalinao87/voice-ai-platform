@@ -131,10 +131,24 @@ export function Integration({ onNavigateToApiConfig }: IntegrationProps = {}) {
   const [hubspotSyncLogs, setHubspotSyncLogs] = useState<any[]>([]);
   const [loadingHubSpotLogs, setLoadingHubSpotLogs] = useState(false);
 
+  // Dynamics 365 State
+  const [dynamicsConnected, setDynamicsConnected] = useState(false);
+  const [dynamicsInstanceUrl, setDynamicsInstanceUrl] = useState<string | null>(null);
+  const [dynamicsNotification, setDynamicsNotification] = useState<{
+    type: 'success' | 'error';
+    message: string;
+  } | null>(null);
+  const [showDynamicsLogsModal, setShowDynamicsLogsModal] = useState(false);
+  const [dynamicsSyncLogs, setDynamicsSyncLogs] = useState<any[]>([]);
+  const [loadingDynamicsLogs, setLoadingDynamicsLogs] = useState(false);
+  const [showDynamicsInstanceModal, setShowDynamicsInstanceModal] = useState(false);
+  const [dynamicsInstanceUrlInput, setDynamicsInstanceUrlInput] = useState('');
+
   useEffect(() => {
     loadIntegrationStatus();
     checkSalesforceCallback();
     checkHubSpotCallback();
+    checkDynamicsCallback();
   }, []);
 
   const checkSalesforceCallback = () => {
@@ -187,6 +201,30 @@ export function Integration({ onNavigateToApiConfig }: IntegrationProps = {}) {
     }
   };
 
+  const checkDynamicsCallback = async () => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const dynamicsStatus = urlParams.get('dynamics');
+
+    if (dynamicsStatus === 'connected') {
+      setDynamicsNotification({
+        type: 'success',
+        message: 'Dynamics 365 connected successfully!'
+      });
+      window.history.replaceState({}, '', window.location.pathname);
+      setTimeout(() => setDynamicsNotification(null), 5000);
+      // Reload integration status to update the UI
+      await loadIntegrationStatus();
+    } else if (dynamicsStatus === 'error') {
+      const errorMessage = urlParams.get('message') || 'Failed to connect to Dynamics 365';
+      setDynamicsNotification({
+        type: 'error',
+        message: errorMessage
+      });
+      window.history.replaceState({}, '', window.location.pathname);
+      setTimeout(() => setDynamicsNotification(null), 8000);
+    }
+  };
+
   const loadIntegrationStatus = async () => {
     try {
       const settings = await d1Client.getUserSettings();
@@ -210,6 +248,17 @@ export function Integration({ onNavigateToApiConfig }: IntegrationProps = {}) {
         setHubspotConnected(hsStatus.connected);
       } catch (error) {
         console.error('Error loading HubSpot status:', error);
+      }
+
+      // Load Dynamics 365 status
+      let dynamicsConnected = false;
+      try {
+        const dynamicsStatus = await d1Client.getDynamicsStatus();
+        dynamicsConnected = dynamicsStatus.connected;
+        setDynamicsConnected(dynamicsStatus.connected);
+        setDynamicsInstanceUrl(dynamicsStatus.instanceUrl);
+      } catch (error) {
+        console.error('Error loading Dynamics 365 status:', error);
       }
 
       // Update integration status based on stored credentials
@@ -240,6 +289,13 @@ export function Integration({ onNavigateToApiConfig }: IntegrationProps = {}) {
             ...integration,
             status: hsConnected ? 'connected' : 'disconnected',
             lastSync: hsConnected ? 'Active' : undefined
+          };
+        }
+        if (integration.id === 'dynamics') {
+          return {
+            ...integration,
+            status: dynamicsConnected ? 'connected' : 'disconnected',
+            lastSync: dynamicsConnected ? 'Active' : undefined
           };
         }
         return integration;
@@ -363,12 +419,68 @@ export function Integration({ onNavigateToApiConfig }: IntegrationProps = {}) {
       return;
     }
 
+    if (integrationId === 'dynamics') {
+      // Show instance URL input modal first
+      setShowDynamicsInstanceModal(true);
+      return;
+    }
+
     setIsConnecting(integrationId);
     // Simulate connection process for other integrations
     setTimeout(() => {
       setIsConnecting(null);
       // In a real app, this would update the integration status
     }, 2000);
+  };
+
+  const handleDynamicsConnect = async () => {
+    if (!dynamicsInstanceUrlInput) {
+      setDynamicsNotification({
+        type: 'error',
+        message: 'Please enter your Dynamics 365 instance URL'
+      });
+      setTimeout(() => setDynamicsNotification(null), 5000);
+      return;
+    }
+
+    try {
+      setIsConnecting('dynamics');
+      const { authUrl } = await d1Client.initiateDynamicsOAuth(dynamicsInstanceUrlInput);
+
+      // Close the modal
+      setShowDynamicsInstanceModal(false);
+
+      // Open OAuth in popup window
+      const width = 600;
+      const height = 700;
+      const left = window.screen.width / 2 - width / 2;
+      const top = window.screen.height / 2 - height / 2;
+
+      const popup = window.open(
+        authUrl,
+        'Dynamics 365 OAuth',
+        `width=${width},height=${height},left=${left},top=${top}`
+      );
+
+      // Poll for popup closure
+      const pollTimer = setInterval(() => {
+        if (popup?.closed) {
+          clearInterval(pollTimer);
+          setIsConnecting(null);
+          // Reload integration status after OAuth
+          loadIntegrationStatus();
+        }
+      }, 500);
+    } catch (error: any) {
+      console.error('Error initiating Dynamics 365 OAuth:', error);
+      setDynamicsNotification({
+        type: 'error',
+        message: error.message || 'Failed to initiate Dynamics 365 connection'
+      });
+      setIsConnecting(null);
+      setShowDynamicsInstanceModal(false);
+      setTimeout(() => setDynamicsNotification(null), 8000);
+    }
   };
 
   const handleDisconnectSalesforce = async () => {
@@ -427,6 +539,44 @@ export function Integration({ onNavigateToApiConfig }: IntegrationProps = {}) {
   const handleOpenHubSpotLogs = async () => {
     setShowHubSpotLogsModal(true);
     await loadHubSpotSyncLogs();
+  };
+
+  const handleDisconnectDynamics = async () => {
+    try {
+      await d1Client.disconnectDynamics();
+      setDynamicsConnected(false);
+      setDynamicsInstanceUrl(null);
+      setDynamicsNotification({
+        type: 'success',
+        message: 'Dynamics 365 disconnected successfully'
+      });
+      await loadIntegrationStatus();
+      setTimeout(() => setDynamicsNotification(null), 5000);
+    } catch (error: any) {
+      console.error('Error disconnecting Dynamics 365:', error);
+      setDynamicsNotification({
+        type: 'error',
+        message: error.message || 'Failed to disconnect Dynamics 365'
+      });
+      setTimeout(() => setDynamicsNotification(null), 8000);
+    }
+  };
+
+  const loadDynamicsSyncLogs = async () => {
+    setLoadingDynamicsLogs(true);
+    try {
+      const logs = await d1Client.getDynamicsSyncLogs();
+      setDynamicsSyncLogs(logs.logs || []);
+    } catch (error) {
+      console.error('Error loading Dynamics 365 sync logs:', error);
+    } finally {
+      setLoadingDynamicsLogs(false);
+    }
+  };
+
+  const handleOpenDynamicsLogs = async () => {
+    setShowDynamicsLogsModal(true);
+    await loadDynamicsSyncLogs();
   };
 
   const handleSaveOpenAI = async () => {
@@ -605,6 +755,42 @@ export function Integration({ onNavigateToApiConfig }: IntegrationProps = {}) {
         </div>
       )}
 
+      {/* Dynamics 365 Notification Banner */}
+      {dynamicsNotification && (
+        <div
+          className={`rounded-lg border p-4 ${
+            dynamicsNotification.type === 'success'
+              ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800'
+              : 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800'
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              {dynamicsNotification.type === 'success' ? (
+                <CheckCircle className="w-5 h-5 text-green-600 dark:text-green-400" />
+              ) : (
+                <AlertCircle className="w-5 h-5 text-red-600 dark:text-red-400" />
+              )}
+              <span
+                className={`text-sm font-medium ${
+                  dynamicsNotification.type === 'success'
+                    ? 'text-green-900 dark:text-green-100'
+                    : 'text-red-900 dark:text-red-100'
+                }`}
+              >
+                {dynamicsNotification.message}
+              </span>
+            </div>
+            <button
+              onClick={() => setDynamicsNotification(null)}
+              className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+            >
+              <XCircle className="w-5 h-5" />
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
         <div className="flex items-center gap-3 mb-4">
@@ -715,6 +901,21 @@ export function Integration({ onNavigateToApiConfig }: IntegrationProps = {}) {
               </div>
             )}
 
+            {/* Dynamics-specific info */}
+            {integration.id === 'dynamics' && (
+              <div className="mb-4 space-y-3">
+                {/* Instance URL when connected */}
+                {dynamicsConnected && dynamicsInstanceUrl && (
+                  <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-3">
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Instance URL:</p>
+                    <p className="text-sm font-medium text-gray-900 dark:text-gray-100 break-all">
+                      {dynamicsInstanceUrl}
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Action Buttons */}
             <div className="flex gap-2">
               {integration.status === 'connected' ? (
@@ -760,6 +961,23 @@ export function Integration({ onNavigateToApiConfig }: IntegrationProps = {}) {
                         Disconnect
                       </button>
                     </>
+                  ) : integration.id === 'dynamics' ? (
+                    <>
+                      <button
+                        onClick={handleOpenDynamicsLogs}
+                        className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-blue-100 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400 rounded-lg hover:bg-blue-200 dark:hover:bg-blue-900/30 transition-colors"
+                      >
+                        <Eye className="w-4 h-4" />
+                        View History
+                      </button>
+                      <button
+                        onClick={handleDisconnectDynamics}
+                        className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-red-100 dark:bg-red-900/20 text-red-700 dark:text-red-400 rounded-lg hover:bg-red-200 dark:hover:bg-red-900/30 transition-colors"
+                      >
+                        <XCircle className="w-4 h-4" />
+                        Disconnect
+                      </button>
+                    </>
                   ) : (
                     <button
                       onClick={() => setSelectedIntegration(integration.id)}
@@ -769,7 +987,7 @@ export function Integration({ onNavigateToApiConfig }: IntegrationProps = {}) {
                       Configure
                     </button>
                   )}
-                  {integration.id !== 'openai' && integration.id !== 'twilio' && integration.id !== 'salesforce' && integration.id !== 'hubspot' && (
+                  {integration.id !== 'openai' && integration.id !== 'twilio' && integration.id !== 'salesforce' && integration.id !== 'hubspot' && integration.id !== 'dynamics' && (
                     <button className="flex items-center justify-center gap-2 px-3 py-2 bg-green-100 dark:bg-green-900/20 text-green-700 dark:text-green-400 rounded-lg hover:bg-green-200 dark:hover:bg-green-900/30 transition-colors">
                       <RefreshCw className="w-4 h-4" />
                     </button>
@@ -1233,6 +1451,223 @@ export function Integration({ onNavigateToApiConfig }: IntegrationProps = {}) {
             <div className="p-6 border-t border-gray-200 dark:border-gray-700">
               <button
                 onClick={() => setShowHubSpotLogsModal(false)}
+                className="w-full px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Dynamics 365 Instance URL Modal */}
+      {showDynamicsInstanceModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white dark:bg-gray-800 rounded-lg max-w-md w-full">
+            <div className="p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-xl font-bold text-gray-900 dark:text-gray-100">
+                  Connect to Dynamics 365
+                </h2>
+                <button
+                  onClick={() => {
+                    setShowDynamicsInstanceModal(false);
+                    setDynamicsInstanceUrlInput('');
+                  }}
+                  className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+                >
+                  <XCircle className="w-5 h-5 text-gray-500 dark:text-gray-400" />
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Dynamics 365 Instance URL
+                  </label>
+                  <input
+                    type="text"
+                    value={dynamicsInstanceUrlInput}
+                    onChange={(e) => setDynamicsInstanceUrlInput(e.target.value)}
+                    placeholder="https://yourorg.crm.dynamics.com"
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+                  />
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                    Enter your organization's Dynamics 365 URL (e.g., https://orgname.crm.dynamics.com)
+                  </p>
+                </div>
+
+                {dynamicsNotification && (
+                  <div
+                    className={`rounded-lg border p-3 ${
+                      dynamicsNotification.type === 'success'
+                        ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800'
+                        : 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800'
+                    }`}
+                  >
+                    <p className={`text-sm ${
+                      dynamicsNotification.type === 'success'
+                        ? 'text-green-900 dark:text-green-100'
+                        : 'text-red-900 dark:text-red-100'
+                    }`}>
+                      {dynamicsNotification.message}
+                    </p>
+                  </div>
+                )}
+
+                <div className="flex gap-3 pt-4">
+                  <button
+                    onClick={() => {
+                      setShowDynamicsInstanceModal(false);
+                      setDynamicsInstanceUrlInput('');
+                    }}
+                    className="flex-1 px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleDynamicsConnect}
+                    disabled={!dynamicsInstanceUrlInput || isConnecting === 'dynamics'}
+                    className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  >
+                    {isConnecting === 'dynamics' ? (
+                      <>
+                        <RefreshCw className="w-4 h-4 animate-spin" />
+                        Connecting...
+                      </>
+                    ) : (
+                      <>
+                        <ExternalLink className="w-4 h-4" />
+                        Connect
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Dynamics 365 Sync Logs Modal */}
+      {showDynamicsLogsModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white dark:bg-gray-800 rounded-lg max-w-4xl w-full max-h-[80vh] overflow-hidden flex flex-col">
+            <div className="p-6 border-b border-gray-200 dark:border-gray-700">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+                    Dynamics 365 Sync History
+                  </h2>
+                  <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                    View all call sync attempts to Dynamics 365
+                  </p>
+                </div>
+                <button
+                  onClick={() => setShowDynamicsLogsModal(false)}
+                  className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+                >
+                  <XCircle className="w-5 h-5 text-gray-500 dark:text-gray-400" />
+                </button>
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-6">
+              {loadingDynamicsLogs ? (
+                <div className="flex items-center justify-center py-12">
+                  <RefreshCw className="w-8 h-8 text-blue-600 dark:text-blue-400 animate-spin" />
+                </div>
+              ) : dynamicsSyncLogs.length === 0 ? (
+                <div className="text-center py-12">
+                  <AlertCircle className="w-12 h-12 text-gray-400 dark:text-gray-500 mx-auto mb-3" />
+                  <p className="text-gray-600 dark:text-gray-400">No sync logs found</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-500 mt-1">
+                    Sync logs will appear here once calls are synced to Dynamics 365
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {dynamicsSyncLogs.map((log) => (
+                    <div
+                      key={log.id}
+                      className={`rounded-lg border p-4 ${
+                        log.status === 'success'
+                          ? 'bg-green-50 dark:bg-green-900/10 border-green-200 dark:border-green-800'
+                          : log.status === 'error'
+                          ? 'bg-red-50 dark:bg-red-900/10 border-red-200 dark:border-red-800'
+                          : 'bg-gray-50 dark:bg-gray-700/50 border-gray-200 dark:border-gray-600'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between mb-2">
+                        <div className="flex items-center gap-2">
+                          {log.status === 'success' ? (
+                            <CheckCircle className="w-5 h-5 text-green-600 dark:text-green-400" />
+                          ) : log.status === 'error' ? (
+                            <AlertCircle className="w-5 h-5 text-red-600 dark:text-red-400" />
+                          ) : (
+                            <AlertCircle className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+                          )}
+                          <span className={`font-medium ${
+                            log.status === 'success'
+                              ? 'text-green-900 dark:text-green-100'
+                              : log.status === 'error'
+                              ? 'text-red-900 dark:text-red-100'
+                              : 'text-gray-900 dark:text-gray-100'
+                          }`}>
+                            {log.status.charAt(0).toUpperCase() + log.status.slice(1)}
+                          </span>
+                        </div>
+                        <span className="text-xs text-gray-500 dark:text-gray-400">
+                          {new Date(log.created_at * 1000).toLocaleString()}
+                        </span>
+                      </div>
+
+                      <div className="space-y-1 text-sm">
+                        <p className="text-gray-700 dark:text-gray-300">
+                          <span className="font-medium">Call ID:</span> {log.call_id}
+                        </p>
+                        {log.phone_number && (
+                          <p className="text-gray-700 dark:text-gray-300">
+                            <span className="font-medium">Phone:</span> {log.phone_number}
+                          </p>
+                        )}
+                        {log.dynamics_record_id && (
+                          <div className="flex items-center gap-2">
+                            <p className="text-gray-700 dark:text-gray-300">
+                              <span className="font-medium">Record ID:</span> {log.dynamics_record_id}
+                            </p>
+                            {log.lead_created && (
+                              <span className="px-2 py-0.5 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 text-xs rounded-md">
+                                New Lead
+                              </span>
+                            )}
+                          </div>
+                        )}
+                        {log.dynamics_activity_id && (
+                          <p className="text-gray-700 dark:text-gray-300">
+                            <span className="font-medium">Activity ID:</span> {log.dynamics_activity_id}
+                          </p>
+                        )}
+                        {log.appointment_created && log.dynamics_appointment_id && (
+                          <p className="text-gray-700 dark:text-gray-300">
+                            <span className="font-medium">Appointment ID:</span> {log.dynamics_appointment_id}
+                          </p>
+                        )}
+                        {log.error_message && (
+                          <p className="text-red-700 dark:text-red-300 mt-2">
+                            <span className="font-medium">Error:</span> {log.error_message}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="p-6 border-t border-gray-200 dark:border-gray-700">
+              <button
+                onClick={() => setShowDynamicsLogsModal(false)}
                 className="w-full px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
               >
                 Close
