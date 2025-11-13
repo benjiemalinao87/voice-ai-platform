@@ -55,3 +55,7 @@ SALESFORCE_CLIENT_SECRET = "your-salesforce-consumer-secret-here"
 # wrangler secret put DYNAMICS_CLIENT_SECRET
 # wrangler secret put DYNAMICS_TENANT_ID
 
+# Cron trigger for cleanup jobs
+[triggers]
+crons = ["0 */6 * * *"]  # Run every 6 hours
+

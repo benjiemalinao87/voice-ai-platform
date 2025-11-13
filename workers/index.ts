@@ -87,6 +87,11 @@ interface ExecutionContext {
   waitUntil(promise: Promise<any>): void;
 }
 
+interface ScheduledEvent {
+  scheduledTime: number;
+  cron: string;
+}
+
 export interface Env {
   DB: D1Database;
   CACHE: KVNamespace;
@@ -3648,6 +3653,36 @@ export default {
         return jsonResponse(results);
       }
 
+      // Cleanup stale active calls (manual trigger)
+      if (url.pathname === '/api/active-calls/cleanup' && request.method === 'POST') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        // Get effective user ID for workspace context
+        const { effectiveUserId } = await getEffectiveUserId(env, userId);
+
+        // Clean up active calls older than 2 hours for this user
+        const twoHoursAgo = Math.floor(Date.now() / 1000) - (2 * 60 * 60);
+
+        const result = await env.DB.prepare(
+          `DELETE FROM active_calls WHERE user_id = ? AND updated_at < ?`
+        ).bind(effectiveUserId, twoHoursAgo).run();
+
+        console.log('[Manual Cleanup] Stale calls removed:', {
+          userId: effectiveUserId,
+          deletedCalls: result.meta.changes,
+          threshold: new Date(twoHoursAgo * 1000).toISOString()
+        });
+
+        return jsonResponse({
+          success: true,
+          deletedCalls: result.meta.changes,
+          message: `Removed ${result.meta.changes} stale call(s)`
+        });
+      }
+
       // Get concurrent calls stats
       // Get concurrent calls stats (supports workspace context)
       if (url.pathname === '/api/concurrent-calls' && request.method === 'GET') {
@@ -6738,6 +6773,30 @@ Need help? Contact our support team anytime!
     } catch (error: any) {
       console.error('Worker error:', error);
       return jsonResponse({ error: error.message || 'Internal server error' }, 500);
+    }
+  },
+
+  /**
+   * Scheduled handler for cleanup jobs
+   * Runs every 6 hours to clean up stale active calls
+   */
+  async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
+    console.log('[Scheduled] Running cleanup job at:', new Date(event.scheduledTime).toISOString());
+
+    try {
+      // Clean up active calls older than 24 hours
+      const twentyFourHoursAgo = Math.floor(Date.now() / 1000) - (24 * 60 * 60);
+
+      const result = await env.DB.prepare(
+        `DELETE FROM active_calls WHERE updated_at < ?`
+      ).bind(twentyFourHoursAgo).run();
+
+      console.log('[Scheduled] Cleanup complete:', {
+        deletedCalls: result.meta.changes,
+        threshold: new Date(twentyFourHoursAgo * 1000).toISOString()
+      });
+    } catch (error) {
+      console.error('[Scheduled] Cleanup job failed:', error);
     }
   },
 };

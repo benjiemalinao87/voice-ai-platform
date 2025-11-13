@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Phone, Clock, PhoneIncoming, PhoneOff, PhoneForwarded, Volume2 } from 'lucide-react';
+import { Phone, Clock, PhoneIncoming, PhoneOff, PhoneForwarded, Volume2, Trash2 } from 'lucide-react';
 
 interface ActiveCall {
   id: string;
@@ -23,6 +23,7 @@ export function LiveCallFeed() {
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [previousCallIds, setPreviousCallIds] = useState<Set<string>>(new Set());
   const [isInitialLoad, setIsInitialLoad] = useState(true);
+  const [cleanupLoading, setCleanupLoading] = useState(false);
 
   // Play notification sound for new calls
   const playNotificationSound = () => {
@@ -224,17 +225,64 @@ export function LiveCallFeed() {
       });
 
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Failed to end call');
+        const errorData = await response.json().catch(() => ({}));
+        const errorMessage = errorData.error || `Server error (${response.status})`;
+
+        // Provide more helpful error messages
+        if (response.status === 404) {
+          throw new Error('Call not found. It may have already ended.');
+        } else if (response.status === 400) {
+          throw new Error(errorMessage);
+        } else {
+          throw new Error(`Failed to end call: ${errorMessage}`);
+        }
       }
 
       // Refresh active calls
       await fetchActiveCalls();
     } catch (error) {
       console.error('Error ending call:', error);
-      alert(`Failed to end call: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      alert(`Failed to end call: ${message}`);
     } finally {
       setActionLoading(null);
+    }
+  };
+
+  const handleCleanupStaleCalls = async () => {
+    if (!confirm('Remove calls that have been inactive for more than 2 hours?')) return;
+
+    setCleanupLoading(true);
+    try {
+      const token = localStorage.getItem('auth_token');
+      const response = await fetch(`${API_URL}/api/active-calls/cleanup`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to cleanup stale calls');
+      }
+
+      const data = await response.json();
+
+      // Refresh active calls
+      await fetchActiveCalls();
+
+      // Show success message
+      if (data.deletedCalls > 0) {
+        alert(`Successfully removed ${data.deletedCalls} stale call(s)`);
+      } else {
+        alert('No stale calls found');
+      }
+    } catch (error) {
+      console.error('Error cleaning up stale calls:', error);
+      alert(`Failed to cleanup: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setCleanupLoading(false);
     }
   };
 
@@ -333,14 +381,27 @@ export function LiveCallFeed() {
             </span>
           )}
         </h3>
-        <div className="flex items-center gap-3 text-xs text-gray-500 dark:text-gray-400">
-          <div className="flex items-center gap-1.5">
-            <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-            Live
-          </div>
-          <div className="flex items-center gap-1.5" title="Sound alerts enabled for new calls">
-            <Volume2 className="w-3.5 h-3.5" />
-            Sound
+        <div className="flex items-center gap-3">
+          {activeCalls.length > 0 && (
+            <button
+              onClick={handleCleanupStaleCalls}
+              disabled={cleanupLoading}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors text-xs disabled:opacity-50 disabled:cursor-not-allowed"
+              title="Remove stale calls (inactive for 2+ hours)"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              {cleanupLoading ? 'Cleaning...' : 'Cleanup'}
+            </button>
+          )}
+          <div className="flex items-center gap-3 text-xs text-gray-500 dark:text-gray-400">
+            <div className="flex items-center gap-1.5">
+              <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+              Live
+            </div>
+            <div className="flex items-center gap-1.5" title="Sound alerts enabled for new calls">
+              <Volume2 className="w-3.5 h-3.5" />
+              Sound
+            </div>
           </div>
         </div>
       </div>
