@@ -374,8 +374,8 @@ export function LiveCallFeed() {
         console.log('[Live Listen] WebSocket connected');
         setListeningToCall(callId);
         setActionLoading(null);
-        // Reset playback timing when starting
-        nextPlayTimeRef.current = audioContext.currentTime;
+        // Reset playback timing when starting (will be set with buffer on first chunk)
+        nextPlayTimeRef.current = 0;
       };
 
       ws.onmessage = async (event) => {
@@ -393,17 +393,40 @@ export function LiveCallFeed() {
               float32Data[i] = pcmData[i] / 32768.0; // Convert to -1.0 to 1.0 range
             }
 
-            // Create audio buffer (8000 Hz sample rate for telephony audio)
-            const audioBuffer = audioContext.createBuffer(1, float32Data.length, 8000);
-            audioBuffer.getChannelData(0).set(float32Data);
+            // Use the audio context's native sample rate (typically 48000 Hz)
+            const targetSampleRate = audioContext.sampleRate;
+            const sourceSampleRate = 8000;
+
+            // Calculate upsampled length
+            const upsampledLength = Math.floor(float32Data.length * (targetSampleRate / sourceSampleRate));
+
+            // Create audio buffer at native sample rate
+            const audioBuffer = audioContext.createBuffer(1, upsampledLength, targetSampleRate);
+            const outputData = audioBuffer.getChannelData(0);
+
+            // Simple linear interpolation upsampling
+            for (let i = 0; i < upsampledLength; i++) {
+              const srcIndex = (i * sourceSampleRate) / targetSampleRate;
+              const srcIndexFloor = Math.floor(srcIndex);
+              const srcIndexCeil = Math.min(srcIndexFloor + 1, float32Data.length - 1);
+              const t = srcIndex - srcIndexFloor;
+
+              // Linear interpolation
+              outputData[i] = float32Data[srcIndexFloor] * (1 - t) + float32Data[srcIndexCeil] * t;
+            }
 
             // Calculate when to play this chunk
             const currentTime = audioContext.currentTime;
             const bufferDuration = audioBuffer.duration;
 
-            // If we're behind schedule, catch up
+            // Initialize next play time with a small buffer for the first chunk
+            if (nextPlayTimeRef.current === 0) {
+              nextPlayTimeRef.current = currentTime + 0.05; // 50ms initial buffer
+            }
+
+            // If we're behind schedule, catch up but add small buffer
             if (nextPlayTimeRef.current < currentTime) {
-              nextPlayTimeRef.current = currentTime;
+              nextPlayTimeRef.current = currentTime + 0.02; // 20ms buffer
             }
 
             // Create buffer source and schedule it
