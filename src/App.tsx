@@ -28,7 +28,20 @@ function App() {
   // Check URL for flow builder route
   const isFlowBuilder = window.location.pathname === '/flow-builder';
 
-  const [currentView, setCurrentView] = useState<View>(isFlowBuilder ? 'flow' : 'dashboard');
+  const [currentView, setCurrentView] = useState<View>(() => {
+    // Always default to dashboard on fresh login
+    // Only restore saved view if user is already authenticated
+    if (isFlowBuilder) return 'flow';
+
+    // Check if there's a saved view preference, but only if user is authenticated
+    const savedView = localStorage.getItem('currentView');
+    if (isAuthenticated && savedView && ['dashboard', 'config', 'recordings', 'settings', 'intent', 'livechat', 'board', 'appointments'].includes(savedView)) {
+      return savedView as View;
+    }
+
+    // Default to dashboard for new logins
+    return 'dashboard';
+  });
   const [agents, setAgents] = useState<Agent[]>([]);
   const [selectedAgentId, setSelectedAgentId] = useState<string | undefined>();
   const [showCreateAgentModal, setShowCreateAgentModal] = useState(false);
@@ -54,6 +67,27 @@ function App() {
       loadAgents();
     }
   }, [vapiClient, selectedOrgId, selectedWorkspaceId, isAuthenticated]);
+
+  // Save current view to localStorage when it changes
+  useEffect(() => {
+    if (isAuthenticated && currentView !== 'flow') {
+      localStorage.setItem('currentView', currentView);
+    }
+  }, [currentView, isAuthenticated]);
+
+  // Reset to dashboard when user logs in
+  useEffect(() => {
+    if (isAuthenticated) {
+      // Check if this is a fresh login by checking if there's no saved view
+      const savedView = localStorage.getItem('currentView');
+      if (!savedView) {
+        setCurrentView('dashboard');
+      }
+    } else {
+      // Clear saved view on logout
+      localStorage.removeItem('currentView');
+    }
+  }, [isAuthenticated]);
 
 
   useEffect(() => {

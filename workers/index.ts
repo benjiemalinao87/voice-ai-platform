@@ -4105,6 +4105,76 @@ export default {
         return jsonResponse(results);
       }
 
+      // Get call listen URL for live audio streaming
+      if (url.pathname.startsWith('/api/calls/') && url.pathname.endsWith('/listen') && request.method === 'GET') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        const callId = url.pathname.split('/')[3];
+
+        console.log('[Call Streaming] Get listen URL request:', {
+          callId,
+          userId
+        });
+
+        // Get workspace settings (uses helper function with fallback to user_settings)
+        const settings = await getWorkspaceSettingsForUser(env, userId);
+
+        if (!settings?.private_key) {
+          console.log('[Call Streaming] VAPI credentials not configured for user:', userId);
+          return jsonResponse({ error: 'VAPI credentials not configured' }, 400);
+        }
+
+        // Get call details from VAPI to retrieve listenUrl
+        try {
+          console.log('[Call Streaming] Fetching call details from VAPI:', callId);
+
+          const getCallResponse = await fetch(`https://api.vapi.ai/call/${callId}`, {
+            method: 'GET',
+            headers: {
+              'Authorization': `Bearer ${settings.private_key}`
+            }
+          });
+
+          if (!getCallResponse.ok) {
+            const error = await getCallResponse.text();
+            console.error('[Call Streaming] Failed to get call details:', {
+              callId,
+              status: getCallResponse.status,
+              error
+            });
+            return jsonResponse({ error: 'Failed to get call details' }, getCallResponse.status);
+          }
+
+          const callDetails = await getCallResponse.json() as any;
+          const listenUrl = callDetails.monitor?.listenUrl;
+
+          console.log('[Call Streaming] Call details retrieved:', {
+            callId,
+            hasListenUrl: !!listenUrl
+          });
+
+          if (!listenUrl) {
+            console.error('[Call Streaming] No listenUrl found in call details');
+            return jsonResponse({ error: 'Listen URL not available for this call' }, 400);
+          }
+
+          return jsonResponse({
+            success: true,
+            listenUrl,
+            callId
+          });
+        } catch (error) {
+          console.error('[Call Streaming] Error getting listen URL:', {
+            callId,
+            error: error instanceof Error ? error.message : String(error)
+          });
+          return jsonResponse({ error: 'Failed to get listen URL' }, 500);
+        }
+      }
+
       // End active call
       if (url.pathname.startsWith('/api/calls/') && url.pathname.endsWith('/end') && request.method === 'POST') {
         const userId = await getUserFromToken(request, env);

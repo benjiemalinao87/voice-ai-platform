@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { Phone, Clock, PhoneIncoming, PhoneOff, PhoneForwarded, Volume2, Trash2 } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { Phone, Clock, PhoneIncoming, PhoneOff, PhoneForwarded, Volume2, Trash2, Headphones, VolumeX } from 'lucide-react';
 
 interface ActiveCall {
   id: string;
@@ -24,6 +24,15 @@ export function LiveCallFeed() {
   const [previousCallIds, setPreviousCallIds] = useState<Set<string>>(new Set());
   const [isInitialLoad, setIsInitialLoad] = useState(true);
   const [cleanupLoading, setCleanupLoading] = useState(false);
+  const [listeningToCall, setListeningToCall] = useState<string | null>(null);
+  const [audioVolume, setAudioVolume] = useState(0.8);
+
+  // Audio streaming refs
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const websocketRef = useRef<WebSocket | null>(null);
+  const gainNodeRef = useRef<GainNode | null>(null);
+  const nextPlayTimeRef = useRef<number>(0);
+  const audioQueueRef = useRef<AudioBufferSourceNode[]>([]);
 
   // Play notification sound for new calls
   const playNotificationSound = () => {
@@ -286,6 +295,173 @@ export function LiveCallFeed() {
     }
   };
 
+  const stopListening = () => {
+    // Stop all queued audio sources
+    audioQueueRef.current.forEach(source => {
+      try {
+        source.stop();
+        source.disconnect();
+      } catch (e) {
+        // Ignore errors from already stopped sources
+      }
+    });
+    audioQueueRef.current = [];
+    nextPlayTimeRef.current = 0;
+
+    if (websocketRef.current) {
+      websocketRef.current.close();
+      websocketRef.current = null;
+    }
+    if (audioContextRef.current) {
+      audioContextRef.current.close();
+      audioContextRef.current = null;
+    }
+    gainNodeRef.current = null;
+    setListeningToCall(null);
+  };
+
+  const handleListenLive = async (callId: string) => {
+    // If already listening to this call, stop
+    if (listeningToCall === callId) {
+      stopListening();
+      return;
+    }
+
+    // If listening to another call, stop that first
+    if (listeningToCall) {
+      stopListening();
+    }
+
+    setActionLoading(callId);
+    try {
+      const token = localStorage.getItem('auth_token');
+      const response = await fetch(`${API_URL}/api/calls/${callId}/listen`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Failed to get listen URL');
+      }
+
+      const data = await response.json();
+      const listenUrl = data.listenUrl;
+
+      console.log('[Live Listen] Starting audio stream:', { callId, listenUrl });
+
+      // Initialize Web Audio API
+      const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
+      const audioContext = new AudioContext();
+      audioContextRef.current = audioContext;
+
+      // Create gain node for volume control
+      const gainNode = audioContext.createGain();
+      gainNode.gain.value = audioVolume;
+      gainNode.connect(audioContext.destination);
+      gainNodeRef.current = gainNode;
+
+      // Connect to WebSocket
+      const ws = new WebSocket(listenUrl);
+      websocketRef.current = ws;
+
+      ws.binaryType = 'arraybuffer';
+
+      ws.onopen = () => {
+        console.log('[Live Listen] WebSocket connected');
+        setListeningToCall(callId);
+        setActionLoading(null);
+        // Reset playback timing when starting
+        nextPlayTimeRef.current = audioContext.currentTime;
+      };
+
+      ws.onmessage = async (event) => {
+        if (event.data instanceof ArrayBuffer) {
+          try {
+            // PCM audio data from VAPI is 16-bit signed integer, 8000 Hz, mono
+            const pcmData = new Int16Array(event.data);
+
+            // Skip empty packets
+            if (pcmData.length === 0) return;
+
+            // Convert to Float32Array for Web Audio API
+            const float32Data = new Float32Array(pcmData.length);
+            for (let i = 0; i < pcmData.length; i++) {
+              float32Data[i] = pcmData[i] / 32768.0; // Convert to -1.0 to 1.0 range
+            }
+
+            // Create audio buffer (8000 Hz sample rate for telephony audio)
+            const audioBuffer = audioContext.createBuffer(1, float32Data.length, 8000);
+            audioBuffer.getChannelData(0).set(float32Data);
+
+            // Calculate when to play this chunk
+            const currentTime = audioContext.currentTime;
+            const bufferDuration = audioBuffer.duration;
+
+            // If we're behind schedule, catch up
+            if (nextPlayTimeRef.current < currentTime) {
+              nextPlayTimeRef.current = currentTime;
+            }
+
+            // Create buffer source and schedule it
+            const source = audioContext.createBufferSource();
+            source.buffer = audioBuffer;
+            source.connect(gainNode);
+
+            // Schedule playback at the precise time
+            source.start(nextPlayTimeRef.current);
+
+            // Clean up when done
+            source.onended = () => {
+              const index = audioQueueRef.current.indexOf(source);
+              if (index > -1) {
+                audioQueueRef.current.splice(index, 1);
+              }
+            };
+
+            // Add to queue
+            audioQueueRef.current.push(source);
+
+            // Update next play time
+            nextPlayTimeRef.current += bufferDuration;
+
+          } catch (error) {
+            console.error('[Live Listen] Error processing audio:', error);
+          }
+        }
+      };
+
+      ws.onerror = (error) => {
+        console.error('[Live Listen] WebSocket error:', error);
+        alert('Failed to establish audio connection');
+        stopListening();
+        setActionLoading(null);
+      };
+
+      ws.onclose = () => {
+        console.log('[Live Listen] WebSocket closed');
+        if (listeningToCall === callId) {
+          stopListening();
+        }
+      };
+
+    } catch (error) {
+      console.error('Error starting live listen:', error);
+      alert(`Failed to listen: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      setActionLoading(null);
+    }
+  };
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      stopListening();
+    };
+  }, []);
+
   const handleTransferCall = async (callId: string) => {
     if (!transferNumber.trim()) {
       alert('Please enter a phone number to transfer to');
@@ -492,6 +668,28 @@ export function LiveCallFeed() {
                       </div>
                     ) : (
                       <>
+                        <button
+                          onClick={() => handleListenLive(call.vapi_call_id)}
+                          disabled={actionLoading === call.vapi_call_id}
+                          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed ${
+                            listeningToCall === call.vapi_call_id
+                              ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 hover:bg-green-200 dark:hover:bg-green-900/50'
+                              : 'bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400 hover:bg-purple-100 dark:hover:bg-purple-900/50'
+                          }`}
+                          title={listeningToCall === call.vapi_call_id ? 'Stop listening' : 'Listen to call live'}
+                        >
+                          {listeningToCall === call.vapi_call_id ? (
+                            <>
+                              <VolumeX className="w-4 h-4 animate-pulse" />
+                              Listening...
+                            </>
+                          ) : (
+                            <>
+                              <Headphones className="w-4 h-4" />
+                              Listen Live
+                            </>
+                          )}
+                        </button>
                         <button
                           onClick={() => setShowTransferInput(call.vapi_call_id)}
                           disabled={actionLoading === call.vapi_call_id}
