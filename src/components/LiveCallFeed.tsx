@@ -263,14 +263,15 @@ export function LiveCallFeed() {
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
         const errorMessage = errorData.error || `Server error (${response.status})`;
+        const errorDetails = errorData.details ? `\n\nDetails: ${errorData.details}` : '';
 
         // Provide more helpful error messages
         if (response.status === 404) {
           throw new Error('Call not found. It may have already ended.');
         } else if (response.status === 400) {
-          throw new Error(errorMessage);
+          throw new Error(errorMessage + errorDetails);
         } else {
-          throw new Error(`Failed to end call: ${errorMessage}`);
+          throw new Error(`Failed to end call: ${errorMessage}${errorDetails}`);
         }
       }
 

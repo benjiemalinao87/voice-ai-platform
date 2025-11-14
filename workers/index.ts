@@ -4435,9 +4435,14 @@ export default {
             console.error('[Call Control] End-call command failed:', {
               callId,
               status: endCallResponse.status,
-              error
+              error,
+              controlUrl
             });
-            return jsonResponse({ error: 'Failed to end call' }, endCallResponse.status);
+            return jsonResponse({
+              error: 'Failed to end call',
+              details: error,
+              status: endCallResponse.status
+            }, endCallResponse.status);
           }
 
           console.log('[Call Control] Call ended successfully:', callId);
@@ -4446,9 +4451,13 @@ export default {
         } catch (error) {
           console.error('[Call Control] Error ending call:', {
             callId,
-            error: error instanceof Error ? error.message : String(error)
+            error: error instanceof Error ? error.message : String(error),
+            stack: error instanceof Error ? error.stack : undefined
           });
-          return jsonResponse({ error: 'Failed to end call' }, 500);
+          return jsonResponse({
+            error: 'Failed to end call',
+            details: error instanceof Error ? error.message : String(error)
+          }, 500);
         }
       }
 

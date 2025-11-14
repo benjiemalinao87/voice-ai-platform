@@ -4938,9 +4938,14 @@ var workers_default = {
             console.error("[Call Control] End-call command failed:", {
               callId,
               status: endCallResponse.status,
-              error
+              error,
+              controlUrl
             });
-            return jsonResponse2({ error: "Failed to end call" }, endCallResponse.status);
+            return jsonResponse2({
+              error: "Failed to end call",
+              details: error,
+              status: endCallResponse.status
+            }, endCallResponse.status);
           }
           console.log("[Call Control] Call ended successfully:", callId);
           return jsonResponse2({ success: true, message: "Call ended successfully" });
