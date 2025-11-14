@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { BarChart3, Settings as SettingsIcon, Calendar, Moon, Sun, Mic, Brain, Bot, CalendarCheck } from 'lucide-react';
 import { PerformanceDashboard } from './components/PerformanceDashboard';
 import { AgentConfig } from './components/AgentConfig';
@@ -29,17 +29,9 @@ function App() {
   const isFlowBuilder = window.location.pathname === '/flow-builder';
 
   const [currentView, setCurrentView] = useState<View>(() => {
-    // Always default to dashboard on fresh login
-    // Only restore saved view if user is already authenticated
+    // Always default to dashboard on initial mount
+    // We'll restore saved view only after authentication is confirmed
     if (isFlowBuilder) return 'flow';
-
-    // Check if there's a saved view preference, but only if user is authenticated
-    const savedView = localStorage.getItem('currentView');
-    if (isAuthenticated && savedView && ['dashboard', 'config', 'recordings', 'settings', 'intent', 'livechat', 'board', 'appointments'].includes(savedView)) {
-      return savedView as View;
-    }
-
-    // Default to dashboard for new logins
     return 'dashboard';
   });
   const [agents, setAgents] = useState<Agent[]>([]);
@@ -75,19 +67,54 @@ function App() {
     }
   }, [currentView, isAuthenticated]);
 
-  // Reset to dashboard when user logs in
+  // Track if we've handled initial auth state (to distinguish fresh login from page refresh)
+  const hasHandledInitialAuth = useRef(false);
+  const prevAuthenticatedRef = useRef(isAuthenticated);
+  // Track if there was a token on mount (indicates page refresh vs fresh login)
+  const hadTokenOnMount = useRef(!!localStorage.getItem('auth_token'));
+
+  // Handle view restoration and login redirect
   useEffect(() => {
+    // Skip on initial mount if still loading
+    if (isLoading) return;
+
     if (isAuthenticated) {
-      // Check if this is a fresh login by checking if there's no saved view
-      const savedView = localStorage.getItem('currentView');
-      if (!savedView) {
+      // Check if this is a transition from unauthenticated to authenticated
+      const wasUnauthenticated = !prevAuthenticatedRef.current;
+      
+      if (!hasHandledInitialAuth.current) {
+        // First time handling authentication
+        hasHandledInitialAuth.current = true;
+        
+        if (hadTokenOnMount.current) {
+          // Page refresh scenario - restore saved view if exists
+          const savedView = localStorage.getItem('currentView');
+          if (savedView && ['dashboard', 'config', 'recordings', 'settings', 'intent', 'livechat', 'board', 'appointments'].includes(savedView) && currentView !== savedView) {
+            setCurrentView(savedView as View);
+          }
+        } else {
+          // Fresh login - always go to dashboard
+          localStorage.removeItem('currentView');
+          setCurrentView('dashboard');
+        }
+      } else if (wasUnauthenticated) {
+        // User just logged in (transition from false to true after initial handling)
+        // This handles the case where user logs in after being logged out
+        localStorage.removeItem('currentView');
         setCurrentView('dashboard');
       }
+      prevAuthenticatedRef.current = true;
     } else {
-      // Clear saved view on logout
+      // User logged out
+      hasHandledInitialAuth.current = false;
+      prevAuthenticatedRef.current = false;
+      hadTokenOnMount.current = false;
       localStorage.removeItem('currentView');
+      if (currentView !== 'dashboard' && currentView !== 'flow') {
+        setCurrentView('dashboard');
+      }
     }
-  }, [isAuthenticated]);
+  }, [isAuthenticated, isLoading, currentView]);
 
 
   useEffect(() => {

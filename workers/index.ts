@@ -4180,6 +4180,114 @@ export default {
         }
       }
 
+      // Control: Say Message
+      if (url.pathname.startsWith('/api/calls/') && url.pathname.endsWith('/control/say') && request.method === 'POST') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        const callId = url.pathname.split('/')[3];
+        const { message } = await request.json() as any;
+
+        console.log('[Call Control] Say message request:', { callId, userId });
+
+        const settings = await getWorkspaceSettingsForUser(env, userId);
+        if (!settings?.private_key) {
+          return jsonResponse({ error: 'VAPI credentials not configured' }, 400);
+        }
+
+        try {
+          // Get call details to get controlUrl
+          const getCallResponse = await fetch(`https://api.vapi.ai/call/${callId}`, {
+            method: 'GET',
+            headers: { 'Authorization': `Bearer ${settings.private_key}` }
+          });
+
+          if (!getCallResponse.ok) {
+            return jsonResponse({ error: 'Failed to get call details' }, getCallResponse.status);
+          }
+
+          const callDetails = await getCallResponse.json() as any;
+          const controlUrl = callDetails.monitor?.controlUrl;
+
+          if (!controlUrl) {
+            return jsonResponse({ error: 'Control URL not available' }, 400);
+          }
+
+          // Send say command to controlUrl
+          const controlResponse = await fetch(`${controlUrl}/say`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ message })
+          });
+
+          if (!controlResponse.ok) {
+            const error = await controlResponse.text();
+            return jsonResponse({ error: `Control request failed: ${error}` }, controlResponse.status);
+          }
+
+          return jsonResponse({ success: true });
+        } catch (error) {
+          console.error('[Call Control] Error sending say command:', error);
+          return jsonResponse({ error: 'Failed to send message' }, 500);
+        }
+      }
+
+      // Control: Add Message
+      if (url.pathname.startsWith('/api/calls/') && url.pathname.endsWith('/control/add-message') && request.method === 'POST') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        const callId = url.pathname.split('/')[3];
+        const { message } = await request.json() as any;
+
+        console.log('[Call Control] Add message request:', { callId, userId });
+
+        const settings = await getWorkspaceSettingsForUser(env, userId);
+        if (!settings?.private_key) {
+          return jsonResponse({ error: 'VAPI credentials not configured' }, 400);
+        }
+
+        try {
+          // Get call details to get controlUrl
+          const getCallResponse = await fetch(`https://api.vapi.ai/call/${callId}`, {
+            method: 'GET',
+            headers: { 'Authorization': `Bearer ${settings.private_key}` }
+          });
+
+          if (!getCallResponse.ok) {
+            return jsonResponse({ error: 'Failed to get call details' }, getCallResponse.status);
+          }
+
+          const callDetails = await getCallResponse.json() as any;
+          const controlUrl = callDetails.monitor?.controlUrl;
+
+          if (!controlUrl) {
+            return jsonResponse({ error: 'Control URL not available' }, 400);
+          }
+
+          // Send add-message command to controlUrl
+          const controlResponse = await fetch(`${controlUrl}/add-message`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ message })
+          });
+
+          if (!controlResponse.ok) {
+            const error = await controlResponse.text();
+            return jsonResponse({ error: `Control request failed: ${error}` }, controlResponse.status);
+          }
+
+          return jsonResponse({ success: true });
+        } catch (error) {
+          console.error('[Call Control] Error adding message:', error);
+          return jsonResponse({ error: 'Failed to add message' }, 500);
+        }
+      }
+
       // End active call
       if (url.pathname.startsWith('/api/calls/') && url.pathname.endsWith('/end') && request.method === 'POST') {
         const userId = await getUserFromToken(request, env);

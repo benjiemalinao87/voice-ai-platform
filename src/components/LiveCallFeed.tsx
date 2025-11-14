@@ -378,11 +378,13 @@ export function LiveCallFeed() {
       console.log('🎧 Now listening to call:', callId);
       console.log('🎛️ Control URL:', data.controlUrl);
 
+      // Stop any currently playing audio FIRST (before setting new state)
+      if (listeningCallId) {
+        handleStopListening();
+      }
+
       // Store control URL for interventions
       setControlUrl(data.controlUrl || null);
-
-      // Stop any currently playing audio
-      handleStopListening();
 
       // Create AudioContext for Web Audio API
       if (!audioContextRef.current) {
@@ -533,15 +535,17 @@ export function LiveCallFeed() {
     }
   };
 
-  // Send message via controlUrl (Say mode - AI speaks it)
+  // Send message via backend proxy (Say mode - AI speaks it)
   const handleSendMessage = async () => {
-    if (!messageInput.trim() || !controlUrl) return;
+    if (!messageInput.trim() || !controlUrl || !listeningCallId) return;
 
     setSendingMessage(true);
     try {
-      const response = await fetch(`${controlUrl}/say`, {
+      const token = localStorage.getItem('auth_token');
+      const response = await fetch(`${API_URL}/api/calls/${listeningCallId}/control/say`, {
         method: 'POST',
         headers: {
+          'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
@@ -550,7 +554,8 @@ export function LiveCallFeed() {
       });
 
       if (!response.ok) {
-        throw new Error('Failed to send message');
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to send message');
       }
 
       console.log('📤 Message sent to AI:', messageInput);
@@ -563,15 +568,17 @@ export function LiveCallFeed() {
     }
   };
 
-  // Add context message via controlUrl (Context mode - adds to conversation history)
+  // Add context message via backend proxy (Context mode - adds to conversation history)
   const handleAddContext = async () => {
-    if (!messageInput.trim() || !controlUrl) return;
+    if (!messageInput.trim() || !controlUrl || !listeningCallId) return;
 
     setSendingMessage(true);
     try {
-      const response = await fetch(`${controlUrl}/add-message`, {
+      const token = localStorage.getItem('auth_token');
+      const response = await fetch(`${API_URL}/api/calls/${listeningCallId}/control/add-message`, {
         method: 'POST',
         headers: {
+          'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
@@ -583,7 +590,8 @@ export function LiveCallFeed() {
       });
 
       if (!response.ok) {
-        throw new Error('Failed to add context');
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to add context');
       }
 
       console.log('📝 Context added to conversation:', messageInput);
