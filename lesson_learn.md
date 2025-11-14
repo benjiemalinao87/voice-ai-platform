@@ -2652,3 +2652,212 @@ const [summary, concurrentData] = await Promise.all([
 - [x] Error handling works for optional endpoints
 - [x] Empty state (no data) loads quickly
 - [x] Network tab shows parallel requests
+
+---
+
+## Live Call Audio Quality Fix - WebSocket Audio Streaming (November 14, 2025)
+
+### Problem
+Audio from the "Listen Live" feature was playing but sounded robotic and unintelligible. Users could hear sound but couldn't understand what was being said.
+
+### Root Cause
+The audio processing implementation was using manual upsampling from 8kHz to the browser's native sample rate (typically 48kHz) with simple linear interpolation. This approach had several issues:
+
+1. **Complex Manual Resampling**: Attempting 6x upsampling (8kHz → 48kHz) with linear interpolation
+2. **Potential Aliasing**: No low-pass filtering before upsampling
+3. **Small Initial Buffer**: Only 50ms initial buffer was too small for smooth playback
+4. **Aggressive Resync**: 20ms resync buffer when behind schedule caused audio glitches
+
+### Solution
+Let the Web Audio API handle resampling automatically by creating AudioBuffer at the source sample rate (8kHz) instead of manually upsampling:
+
+**Before (Manual Upsampling):**
+```typescript
+// ❌ WRONG - Manual upsampling causes robotic sound
+const targetSampleRate = audioContext.sampleRate; // 48000 Hz
+const sourceSampleRate = 8000;
+const upsampledLength = Math.floor(float32Data.length * (targetSampleRate / sourceSampleRate));
+
+const audioBuffer = audioContext.createBuffer(1, upsampledLength, targetSampleRate);
+const outputData = audioBuffer.getChannelData(0);
+
+// Manual linear interpolation
+for (let i = 0; i < upsampledLength; i++) {
+  const srcIndex = (i * sourceSampleRate) / targetSampleRate;
+  const srcIndexFloor = Math.floor(srcIndex);
+  const srcIndexCeil = Math.min(srcIndexFloor + 1, float32Data.length - 1);
+  const t = srcIndex - srcIndexFloor;
+  outputData[i] = float32Data[srcIndexFloor] * (1 - t) + float32Data[srcIndexCeil] * t;
+}
+```
+
+**After (Native Browser Resampling):**
+```typescript
+// ✅ CORRECT - Let Web Audio API handle resampling
+const sourceSampleRate = 8000;
+const audioBuffer = audioContext.createBuffer(1, float32Data.length, sourceSampleRate);
+const channelData = audioBuffer.getChannelData(0);
+
+// Copy the audio data directly
+channelData.set(float32Data);
+
+// Web Audio API automatically resamples to browser's native rate
+```
+
+### Additional Improvements
+
+**1. Increased Initial Buffer:**
+- Changed from 50ms to 100ms initial buffer
+- Helps prevent glitches at the start of playback
+- Provides smoother audio initialization
+
+**2. Better Resync Strategy:**
+- Increased resync buffer from 20ms to 50ms when behind schedule
+- Prevents aggressive catch-up that causes audio artifacts
+- Smoother recovery from timing drift
+
+**3. Added Volume Controls:**
+- Volume slider (0-100%) appears when listening
+- Real-time volume adjustment using GainNode
+- Visual feedback showing current volume percentage
+- Default volume at 80% for comfortable listening
+
+**4. Enhanced Logging:**
+- Added console logs for audio chunks received
+- Shows chunk duration and scheduling times
+- Helps debug audio streaming issues
+- Logs resync events when audio falls behind
+
+### How It Should Be Done
+
+```typescript
+// ✅ CORRECT - Native browser resampling with proper buffering
+ws.onmessage = async (event) => {
+  if (event.data instanceof ArrayBuffer) {
+    const pcmData = new Int16Array(event.data);
+    if (pcmData.length === 0) return;
+
+    // Convert PCM to Float32
+    const float32Data = new Float32Array(pcmData.length);
+    for (let i = 0; i < pcmData.length; i++) {
+      float32Data[i] = pcmData[i] / 32768.0;
+    }
+
+    // Create buffer at source sample rate (8kHz)
+    // Browser handles resampling automatically
+    const sourceSampleRate = 8000;
+    const audioBuffer = audioContext.createBuffer(1, float32Data.length, sourceSampleRate);
+    const channelData = audioBuffer.getChannelData(0);
+    channelData.set(float32Data);
+
+    // Initialize with adequate buffer (100ms)
+    if (nextPlayTimeRef.current === 0) {
+      nextPlayTimeRef.current = currentTime + 0.1;
+    }
+
+    // Resync with reasonable buffer (50ms) if behind
+    if (nextPlayTimeRef.current < currentTime) {
+      nextPlayTimeRef.current = currentTime + 0.05;
+    }
+
+    // Schedule playback
+    const source = audioContext.createBufferSource();
+    source.buffer = audioBuffer;
+    source.connect(gainNode);
+    source.start(nextPlayTimeRef.current);
+    
+    nextPlayTimeRef.current += audioBuffer.duration;
+  }
+};
+```
+
+### How It Should NOT Be Done
+
+```typescript
+// ❌ WRONG - Manual upsampling with linear interpolation
+const targetSampleRate = audioContext.sampleRate;
+const sourceSampleRate = 8000;
+const upsampledLength = Math.floor(float32Data.length * (targetSampleRate / sourceSampleRate));
+
+for (let i = 0; i < upsampledLength; i++) {
+  const srcIndex = (i * sourceSampleRate) / targetSampleRate;
+  // Manual interpolation causes robotic sound
+  outputData[i] = interpolate(float32Data, srcIndex);
+}
+
+// ❌ WRONG - Too small initial buffer
+if (nextPlayTimeRef.current === 0) {
+  nextPlayTimeRef.current = currentTime + 0.05; // Only 50ms
+}
+
+// ❌ WRONG - Aggressive resync
+if (nextPlayTimeRef.current < currentTime) {
+  nextPlayTimeRef.current = currentTime + 0.02; // Only 20ms
+}
+```
+
+### Key Takeaways
+
+1. **Use Native Resampling**: Web Audio API's built-in resampling is more sophisticated than simple linear interpolation
+2. **Create Buffers at Source Rate**: Always create AudioBuffer at the actual sample rate of the data
+3. **Adequate Initial Buffering**: 100ms initial buffer prevents startup glitches
+4. **Smooth Resync**: 50ms resync buffer prevents aggressive catch-up artifacts
+5. **Volume Control**: Provide user control over audio volume for better UX
+6. **Logging for Debugging**: Console logs help diagnose audio streaming issues
+7. **Trust the Browser**: Modern browsers have highly optimized audio resampling algorithms
+
+### Volume Control Implementation
+
+**UI Component:**
+```typescript
+{listeningToCall === call.vapi_call_id && (
+  <div className="flex items-center gap-2 bg-gray-100 dark:bg-gray-700 px-3 py-1.5 rounded-lg">
+    <Volume2 className="w-4 h-4 text-gray-600 dark:text-gray-400" />
+    <input
+      type="range"
+      min="0"
+      max="100"
+      value={audioVolume * 100}
+      onChange={(e) => {
+        const newVolume = parseInt(e.target.value) / 100;
+        setAudioVolume(newVolume);
+        if (gainNodeRef.current) {
+          gainNodeRef.current.gain.value = newVolume;
+        }
+      }}
+      className="w-24 h-1 bg-gray-300 dark:bg-gray-600 rounded-lg appearance-none cursor-pointer accent-purple-600"
+    />
+    <span className="text-xs text-gray-600 dark:text-gray-400 w-8">
+      {Math.round(audioVolume * 100)}%
+    </span>
+  </div>
+)}
+```
+
+### Technical Details
+
+**Audio Format:**
+- Input: 16-bit signed PCM, 8000 Hz, mono
+- Conversion: Int16 → Float32 (-1.0 to 1.0 range)
+- Output: Web Audio API handles resampling to native rate (typically 48000 Hz)
+
+**Buffering Strategy:**
+- Initial buffer: 100ms (prevents startup glitches)
+- Resync buffer: 50ms (smooth recovery from drift)
+- No maximum buffer limit (let Web Audio API manage)
+
+**Volume Control:**
+- Range: 0% to 100%
+- Default: 80% (comfortable listening level)
+- Real-time adjustment using GainNode
+- Visual feedback in UI
+
+### Files Modified
+- `src/components/LiveCallFeed.tsx` - Updated audio processing logic and added volume controls
+
+### User Experience Benefits
+- **Clear Audio**: Intelligible conversation playback
+- **Smooth Playback**: No robotic artifacts or glitches
+- **Volume Control**: User can adjust audio level in real-time
+- **Visual Feedback**: Volume slider with percentage display
+- **Reliable**: Better error handling and logging for debugging
