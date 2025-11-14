@@ -4772,10 +4772,13 @@ var workers_default = {
           if (!controlUrl) {
             return jsonResponse2({ error: "Control URL not available" }, 400);
           }
-          const controlResponse = await fetch(`${controlUrl}/say`, {
+          const controlResponse = await fetch(controlUrl, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ message })
+            body: JSON.stringify({
+              type: "say",
+              content: message
+            })
           });
           if (!controlResponse.ok) {
             const error = await controlResponse.text();
@@ -4812,10 +4815,13 @@ var workers_default = {
           if (!controlUrl) {
             return jsonResponse2({ error: "Control URL not available" }, 400);
           }
-          const controlResponse = await fetch(`${controlUrl}/add-message`, {
+          const controlResponse = await fetch(controlUrl, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ message })
+            body: JSON.stringify({
+              type: "add-message",
+              message
+            })
           });
           if (!controlResponse.ok) {
             const error = await controlResponse.text();

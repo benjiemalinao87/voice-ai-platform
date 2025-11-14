@@ -4216,10 +4216,13 @@ export default {
           }
 
           // Send say command to controlUrl
-          const controlResponse = await fetch(`${controlUrl}/say`, {
+          const controlResponse = await fetch(controlUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ message })
+            body: JSON.stringify({
+              type: 'say',
+              content: message
+            })
           });
 
           if (!controlResponse.ok) {
@@ -4270,10 +4273,13 @@ export default {
           }
 
           // Send add-message command to controlUrl
-          const controlResponse = await fetch(`${controlUrl}/add-message`, {
+          const controlResponse = await fetch(controlUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ message })
+            body: JSON.stringify({
+              type: 'add-message',
+              message: message
+            })
           });
 
           if (!controlResponse.ok) {
