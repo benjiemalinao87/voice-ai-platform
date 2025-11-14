@@ -15,6 +15,7 @@ interface ActiveCall {
 
 // Minimum call duration (in seconds) before "Listen Live" is available
 const MIN_CALL_DURATION_FOR_LISTEN = 30;
+const MIN_BUFFER_CHUNKS = 10; // ~0.5-1s of audio at 8kHz (640 samples per chunk)
 
 const API_URL = import.meta.env.VITE_D1_API_URL || 'http://localhost:8787';
 
@@ -35,10 +36,11 @@ export function LiveCallFeed() {
   const websocketRef = useRef<WebSocket | null>(null);
   const gainNodeRef = useRef<GainNode | null>(null);
   const nextPlayTimeRef = useRef<number>(0);
-  const audioQueueRef = useRef<AudioBufferSourceNode[]>([]);
+  const activeSourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set());
   const audioBufferQueue = useRef<Float32Array[]>([]);
   const isPlayingRef = useRef<boolean>(false);
   const bufferSizeRef = useRef<number>(0);
+  const processingIntervalRef = useRef<number | null>(null);
 
   // Play notification sound for new calls
   const playNotificationSound = () => {
@@ -302,8 +304,8 @@ export function LiveCallFeed() {
   };
 
   const stopListening = () => {
-    // Stop all queued audio sources
-    audioQueueRef.current.forEach(source => {
+    // Stop all active audio sources
+    activeSourcesRef.current.forEach(source => {
       try {
         source.stop();
         source.disconnect();
@@ -311,11 +313,16 @@ export function LiveCallFeed() {
         // Ignore errors from already stopped sources
       }
     });
-    audioQueueRef.current = [];
+    activeSourcesRef.current.clear();
     audioBufferQueue.current = [];
     nextPlayTimeRef.current = 0;
     isPlayingRef.current = false;
     bufferSizeRef.current = 0;
+
+    if (processingIntervalRef.current) {
+      window.clearInterval(processingIntervalRef.current);
+      processingIntervalRef.current = null;
+    }
 
     if (websocketRef.current) {
       websocketRef.current.close();
@@ -385,12 +392,27 @@ export function LiveCallFeed() {
         setActionLoading(null);
         // Reset playback timing when starting (will be set with buffer on first chunk)
         nextPlayTimeRef.current = 0;
+
+        if (!processingIntervalRef.current) {
+          processingIntervalRef.current = window.setInterval(() => {
+            try {
+              processAudioQueue();
+            } catch (err) {
+              console.error('[Live Listen] Error processing audio queue:', err);
+            }
+          }, 20); // Process queue every 20ms for smooth playback
+        }
       };
 
-      // Process and play ONE buffered audio chunk at a time
-      const playNextChunk = () => {
+      // Just create buffer at 8kHz directly - let Web Audio API handle resampling
+      // This uses the browser's native high-quality resampling instead of manual interpolation
+
+      const processAudioQueue = () => {
         if (!audioContext || !gainNode) return;
         if (audioBufferQueue.current.length === 0) return;
+        if (!isPlayingRef.current && audioBufferQueue.current.length < MIN_BUFFER_CHUNKS) {
+          return;
+        }
 
         const currentTime = audioContext.currentTime;
 
@@ -402,15 +424,14 @@ export function LiveCallFeed() {
           console.log('[Live Listen] Starting playback with 1000ms jitter buffer (call pre-established)');
         }
 
-        // Process ONLY ONE chunk to avoid memory leak
         const float32Data = audioBufferQueue.current.shift()!;
 
         try {
-          // Create audio buffer at source sample rate (8kHz)
+          // Create buffer at source 8kHz rate - Web Audio API will automatically
+          // resample to output rate with high-quality built-in algorithm
           const sourceSampleRate = 8000;
           const audioBuffer = audioContext.createBuffer(1, float32Data.length, sourceSampleRate);
-          const channelData = audioBuffer.getChannelData(0);
-          channelData.set(float32Data);
+          audioBuffer.getChannelData(0).set(float32Data);
 
           // Check if we're falling behind
           if (nextPlayTimeRef.current < currentTime) {
@@ -418,7 +439,6 @@ export function LiveCallFeed() {
             nextPlayTimeRef.current = currentTime + 0.3;
           }
 
-          // Create and schedule buffer source
           const source = audioContext.createBufferSource();
           source.buffer = audioBuffer;
           source.connect(gainNode);
@@ -427,33 +447,16 @@ export function LiveCallFeed() {
           // Clean up when done - IMPORTANT for memory management
           source.onended = () => {
             source.disconnect();
-            const index = audioQueueRef.current.indexOf(source);
-            if (index > -1) {
-              audioQueueRef.current.splice(index, 1);
-            }
+            activeSourcesRef.current.delete(source);
           };
 
-          audioQueueRef.current.push(source);
+          activeSourcesRef.current.add(source);
 
           // Update next play time
           nextPlayTimeRef.current += audioBuffer.duration;
 
           // Update buffer size tracking
           bufferSizeRef.current = Math.max(0, nextPlayTimeRef.current - currentTime);
-
-          // Limit queue size to prevent memory leak
-          if (audioQueueRef.current.length > 50) {
-            console.warn('[Live Listen] Audio queue too large, cleaning up old sources');
-            const oldSources = audioQueueRef.current.splice(0, 20);
-            oldSources.forEach(s => {
-              try {
-                s.stop();
-                s.disconnect();
-              } catch (e) {
-                // Already stopped
-              }
-            });
-          }
 
         } catch (error) {
           console.error('[Live Listen] Error creating audio buffer:', error);
@@ -470,12 +473,28 @@ export function LiveCallFeed() {
             if (pcmData.length === 0) return;
 
             const chunkSizeMs = (pcmData.length / 8000) * 1000;
-            console.log(`[Live Listen] Received ${pcmData.length} samples (${chunkSizeMs.toFixed(1)}ms)`);
 
-            // Convert to Float32Array for Web Audio API
+            // Diagnostic: Check audio quality
+            let minVal = Infinity, maxVal = -Infinity, zeroCount = 0;
+            for (let i = 0; i < Math.min(pcmData.length, 100); i++) {
+              const val = pcmData[i];
+              if (val === 0) zeroCount++;
+              minVal = Math.min(minVal, val);
+              maxVal = Math.max(maxVal, val);
+            }
+
+            console.log(`[Live Listen] Received ${pcmData.length} samples (${chunkSizeMs.toFixed(1)}ms) | Range: ${minVal} to ${maxVal} | Zeros: ${zeroCount}/100`);
+
+            // Convert to Float32Array for Web Audio API with GAIN
+            // VAPI sends very low amplitude audio (~±200 instead of ±32768)
+            // Apply 100x gain to boost the signal
+            const GAIN_MULTIPLIER = 100;
             const float32Data = new Float32Array(pcmData.length);
             for (let i = 0; i < pcmData.length; i++) {
-              float32Data[i] = pcmData[i] / 32768.0; // Convert to -1.0 to 1.0 range
+              float32Data[i] = (pcmData[i] / 32768.0) * GAIN_MULTIPLIER;
+              // Clip to prevent distortion
+              if (float32Data[i] > 1.0) float32Data[i] = 1.0;
+              if (float32Data[i] < -1.0) float32Data[i] = -1.0;
             }
 
             // Add to buffer queue
@@ -483,24 +502,21 @@ export function LiveCallFeed() {
 
             // Accumulate buffer before starting playback (jitter buffer)
             // Since call has already been running for 30s, we can be more aggressive with buffering
-            const minBufferChunks = 10; // Wait for 10 chunks (~500-1000ms) before starting
             const currentBufferSize = audioBufferQueue.current.length;
 
-            if (!isPlayingRef.current && currentBufferSize >= minBufferChunks) {
+            if (!isPlayingRef.current && currentBufferSize >= MIN_BUFFER_CHUNKS) {
               console.log(`[Live Listen] Buffer ready (${currentBufferSize} chunks), starting playback`);
-              // Process ONE chunk at a time to avoid memory leak
-              playNextChunk();
+              processAudioQueue();
             } else if (isPlayingRef.current) {
-              // Already playing, process ONE new chunk
-              playNextChunk();
+              processAudioQueue();
             } else {
-              console.log(`[Live Listen] Buffering... (${currentBufferSize}/${minBufferChunks} chunks)`);
+              console.log(`[Live Listen] Buffering... (${currentBufferSize}/${MIN_BUFFER_CHUNKS} chunks)`);
             }
             
-            // Prevent buffer queue from growing too large (memory leak prevention)
-            if (audioBufferQueue.current.length > 20) {
+            // Prevent buffer queue from growing too large (be more generous with limit)
+            if (audioBufferQueue.current.length > 50) {
               console.warn('[Live Listen] Buffer queue too large, dropping oldest chunks');
-              audioBufferQueue.current.splice(0, 5); // Drop 5 oldest chunks
+              audioBufferQueue.current.splice(0, 10); // Drop 10 oldest chunks
             }
 
             // Monitor buffer health
@@ -528,7 +544,7 @@ export function LiveCallFeed() {
         console.log('[Live Listen] WebSocket closed - cleaning up audio resources');
         
         // Always clean up audio resources when WebSocket closes
-        audioQueueRef.current.forEach(source => {
+        activeSourcesRef.current.forEach(source => {
           try {
             source.stop();
             source.disconnect();
@@ -536,11 +552,16 @@ export function LiveCallFeed() {
             // Ignore errors from already stopped sources
           }
         });
-        audioQueueRef.current = [];
+        activeSourcesRef.current.clear();
         audioBufferQueue.current = [];
         nextPlayTimeRef.current = 0;
         isPlayingRef.current = false;
         bufferSizeRef.current = 0;
+
+        if (processingIntervalRef.current) {
+          window.clearInterval(processingIntervalRef.current);
+          processingIntervalRef.current = null;
+        }
 
         if (audioContextRef.current) {
           audioContextRef.current.close().catch(err => {
