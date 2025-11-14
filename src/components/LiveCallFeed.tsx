@@ -13,6 +13,9 @@ interface ActiveCall {
   updated_at: number;
 }
 
+// Minimum call duration (in seconds) before "Listen Live" is available
+const MIN_CALL_DURATION_FOR_LISTEN = 30;
+
 const API_URL = import.meta.env.VITE_D1_API_URL || 'http://localhost:8787';
 
 export function LiveCallFeed() {
@@ -393,10 +396,11 @@ export function LiveCallFeed() {
 
         // Initialize playback timing on first chunk
         if (nextPlayTimeRef.current === 0) {
-          // Start with 300ms jitter buffer for smoother playback
-          nextPlayTimeRef.current = currentTime + 0.3;
+          // Start with 1 second jitter buffer since call is already established
+          // This ensures we have a stable, continuous stream
+          nextPlayTimeRef.current = currentTime + 1.0;
           isPlayingRef.current = true;
-          console.log('[Live Listen] Starting playback with 300ms jitter buffer');
+          console.log('[Live Listen] Starting playback with 1000ms jitter buffer (call pre-established)');
         }
 
         // Process all queued chunks
@@ -466,7 +470,8 @@ export function LiveCallFeed() {
             audioBufferQueue.current.push(float32Data);
 
             // Accumulate buffer before starting playback (jitter buffer)
-            const minBufferChunks = 3; // Wait for 3 chunks before starting
+            // Since call has already been running for 30s, we can be more aggressive with buffering
+            const minBufferChunks = 8; // Wait for 8 chunks (~400-800ms) before starting
             const currentBufferSize = audioBufferQueue.current.length;
 
             if (!isPlayingRef.current && currentBufferSize >= minBufferChunks) {
@@ -607,6 +612,20 @@ export function LiveCallFeed() {
     }
   };
 
+  // Check if call has been active long enough for stable audio streaming
+  const isCallReadyForListening = (call: ActiveCall): boolean => {
+    const now = Math.floor(Date.now() / 1000);
+    const duration = now - call.started_at;
+    return duration >= MIN_CALL_DURATION_FOR_LISTEN && call.status === 'in-progress';
+  };
+
+  // Get remaining time until listen is available
+  const getTimeUntilListenAvailable = (call: ActiveCall): number => {
+    const now = Math.floor(Date.now() / 1000);
+    const duration = now - call.started_at;
+    return Math.max(0, MIN_CALL_DURATION_FOR_LISTEN - duration);
+  };
+
   if (loading) {
     return (
       <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
@@ -745,28 +764,37 @@ export function LiveCallFeed() {
                     ) : (
                       <>
                         <div className="flex items-center gap-2">
-                          <button
-                            onClick={() => handleListenLive(call.vapi_call_id)}
-                            disabled={actionLoading === call.vapi_call_id}
-                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed ${
-                              listeningToCall === call.vapi_call_id
-                                ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 hover:bg-green-200 dark:hover:bg-green-900/50'
-                                : 'bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400 hover:bg-purple-100 dark:hover:bg-purple-900/50'
-                            }`}
-                            title={listeningToCall === call.vapi_call_id ? 'Stop listening' : 'Listen to call live'}
-                          >
-                            {listeningToCall === call.vapi_call_id ? (
-                              <>
-                                <VolumeX className="w-4 h-4 animate-pulse" />
-                                Listening...
-                              </>
-                            ) : (
-                              <>
-                                <Headphones className="w-4 h-4" />
-                                Listen Live
-                              </>
-                            )}
-                          </button>
+                          {isCallReadyForListening(call) ? (
+                            <button
+                              onClick={() => handleListenLive(call.vapi_call_id)}
+                              disabled={actionLoading === call.vapi_call_id}
+                              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed ${
+                                listeningToCall === call.vapi_call_id
+                                  ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 hover:bg-green-200 dark:hover:bg-green-900/50'
+                                  : 'bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400 hover:bg-purple-100 dark:hover:bg-purple-900/50'
+                              }`}
+                              title={listeningToCall === call.vapi_call_id ? 'Stop listening' : 'Listen to call live (high-quality audio)'}
+                            >
+                              {listeningToCall === call.vapi_call_id ? (
+                                <>
+                                  <VolumeX className="w-4 h-4 animate-pulse" />
+                                  Listening...
+                                </>
+                              ) : (
+                                <>
+                                  <Headphones className="w-4 h-4" />
+                                  Listen Live
+                                </>
+                              )}
+                            </button>
+                          ) : (
+                            <div className="flex items-center gap-2 px-3 py-1.5 bg-gray-100 dark:bg-gray-700 rounded-lg text-sm">
+                              <Clock className="w-4 h-4 text-gray-500 dark:text-gray-400 animate-pulse" />
+                              <span className="text-gray-600 dark:text-gray-400">
+                                Listen available in {getTimeUntilListenAvailable(call)}s
+                              </span>
+                            </div>
+                          )}
                           {listeningToCall === call.vapi_call_id && (
                             <div className="flex items-center gap-2 bg-gray-100 dark:bg-gray-700 px-3 py-1.5 rounded-lg">
                               <Volume2 className="w-4 h-4 text-gray-600 dark:text-gray-400" />

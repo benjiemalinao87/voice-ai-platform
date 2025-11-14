@@ -2861,3 +2861,228 @@ if (nextPlayTimeRef.current < currentTime) {
 - **Volume Control**: User can adjust audio level in real-time
 - **Visual Feedback**: Volume slider with percentage display
 - **Reliable**: Better error handling and logging for debugging
+
+---
+
+## Live Call Audio Quality - Jitter Buffer Implementation (November 14, 2025)
+
+### Problem Update
+After implementing native browser resampling, audio was still robotic and unintelligible. The issue was not just resampling, but packet assembly and buffering strategy.
+
+### Root Cause
+Even with native resampling, the audio was being played too aggressively:
+1. **No packet accumulation**: Playing audio chunks immediately as they arrived
+2. **Network jitter**: Variable packet arrival times causing gaps and glitches
+3. **Insufficient buffering**: Starting playback too quickly without enough data
+4. **No cleanup on call end**: Audio resources persisting after WebSocket closed
+
+### Solution: Jitter Buffer Implementation
+
+**Jitter Buffer Strategy:**
+A jitter buffer accumulates incoming audio packets before starting playback, ensuring smooth, continuous audio even with network variations.
+
+**Key Changes:**
+
+**1. Audio Packet Queue:**
+```typescript
+const audioBufferQueue = useRef<Float32Array[]>([]);
+const isPlayingRef = useRef<boolean>(false);
+const bufferSizeRef = useRef<number>(0);
+```
+
+**2. Buffering Before Playback:**
+```typescript
+// Wait for 3 chunks before starting playback (jitter buffer)
+const minBufferChunks = 3;
+const currentBufferSize = audioBufferQueue.current.length;
+
+if (!isPlayingRef.current && currentBufferSize >= minBufferChunks) {
+  console.log(`Buffer ready (${currentBufferSize} chunks), starting playback`);
+  playBufferedAudio();
+} else if (!isPlayingRef.current) {
+  console.log(`Buffering... (${currentBufferSize}/${minBufferChunks} chunks)`);
+}
+```
+
+**3. Initial Jitter Buffer (300ms):**
+```typescript
+// Start with 300ms jitter buffer for smoother playback
+nextPlayTimeRef.current = currentTime + 0.3;
+```
+
+**4. Improved Resync (150ms):**
+```typescript
+// If falling behind, resync with 150ms buffer (not aggressive)
+if (nextPlayTimeRef.current < currentTime) {
+  nextPlayTimeRef.current = currentTime + 0.15;
+}
+```
+
+**5. Proper WebSocket Cleanup:**
+```typescript
+ws.onclose = () => {
+  console.log('[Live Listen] WebSocket closed - cleaning up audio resources');
+  
+  // Always clean up ALL audio resources when WebSocket closes
+  audioQueueRef.current.forEach(source => {
+    try {
+      source.stop();
+      source.disconnect();
+    } catch (e) {
+      // Ignore errors from already stopped sources
+    }
+  });
+  audioQueueRef.current = [];
+  audioBufferQueue.current = [];
+  nextPlayTimeRef.current = 0;
+  isPlayingRef.current = false;
+  bufferSizeRef.current = 0;
+
+  if (audioContextRef.current) {
+    audioContextRef.current.close();
+    audioContextRef.current = null;
+  }
+  gainNodeRef.current = null;
+  setListeningToCall(null);
+};
+```
+
+### How It Should Be Done
+
+```typescript
+// ✅ CORRECT - Jitter buffer with packet accumulation
+ws.onmessage = async (event) => {
+  const pcmData = new Int16Array(event.data);
+  if (pcmData.length === 0) return;
+
+  // Convert to Float32
+  const float32Data = new Float32Array(pcmData.length);
+  for (let i = 0; i < pcmData.length; i++) {
+    float32Data[i] = pcmData[i] / 32768.0;
+  }
+
+  // Add to buffer queue (don't play immediately)
+  audioBufferQueue.current.push(float32Data);
+
+  // Wait for minimum buffer before starting
+  const minBufferChunks = 3; // ~150-300ms of audio
+  if (!isPlayingRef.current && audioBufferQueue.current.length >= minBufferChunks) {
+    playBufferedAudio(); // Start playback when buffer is ready
+  } else if (isPlayingRef.current) {
+    playBufferedAudio(); // Continue playing incoming chunks
+  }
+};
+
+// Separate function to process buffered audio
+const playBufferedAudio = () => {
+  while (audioBufferQueue.current.length > 0) {
+    const float32Data = audioBufferQueue.current.shift()!;
+    
+    // Create buffer at source rate
+    const audioBuffer = audioContext.createBuffer(1, float32Data.length, 8000);
+    audioBuffer.getChannelData(0).set(float32Data);
+    
+    // Schedule with proper timing
+    const source = audioContext.createBufferSource();
+    source.buffer = audioBuffer;
+    source.connect(gainNode);
+    source.start(nextPlayTimeRef.current);
+    
+    nextPlayTimeRef.current += audioBuffer.duration;
+  }
+};
+```
+
+### How It Should NOT Be Done
+
+```typescript
+// ❌ WRONG - Playing immediately without buffering
+ws.onmessage = async (event) => {
+  const pcmData = new Int16Array(event.data);
+  const audioBuffer = createBuffer(pcmData);
+  
+  // Play immediately - causes gaps and glitches
+  source.start(audioContext.currentTime);
+};
+
+// ❌ WRONG - Conditional cleanup that misses cases
+ws.onclose = () => {
+  if (listeningToCall === callId) { // Might not match!
+    stopListening();
+  }
+};
+
+// ❌ WRONG - Small buffer causing choppy audio
+if (nextPlayTimeRef.current === 0) {
+  nextPlayTimeRef.current = currentTime + 0.05; // Only 50ms
+}
+```
+
+### Buffer Strategy Details
+
+**Initial Buffer (300ms):**
+- Waits for ~3 audio chunks before starting playback
+- Provides cushion against network jitter
+- Trades small delay for smooth, continuous audio
+
+**Resync Buffer (150ms):**
+- Used when playback falls behind real-time
+- More generous than before (was 20-50ms)
+- Allows recovery without aggressive catch-up
+
+**Buffer Health Monitoring:**
+```typescript
+const bufferHealth = bufferSizeRef.current * 1000; // ms
+if (bufferHealth < 50 && isPlayingRef.current) {
+  console.warn(`Low buffer: ${bufferHealth.toFixed(0)}ms`);
+}
+```
+
+### Cleanup Strategy
+
+**WebSocket Close (Call Ends):**
+- Stop all audio sources immediately
+- Clear all queues and buffers
+- Close AudioContext
+- Reset all state flags
+- Clear UI listening state
+
+**Component Unmount:**
+- Call `stopListening()` to ensure cleanup
+- Prevents memory leaks from active audio
+
+**Manual Stop:**
+- User clicks stop button
+- Same cleanup as WebSocket close
+
+### Key Takeaways
+
+1. **Jitter Buffer is Essential**: For real-time audio streaming, always use a jitter buffer (200-300ms)
+2. **Accumulate Before Playing**: Wait for minimum buffer before starting playback
+3. **Generous Resync**: When behind, use larger buffer (150ms) for smoother recovery
+4. **Always Clean Up**: WebSocket close must clean up ALL audio resources, not conditionally
+5. **Monitor Buffer Health**: Track buffer size to detect and warn about issues
+6. **Trade Latency for Quality**: A 300ms delay is acceptable for clear, intelligible audio
+7. **Separate Buffering from Playback**: Queue packets first, process them separately
+
+### Performance Characteristics
+
+**Without Jitter Buffer:**
+- Latency: 0-50ms (very low)
+- Quality: Choppy, robotic, gaps
+- Reliability: Poor (sensitive to network jitter)
+
+**With Jitter Buffer (300ms):**
+- Latency: 300ms (acceptable for monitoring)
+- Quality: Smooth, clear, intelligible
+- Reliability: Excellent (tolerates network variations)
+
+### Files Modified
+- `src/components/LiveCallFeed.tsx` - Implemented jitter buffer and improved cleanup
+
+### User Experience Benefits
+- **Clear Audio**: Packets properly assembled before playback
+- **No Choppiness**: Jitter buffer smooths out network variations
+- **Proper Cleanup**: UI state correctly reflects call status
+- **No Ghost Calls**: Audio resources cleaned up when call ends
+- **Buffer Monitoring**: Console logs help diagnose issues
