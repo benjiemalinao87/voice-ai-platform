@@ -387,8 +387,8 @@ export function LiveCallFeed() {
         nextPlayTimeRef.current = 0;
       };
 
-      // Process and play buffered audio chunks
-      const playBufferedAudio = () => {
+      // Process and play ONE buffered audio chunk at a time
+      const playNextChunk = () => {
         if (!audioContext || !gainNode) return;
         if (audioBufferQueue.current.length === 0) return;
 
@@ -397,54 +397,66 @@ export function LiveCallFeed() {
         // Initialize playback timing on first chunk
         if (nextPlayTimeRef.current === 0) {
           // Start with 1 second jitter buffer since call is already established
-          // This ensures we have a stable, continuous stream
           nextPlayTimeRef.current = currentTime + 1.0;
           isPlayingRef.current = true;
           console.log('[Live Listen] Starting playback with 1000ms jitter buffer (call pre-established)');
         }
 
-        // Process all queued chunks
-        while (audioBufferQueue.current.length > 0) {
-          const float32Data = audioBufferQueue.current.shift()!;
+        // Process ONLY ONE chunk to avoid memory leak
+        const float32Data = audioBufferQueue.current.shift()!;
 
-          try {
-            // Create audio buffer at source sample rate (8kHz)
-            const sourceSampleRate = 8000;
-            const audioBuffer = audioContext.createBuffer(1, float32Data.length, sourceSampleRate);
-            const channelData = audioBuffer.getChannelData(0);
-            channelData.set(float32Data);
+        try {
+          // Create audio buffer at source sample rate (8kHz)
+          const sourceSampleRate = 8000;
+          const audioBuffer = audioContext.createBuffer(1, float32Data.length, sourceSampleRate);
+          const channelData = audioBuffer.getChannelData(0);
+          channelData.set(float32Data);
 
-            // Check if we're falling behind
-            if (nextPlayTimeRef.current < currentTime) {
-              console.warn('[Live Listen] Playback falling behind, resyncing with 150ms buffer');
-              nextPlayTimeRef.current = currentTime + 0.15;
-            }
-
-            // Create and schedule buffer source
-            const source = audioContext.createBufferSource();
-            source.buffer = audioBuffer;
-            source.connect(gainNode);
-            source.start(nextPlayTimeRef.current);
-
-            // Clean up when done
-            source.onended = () => {
-              const index = audioQueueRef.current.indexOf(source);
-              if (index > -1) {
-                audioQueueRef.current.splice(index, 1);
-              }
-            };
-
-            audioQueueRef.current.push(source);
-
-            // Update next play time
-            nextPlayTimeRef.current += audioBuffer.duration;
-
-            // Update buffer size tracking
-            bufferSizeRef.current = Math.max(0, nextPlayTimeRef.current - currentTime);
-
-          } catch (error) {
-            console.error('[Live Listen] Error creating audio buffer:', error);
+          // Check if we're falling behind
+          if (nextPlayTimeRef.current < currentTime) {
+            console.warn('[Live Listen] Playback falling behind, resyncing with 300ms buffer');
+            nextPlayTimeRef.current = currentTime + 0.3;
           }
+
+          // Create and schedule buffer source
+          const source = audioContext.createBufferSource();
+          source.buffer = audioBuffer;
+          source.connect(gainNode);
+          source.start(nextPlayTimeRef.current);
+
+          // Clean up when done - IMPORTANT for memory management
+          source.onended = () => {
+            source.disconnect();
+            const index = audioQueueRef.current.indexOf(source);
+            if (index > -1) {
+              audioQueueRef.current.splice(index, 1);
+            }
+          };
+
+          audioQueueRef.current.push(source);
+
+          // Update next play time
+          nextPlayTimeRef.current += audioBuffer.duration;
+
+          // Update buffer size tracking
+          bufferSizeRef.current = Math.max(0, nextPlayTimeRef.current - currentTime);
+
+          // Limit queue size to prevent memory leak
+          if (audioQueueRef.current.length > 50) {
+            console.warn('[Live Listen] Audio queue too large, cleaning up old sources');
+            const oldSources = audioQueueRef.current.splice(0, 20);
+            oldSources.forEach(s => {
+              try {
+                s.stop();
+                s.disconnect();
+              } catch (e) {
+                // Already stopped
+              }
+            });
+          }
+
+        } catch (error) {
+          console.error('[Live Listen] Error creating audio buffer:', error);
         }
       };
 
@@ -471,17 +483,24 @@ export function LiveCallFeed() {
 
             // Accumulate buffer before starting playback (jitter buffer)
             // Since call has already been running for 30s, we can be more aggressive with buffering
-            const minBufferChunks = 8; // Wait for 8 chunks (~400-800ms) before starting
+            const minBufferChunks = 10; // Wait for 10 chunks (~500-1000ms) before starting
             const currentBufferSize = audioBufferQueue.current.length;
 
             if (!isPlayingRef.current && currentBufferSize >= minBufferChunks) {
               console.log(`[Live Listen] Buffer ready (${currentBufferSize} chunks), starting playback`);
-              playBufferedAudio();
+              // Process ONE chunk at a time to avoid memory leak
+              playNextChunk();
             } else if (isPlayingRef.current) {
-              // Already playing, process new chunk immediately
-              playBufferedAudio();
+              // Already playing, process ONE new chunk
+              playNextChunk();
             } else {
               console.log(`[Live Listen] Buffering... (${currentBufferSize}/${minBufferChunks} chunks)`);
+            }
+            
+            // Prevent buffer queue from growing too large (memory leak prevention)
+            if (audioBufferQueue.current.length > 20) {
+              console.warn('[Live Listen] Buffer queue too large, dropping oldest chunks');
+              audioBufferQueue.current.splice(0, 5); // Drop 5 oldest chunks
             }
 
             // Monitor buffer health
