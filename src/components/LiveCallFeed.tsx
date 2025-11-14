@@ -485,14 +485,35 @@ export function LiveCallFeed() {
 
             console.log(`[Live Listen] Received ${pcmData.length} samples (${chunkSizeMs.toFixed(1)}ms) | Range: ${minVal} to ${maxVal} | Zeros: ${zeroCount}/100`);
 
-            // Convert to Float32Array for Web Audio API with GAIN
-            // VAPI sends very low amplitude audio (~±200 instead of ±32768)
-            // Apply 100x gain to boost the signal
-            const GAIN_MULTIPLIER = 100;
+            // Convert to Float32Array for Web Audio API with ADAPTIVE GAIN
+            // VAPI sends very low amplitude audio with ~50% zeros
+            // Calculate RMS to adaptively boost the signal
+            let sumSquares = 0;
+            let nonZeroCount = 0;
+            for (let i = 0; i < pcmData.length; i++) {
+              if (pcmData[i] !== 0) {
+                sumSquares += pcmData[i] * pcmData[i];
+                nonZeroCount++;
+              }
+            }
+
+            // Calculate RMS of non-zero samples
+            const rms = nonZeroCount > 0 ? Math.sqrt(sumSquares / nonZeroCount) : 0;
+
+            // Target RMS for clear audio (roughly 30% of max amplitude)
+            const targetRMS = 32768 * 0.3;
+
+            // Calculate adaptive gain (with safety limits)
+            let adaptiveGain = rms > 0 ? targetRMS / rms : 1.0;
+            adaptiveGain = Math.min(adaptiveGain, 500); // Cap at 500x max
+            adaptiveGain = Math.max(adaptiveGain, 1);   // Minimum 1x
+
+            console.log(`[Live Listen] RMS: ${rms.toFixed(1)} | Adaptive Gain: ${adaptiveGain.toFixed(1)}x`);
+
             const float32Data = new Float32Array(pcmData.length);
             for (let i = 0; i < pcmData.length; i++) {
-              float32Data[i] = (pcmData[i] / 32768.0) * GAIN_MULTIPLIER;
-              // Clip to prevent distortion
+              float32Data[i] = (pcmData[i] / 32768.0) * adaptiveGain;
+              // Soft clip to prevent harsh distortion
               if (float32Data[i] > 1.0) float32Data[i] = 1.0;
               if (float32Data[i] < -1.0) float32Data[i] = -1.0;
             }
