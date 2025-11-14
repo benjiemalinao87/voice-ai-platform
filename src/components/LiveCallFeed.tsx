@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Phone, PhoneIncoming, PhoneOff, PhoneForwarded, Volume2, Trash2 } from 'lucide-react';
+import { Phone, Clock, PhoneIncoming, PhoneOff, PhoneForwarded, Volume2, Trash2 } from 'lucide-react';
 
 interface ActiveCall {
   id: string;
