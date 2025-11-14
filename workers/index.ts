@@ -4294,6 +4294,67 @@ export default {
         }
       }
 
+      // Speech-to-Text using Deepgram
+      if (url.pathname === '/api/speech-to-text' && request.method === 'POST') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        console.log('[Speech-to-Text] Transcription request:', { userId });
+
+        // Use hardcoded Deepgram API key (SaaS backend service)
+        const DEEPGRAM_API_KEY = '387e9e57f0979fe3579c33aac166f49d1354bb0a';
+
+        try {
+          // Parse multipart form data to get audio file
+          const formData = await request.formData();
+          const audioFile = formData.get('audio') as File;
+
+          if (!audioFile) {
+            return jsonResponse({ error: 'No audio file provided' }, 400);
+          }
+
+          console.log('[Speech-to-Text] Audio file received:', {
+            name: audioFile.name,
+            type: audioFile.type,
+            size: audioFile.size
+          });
+
+          // Get audio file as array buffer
+          const audioBuffer = await audioFile.arrayBuffer();
+
+          // Call Deepgram API
+          const deepgramResponse = await fetch('https://api.deepgram.com/v1/listen?model=nova-2&smart_format=true', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Token ${DEEPGRAM_API_KEY}`,
+              'Content-Type': audioFile.type || 'audio/webm'
+            },
+            body: audioBuffer
+          });
+
+          if (!deepgramResponse.ok) {
+            const error = await deepgramResponse.text();
+            console.error('[Speech-to-Text] Deepgram error:', error);
+            return jsonResponse({ error: `Transcription failed: ${error}` }, deepgramResponse.status);
+          }
+
+          const transcription = await deepgramResponse.json() as any;
+          const text = transcription.results?.channels?.[0]?.alternatives?.[0]?.transcript || '';
+
+          console.log('[Speech-to-Text] Transcription successful:', { text });
+
+          return jsonResponse({
+            success: true,
+            text: text
+          });
+        } catch (error) {
+          console.error('[Speech-to-Text] Error:', error);
+          return jsonResponse({ error: 'Failed to transcribe audio' }, 500);
+        }
+      }
+
       // End active call
       if (url.pathname.startsWith('/api/calls/') && url.pathname.endsWith('/end') && request.method === 'POST') {
         const userId = await getUserFromToken(request, env);

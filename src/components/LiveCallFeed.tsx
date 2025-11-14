@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Phone, Clock, PhoneIncoming, PhoneOff, PhoneForwarded, Volume2, Trash2, Headphones, MessageSquare } from 'lucide-react';
+import { Phone, Clock, PhoneIncoming, PhoneOff, PhoneForwarded, Volume2, Trash2, Headphones, MessageSquare, Mic, MicOff } from 'lucide-react';
 
 interface ActiveCall {
   id: string;
@@ -52,10 +52,14 @@ export function LiveCallFeed() {
   const [controlUrl, setControlUrl] = useState<string | null>(null);
   const [messageInput, setMessageInput] = useState<string>('');
   const [sendingMessage, setSendingMessage] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const [isTranscribing, setIsTranscribing] = useState(false);
   const audioContextRef = useRef<AudioContext | null>(null);
   const websocketRef = useRef<WebSocket | null>(null);
   const audioQueueRef = useRef<AudioBufferSourceNode[]>([]);
   const animationFrameRef = useRef<number | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
 
   // Play notification sound for new calls
   const playNotificationSound = () => {
@@ -536,8 +540,9 @@ export function LiveCallFeed() {
   };
 
   // Send message via backend proxy (Say mode - AI speaks it)
-  const handleSendMessage = async () => {
-    if (!messageInput.trim() || !controlUrl || !listeningCallId) return;
+  const handleSendMessage = async (textOverride?: string) => {
+    const textToSend = textOverride || messageInput.trim();
+    if (!textToSend || !controlUrl || !listeningCallId) return;
 
     setSendingMessage(true);
     try {
@@ -549,7 +554,7 @@ export function LiveCallFeed() {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          message: messageInput.trim()
+          message: textToSend
         })
       });
 
@@ -558,7 +563,7 @@ export function LiveCallFeed() {
         throw new Error(error.error || 'Failed to send message');
       }
 
-      console.log('📤 Message sent to AI:', messageInput);
+      console.log('📤 Message sent to AI:', textToSend);
       setMessageInput(''); // Clear input after successful send
     } catch (error) {
       console.error('Error sending message:', error);
@@ -569,8 +574,9 @@ export function LiveCallFeed() {
   };
 
   // Add context message via backend proxy (Context mode - adds to conversation history)
-  const handleAddContext = async () => {
-    if (!messageInput.trim() || !controlUrl || !listeningCallId) return;
+  const handleAddContext = async (textOverride?: string) => {
+    const textToSend = textOverride || messageInput.trim();
+    if (!textToSend || !controlUrl || !listeningCallId) return;
 
     setSendingMessage(true);
     try {
@@ -584,7 +590,7 @@ export function LiveCallFeed() {
         body: JSON.stringify({
           message: {
             role: 'system',
-            content: messageInput.trim()
+            content: textToSend
           }
         })
       });
@@ -594,13 +600,96 @@ export function LiveCallFeed() {
         throw new Error(error.error || 'Failed to add context');
       }
 
-      console.log('📝 Context added to conversation:', messageInput);
+      console.log('📝 Context added to conversation:', textToSend);
       setMessageInput(''); // Clear input after successful send
     } catch (error) {
       console.error('Error adding context:', error);
       alert('Failed to add context. Please try again.');
     } finally {
       setSendingMessage(false);
+    }
+  };
+
+  // Start recording microphone
+  const handleStartRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+      audioChunksRef.current = [];
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+
+      mediaRecorder.onstop = async () => {
+        // Stop all tracks
+        stream.getTracks().forEach(track => track.stop());
+
+        // Create audio blob
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+
+        // Transcribe the audio
+        await handleTranscribeAudio(audioBlob);
+      };
+
+      mediaRecorder.start();
+      setIsRecording(true);
+      console.log('🎤 Started recording');
+    } catch (error) {
+      console.error('Error starting recording:', error);
+      alert('Failed to access microphone. Please check permissions.');
+    }
+  };
+
+  // Stop recording microphone
+  const handleStopRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+      console.log('🛑 Stopped recording');
+    }
+  };
+
+  // Transcribe audio using Deepgram
+  const handleTranscribeAudio = async (audioBlob: Blob) => {
+    setIsTranscribing(true);
+    try {
+      const token = localStorage.getItem('auth_token');
+      const formData = new FormData();
+      formData.append('audio', audioBlob, 'recording.webm');
+
+      const response = await fetch(`${API_URL}/api/speech-to-text`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        },
+        body: formData
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Transcription failed');
+      }
+
+      const result = await response.json();
+      const transcribedText = result.text;
+
+      console.log('📝 Transcribed text:', transcribedText);
+
+      // Automatically send based on current mode (pass text directly)
+      if (controlMode === 'say') {
+        await handleSendMessage(transcribedText);
+      } else if (controlMode === 'context') {
+        await handleAddContext(transcribedText);
+      }
+    } catch (error) {
+      console.error('Error transcribing audio:', error);
+      alert('Failed to transcribe audio. Please try again.');
+    } finally {
+      setIsTranscribing(false);
     }
   };
 
@@ -633,11 +722,18 @@ export function LiveCallFeed() {
       animationFrameRef.current = null;
     }
 
+    // Stop any ongoing recording
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop();
+    }
+
     // Reset state
     setAudioLevels({ ai: 0, customer: 0 });
     setControlMode('listen');
     setControlUrl(null);
     setMessageInput('');
+    setIsRecording(false);
+    setIsTranscribing(false);
     setListeningCallId(null);
     console.log('🔇 Stopped listening');
   };
@@ -932,19 +1028,33 @@ export function LiveCallFeed() {
                               }
                             }}
                             placeholder={
-                              controlMode === 'say'
-                                ? 'Type message for AI to speak...'
-                                : 'Type context to add to conversation...'
+                              isTranscribing
+                                ? 'Transcribing...'
+                                : controlMode === 'say'
+                                ? 'Type or speak message for AI...'
+                                : 'Type or speak context to add...'
                             }
                             className="flex-1 px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
-                            disabled={sendingMessage}
+                            disabled={sendingMessage || isRecording || isTranscribing}
                           />
                           <button
+                            onClick={isRecording ? handleStopRecording : handleStartRecording}
+                            disabled={sendingMessage || isTranscribing}
+                            className={`px-3 py-2 rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm ${
+                              isRecording
+                                ? 'bg-red-600 hover:bg-red-700 text-white animate-pulse'
+                                : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
+                            }`}
+                            title={isRecording ? 'Stop recording' : 'Start voice recording'}
+                          >
+                            {isRecording ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+                          </button>
+                          <button
                             onClick={controlMode === 'say' ? handleSendMessage : handleAddContext}
-                            disabled={!messageInput.trim() || sendingMessage}
+                            disabled={!messageInput.trim() || sendingMessage || isRecording || isTranscribing}
                             className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm"
                           >
-                            {sendingMessage ? 'Sending...' : 'Send'}
+                            {sendingMessage ? 'Sending...' : isTranscribing ? 'Transcribing...' : 'Send'}
                           </button>
                         </div>
                       </div>
