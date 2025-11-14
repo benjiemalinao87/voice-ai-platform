@@ -501,10 +501,35 @@ export function LiveCallFeed() {
       };
 
       ws.onclose = () => {
-        console.log('[Live Listen] WebSocket closed');
-        if (listeningToCall === callId) {
-          stopListening();
+        console.log('[Live Listen] WebSocket closed - cleaning up audio resources');
+        
+        // Always clean up audio resources when WebSocket closes
+        audioQueueRef.current.forEach(source => {
+          try {
+            source.stop();
+            source.disconnect();
+          } catch (e) {
+            // Ignore errors from already stopped sources
+          }
+        });
+        audioQueueRef.current = [];
+        audioBufferQueue.current = [];
+        nextPlayTimeRef.current = 0;
+        isPlayingRef.current = false;
+        bufferSizeRef.current = 0;
+
+        if (audioContextRef.current) {
+          audioContextRef.current.close().catch(err => {
+            console.error('[Live Listen] Error closing AudioContext:', err);
+          });
+          audioContextRef.current = null;
         }
+        gainNodeRef.current = null;
+        
+        // Clear the listening state
+        setListeningToCall(null);
+        
+        console.log('[Live Listen] Cleanup complete');
       };
 
     } catch (error) {
