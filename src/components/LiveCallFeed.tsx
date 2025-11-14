@@ -448,19 +448,19 @@ export function LiveCallFeed() {
             const int16Array = new Int16Array(audioData);
             const samplesPerChannel = int16Array.length / channels;
 
-            // Create audio buffer
+            // Create MONO audio buffer (mix both channels so we hear both AI and customer)
             const audioBuffer = audioContextRef.current.createBuffer(
-              channels,
+              1, // MONO - mix both channels
               samplesPerChannel,
               sampleRate
             );
 
-            // De-interleave stereo data
-            for (let channel = 0; channel < channels; channel++) {
-              const channelData = audioBuffer.getChannelData(channel);
-              for (let i = 0; i < samplesPerChannel; i++) {
-                channelData[i] = int16Array[i * channels + channel] / 32768.0;
-              }
+            // Mix stereo channels into mono (so we hear both AI and customer)
+            const monoData = audioBuffer.getChannelData(0);
+            for (let i = 0; i < samplesPerChannel; i++) {
+              const leftSample = int16Array[i * channels] / 32768.0;      // AI Assistant
+              const rightSample = int16Array[i * channels + 1] / 32768.0; // Customer
+              monoData[i] = (leftSample + rightSample) / 2; // Mix both channels
             }
 
             // Schedule audio playback
