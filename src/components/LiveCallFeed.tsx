@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Phone, Clock, PhoneIncoming, PhoneOff, PhoneForwarded, Volume2, Trash2, Headphones } from 'lucide-react';
+import { Phone, Clock, PhoneIncoming, PhoneOff, PhoneForwarded, Volume2, Trash2, Headphones, Mic, MicOff } from 'lucide-react';
 
 interface ActiveCall {
   id: string;
@@ -47,9 +47,15 @@ export function LiveCallFeed() {
   const [cleanupLoading, setCleanupLoading] = useState(false);
   const [listeningCallId, setListeningCallId] = useState<string | null>(null);
   const [listenLoading, setListenLoading] = useState<string | null>(null);
+  const [audioLevels, setAudioLevels] = useState<{ ai: number; customer: number }>({ ai: 0, customer: 0 });
+  const [bargeInMode, setBargeInMode] = useState<'listen' | 'barge' | 'whisper'>('listen');
+  const [isMicActive, setIsMicActive] = useState(false);
   const audioContextRef = useRef<AudioContext | null>(null);
   const websocketRef = useRef<WebSocket | null>(null);
   const audioQueueRef = useRef<AudioBufferSourceNode[]>([]);
+  const animationFrameRef = useRef<number | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const micProcessorRef = useRef<ScriptProcessorNode | null>(null);
 
   // Play notification sound for new calls
   const playNotificationSound = () => {
@@ -457,11 +463,23 @@ export function LiveCallFeed() {
 
             // Mix stereo channels into mono (so we hear both AI and customer)
             const monoData = audioBuffer.getChannelData(0);
+            let aiSum = 0;
+            let customerSum = 0;
+
             for (let i = 0; i < samplesPerChannel; i++) {
-              const leftSample = int16Array[i * channels] / 32768.0;      // AI Assistant
-              const rightSample = int16Array[i * channels + 1] / 32768.0; // Customer
+              const leftSample = int16Array[i * channels] / 32768.0;      // Customer (Channel 0)
+              const rightSample = int16Array[i * channels + 1] / 32768.0; // AI Assistant (Channel 1)
               monoData[i] = (leftSample + rightSample) / 2; // Mix both channels
+
+              // Calculate RMS levels for visualization (SWAPPED: left=customer, right=AI)
+              customerSum += leftSample * leftSample;
+              aiSum += rightSample * rightSample;
             }
+
+            // Update audio levels (RMS - Root Mean Square for accurate volume)
+            const aiLevel = Math.sqrt(aiSum / samplesPerChannel);
+            const customerLevel = Math.sqrt(customerSum / samplesPerChannel);
+            setAudioLevels({ ai: aiLevel, customer: customerLevel });
 
             // Schedule audio playback
             const source = audioContextRef.current.createBufferSource();
@@ -512,7 +530,93 @@ export function LiveCallFeed() {
     }
   };
 
+  const handleEnableMicrophone = async () => {
+    try {
+      if (!websocketRef.current || websocketRef.current.readyState !== WebSocket.OPEN) {
+        alert('WebSocket not connected. Please start listening first.');
+        return;
+      }
+
+      // Request microphone access
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+          sampleRate: 16000
+        }
+      });
+
+      mediaStreamRef.current = stream;
+
+      // Create audio context if not exists
+      if (!audioContextRef.current) {
+        audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
+      }
+
+      // Create media stream source
+      const source = audioContextRef.current.createMediaStreamSource(stream);
+
+      // Create processor to capture and send audio chunks
+      const processor = audioContextRef.current.createScriptProcessor(4096, 1, 1);
+      micProcessorRef.current = processor;
+
+      processor.onaudioprocess = (e) => {
+        if (!websocketRef.current || websocketRef.current.readyState !== WebSocket.OPEN) return;
+
+        const inputData = e.inputBuffer.getChannelData(0);
+
+        // Convert Float32 to Int16 (PCM 16-bit)
+        const int16Data = new Int16Array(inputData.length);
+        for (let i = 0; i < inputData.length; i++) {
+          const s = Math.max(-1, Math.min(1, inputData[i]));
+          int16Data[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+        }
+
+        // Send audio to VAPI based on mode
+        try {
+          const message = {
+            type: bargeInMode === 'whisper' ? 'whisper' : 'barge-in',
+            audio: Array.from(int16Data)
+          };
+          websocketRef.current.send(JSON.stringify(message));
+        } catch (err) {
+          console.error('Error sending audio:', err);
+        }
+      };
+
+      source.connect(processor);
+      processor.connect(audioContextRef.current.destination);
+
+      setIsMicActive(true);
+      console.log(`🎤 Microphone enabled (${bargeInMode} mode)`);
+    } catch (error) {
+      console.error('Error enabling microphone:', error);
+      alert('Failed to access microphone. Please check permissions.');
+    }
+  };
+
+  const handleDisableMicrophone = () => {
+    // Stop microphone stream
+    if (mediaStreamRef.current) {
+      mediaStreamRef.current.getTracks().forEach(track => track.stop());
+      mediaStreamRef.current = null;
+    }
+
+    // Disconnect processor
+    if (micProcessorRef.current) {
+      micProcessorRef.current.disconnect();
+      micProcessorRef.current = null;
+    }
+
+    setIsMicActive(false);
+    console.log('🎤 Microphone disabled');
+  };
+
   const handleStopListening = () => {
+    // Stop microphone first
+    handleDisableMicrophone();
+
     // Stop all playing audio sources immediately
     audioQueueRef.current.forEach(source => {
       try {
@@ -535,6 +639,16 @@ export function LiveCallFeed() {
       audioContextRef.current.suspend();
     }
 
+    // Cancel animation frame
+    if (animationFrameRef.current) {
+      cancelAnimationFrame(animationFrameRef.current);
+      animationFrameRef.current = null;
+    }
+
+    // Reset state
+    setAudioLevels({ ai: 0, customer: 0 });
+    setBargeInMode('listen');
+    setIsMicActive(false);
     setListeningCallId(null);
     console.log('🔇 Stopped listening');
   };
@@ -755,6 +869,140 @@ export function LiveCallFeed() {
                         )}
                       </>
                     )}
+                  </div>
+                )}
+
+                {/* Waveform Visualization & Controls - Show when listening */}
+                {listeningCallId === call.vapi_call_id && (
+                  <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-600 space-y-3">
+                    {/* Mode Selection */}
+                    <div>
+                      <div className="text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">
+                        Monitoring Mode
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => {
+                            if (isMicActive) handleDisableMicrophone();
+                            setBargeInMode('listen');
+                          }}
+                          className={`flex-1 px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
+                            bargeInMode === 'listen'
+                              ? 'bg-purple-600 text-white'
+                              : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+                          }`}
+                        >
+                          <Headphones className="w-3.5 h-3.5 mx-auto mb-1" />
+                          Listen Only
+                        </button>
+                        <button
+                          onClick={() => {
+                            setBargeInMode('barge');
+                            if (isMicActive) {
+                              handleDisableMicrophone();
+                              setTimeout(() => handleEnableMicrophone(), 100);
+                            }
+                          }}
+                          className={`flex-1 px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
+                            bargeInMode === 'barge'
+                              ? 'bg-orange-600 text-white'
+                              : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+                          }`}
+                        >
+                          <Volume2 className="w-3.5 h-3.5 mx-auto mb-1" />
+                          Barge-In
+                        </button>
+                        <button
+                          onClick={() => {
+                            setBargeInMode('whisper');
+                            if (isMicActive) {
+                              handleDisableMicrophone();
+                              setTimeout(() => handleEnableMicrophone(), 100);
+                            }
+                          }}
+                          className={`flex-1 px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
+                            bargeInMode === 'whisper'
+                              ? 'bg-blue-600 text-white'
+                              : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+                          }`}
+                        >
+                          <MicOff className="w-3.5 h-3.5 mx-auto mb-1" />
+                          Whisper
+                        </button>
+                      </div>
+                      <div className="mt-1.5 text-[10px] text-gray-500 dark:text-gray-400">
+                        {bargeInMode === 'listen' && '👂 Listen to the call without speaking'}
+                        {bargeInMode === 'barge' && '📢 Speak to both AI and customer'}
+                        {bargeInMode === 'whisper' && '🤫 Speak only to AI (customer won\'t hear)'}
+                      </div>
+                    </div>
+
+                    {/* Microphone Control */}
+                    {bargeInMode !== 'listen' && (
+                      <div>
+                        <button
+                          onClick={isMicActive ? handleDisableMicrophone : handleEnableMicrophone}
+                          className={`w-full flex items-center justify-center gap-2 px-4 py-2 rounded-lg font-medium transition-all ${
+                            isMicActive
+                              ? 'bg-red-600 hover:bg-red-700 text-white animate-pulse'
+                              : 'bg-green-600 hover:bg-green-700 text-white'
+                          }`}
+                        >
+                          {isMicActive ? (
+                            <>
+                              <Mic className="w-4 h-4" />
+                              <span className="text-sm">Microphone Active</span>
+                            </>
+                          ) : (
+                            <>
+                              <MicOff className="w-4 h-4" />
+                              <span className="text-sm">Enable Microphone</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Audio Levels */}
+                    <div className="space-y-2">
+                      <div className="text-xs font-medium text-gray-700 dark:text-gray-300">
+                        Audio Levels
+                      </div>
+
+                      {/* AI Assistant Level */}
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-gray-600 dark:text-gray-400 w-16">AI</span>
+                        <div className="flex-1 h-6 bg-gray-200 dark:bg-gray-600 rounded-full overflow-hidden">
+                          <div
+                            className="h-full bg-gradient-to-r from-blue-500 to-blue-600 transition-all duration-100 ease-out flex items-center justify-end pr-2"
+                            style={{ width: `${Math.min(audioLevels.ai * 200, 100)}%` }}
+                          >
+                            {audioLevels.ai > 0.05 && (
+                              <span className="text-[10px] font-bold text-white drop-shadow">
+                                {Math.round(audioLevels.ai * 100)}%
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Customer Level */}
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-gray-600 dark:text-gray-400 w-16">Customer</span>
+                        <div className="flex-1 h-6 bg-gray-200 dark:bg-gray-600 rounded-full overflow-hidden">
+                          <div
+                            className="h-full bg-gradient-to-r from-green-500 to-green-600 transition-all duration-100 ease-out flex items-center justify-end pr-2"
+                            style={{ width: `${Math.min(audioLevels.customer * 200, 100)}%` }}
+                          >
+                            {audioLevels.customer > 0.05 && (
+                              <span className="text-[10px] font-bold text-white drop-shadow">
+                                {Math.round(audioLevels.customer * 100)}%
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 )}
               </div>
