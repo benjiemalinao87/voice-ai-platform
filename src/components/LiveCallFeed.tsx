@@ -164,7 +164,7 @@ export function LiveCallFeed() {
 
       // Detect new calls and play notification - only for "ringing" status
       if (!isInitialLoad) {
-        const newCallIds = new Set(data.map((call: ActiveCall) => call.vapi_call_id));
+        const newCallIds = new Set<string>(data.map((call: ActiveCall) => call.vapi_call_id));
         // Check for new ringing calls specifically
         const hasNewRingingCalls = data.some((call: ActiveCall) => 
           !previousCallIds.has(call.vapi_call_id) && call.status === 'ringing'
@@ -190,7 +190,7 @@ export function LiveCallFeed() {
         setPreviousCallIds(newCallIds);
       } else {
         // On initial load, just store the call IDs without playing sound
-        setPreviousCallIds(new Set(data.map((call: ActiveCall) => call.vapi_call_id)));
+        setPreviousCallIds(new Set<string>(data.map((call: ActiveCall) => call.vapi_call_id)));
         setIsInitialLoad(false);
       }
 
@@ -387,46 +387,37 @@ export function LiveCallFeed() {
             // Skip empty packets
             if (pcmData.length === 0) return;
 
+            console.log(`[Live Listen] Received audio chunk: ${pcmData.length} samples`);
+
             // Convert to Float32Array for Web Audio API
             const float32Data = new Float32Array(pcmData.length);
             for (let i = 0; i < pcmData.length; i++) {
               float32Data[i] = pcmData[i] / 32768.0; // Convert to -1.0 to 1.0 range
             }
 
-            // Use the audio context's native sample rate (typically 48000 Hz)
-            const targetSampleRate = audioContext.sampleRate;
+            // Create audio buffer directly at 8000 Hz (Web Audio API will handle resampling)
             const sourceSampleRate = 8000;
-
-            // Calculate upsampled length
-            const upsampledLength = Math.floor(float32Data.length * (targetSampleRate / sourceSampleRate));
-
-            // Create audio buffer at native sample rate
-            const audioBuffer = audioContext.createBuffer(1, upsampledLength, targetSampleRate);
-            const outputData = audioBuffer.getChannelData(0);
-
-            // Simple linear interpolation upsampling
-            for (let i = 0; i < upsampledLength; i++) {
-              const srcIndex = (i * sourceSampleRate) / targetSampleRate;
-              const srcIndexFloor = Math.floor(srcIndex);
-              const srcIndexCeil = Math.min(srcIndexFloor + 1, float32Data.length - 1);
-              const t = srcIndex - srcIndexFloor;
-
-              // Linear interpolation
-              outputData[i] = float32Data[srcIndexFloor] * (1 - t) + float32Data[srcIndexCeil] * t;
-            }
+            const audioBuffer = audioContext.createBuffer(1, float32Data.length, sourceSampleRate);
+            const channelData = audioBuffer.getChannelData(0);
+            
+            // Copy the audio data
+            channelData.set(float32Data);
 
             // Calculate when to play this chunk
             const currentTime = audioContext.currentTime;
             const bufferDuration = audioBuffer.duration;
 
-            // Initialize next play time with a small buffer for the first chunk
+            // Initialize next play time with a larger buffer for the first chunk
+            // This helps prevent glitches at the start
             if (nextPlayTimeRef.current === 0) {
-              nextPlayTimeRef.current = currentTime + 0.05; // 50ms initial buffer
+              nextPlayTimeRef.current = currentTime + 0.1; // 100ms initial buffer
+              console.log('[Live Listen] Initializing playback with 100ms buffer');
             }
 
-            // If we're behind schedule, catch up but add small buffer
+            // If we're behind schedule, resync with a small buffer
             if (nextPlayTimeRef.current < currentTime) {
-              nextPlayTimeRef.current = currentTime + 0.02; // 20ms buffer
+              console.warn('[Live Listen] Audio behind schedule, resyncing...');
+              nextPlayTimeRef.current = currentTime + 0.05; // 50ms buffer for resync
             }
 
             // Create buffer source and schedule it
@@ -450,6 +441,8 @@ export function LiveCallFeed() {
 
             // Update next play time
             nextPlayTimeRef.current += bufferDuration;
+
+            console.log(`[Live Listen] Scheduled audio chunk (duration: ${bufferDuration.toFixed(3)}s, next play: ${nextPlayTimeRef.current.toFixed(3)}s)`);
 
           } catch (error) {
             console.error('[Live Listen] Error processing audio:', error);
@@ -518,14 +511,6 @@ export function LiveCallFeed() {
     } finally {
       setActionLoading(null);
     }
-  };
-
-  const formatDuration = (startedAt: number) => {
-    const now = Math.floor(Date.now() / 1000);
-    const duration = now - startedAt;
-    const minutes = Math.floor(duration / 60);
-    const seconds = duration % 60;
-    return `${minutes}:${seconds.toString().padStart(2, '0')}`;
   };
 
   const getStatusColor = (status: string) => {
@@ -691,28 +676,53 @@ export function LiveCallFeed() {
                       </div>
                     ) : (
                       <>
-                        <button
-                          onClick={() => handleListenLive(call.vapi_call_id)}
-                          disabled={actionLoading === call.vapi_call_id}
-                          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed ${
-                            listeningToCall === call.vapi_call_id
-                              ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 hover:bg-green-200 dark:hover:bg-green-900/50'
-                              : 'bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400 hover:bg-purple-100 dark:hover:bg-purple-900/50'
-                          }`}
-                          title={listeningToCall === call.vapi_call_id ? 'Stop listening' : 'Listen to call live'}
-                        >
-                          {listeningToCall === call.vapi_call_id ? (
-                            <>
-                              <VolumeX className="w-4 h-4 animate-pulse" />
-                              Listening...
-                            </>
-                          ) : (
-                            <>
-                              <Headphones className="w-4 h-4" />
-                              Listen Live
-                            </>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => handleListenLive(call.vapi_call_id)}
+                            disabled={actionLoading === call.vapi_call_id}
+                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed ${
+                              listeningToCall === call.vapi_call_id
+                                ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 hover:bg-green-200 dark:hover:bg-green-900/50'
+                                : 'bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400 hover:bg-purple-100 dark:hover:bg-purple-900/50'
+                            }`}
+                            title={listeningToCall === call.vapi_call_id ? 'Stop listening' : 'Listen to call live'}
+                          >
+                            {listeningToCall === call.vapi_call_id ? (
+                              <>
+                                <VolumeX className="w-4 h-4 animate-pulse" />
+                                Listening...
+                              </>
+                            ) : (
+                              <>
+                                <Headphones className="w-4 h-4" />
+                                Listen Live
+                              </>
+                            )}
+                          </button>
+                          {listeningToCall === call.vapi_call_id && (
+                            <div className="flex items-center gap-2 bg-gray-100 dark:bg-gray-700 px-3 py-1.5 rounded-lg">
+                              <Volume2 className="w-4 h-4 text-gray-600 dark:text-gray-400" />
+                              <input
+                                type="range"
+                                min="0"
+                                max="100"
+                                value={audioVolume * 100}
+                                onChange={(e) => {
+                                  const newVolume = parseInt(e.target.value) / 100;
+                                  setAudioVolume(newVolume);
+                                  if (gainNodeRef.current) {
+                                    gainNodeRef.current.gain.value = newVolume;
+                                  }
+                                }}
+                                className="w-24 h-1 bg-gray-300 dark:bg-gray-600 rounded-lg appearance-none cursor-pointer accent-purple-600"
+                                title={`Volume: ${Math.round(audioVolume * 100)}%`}
+                              />
+                              <span className="text-xs text-gray-600 dark:text-gray-400 w-8">
+                                {Math.round(audioVolume * 100)}%
+                              </span>
+                            </div>
                           )}
-                        </button>
+                        </div>
                         <button
                           onClick={() => setShowTransferInput(call.vapi_call_id)}
                           disabled={actionLoading === call.vapi_call_id}
