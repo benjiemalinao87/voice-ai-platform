@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Phone, Clock, PhoneIncoming, PhoneOff, PhoneForwarded, Volume2, Trash2, Headphones, Mic, MicOff } from 'lucide-react';
+import { Phone, Clock, PhoneIncoming, PhoneOff, PhoneForwarded, Volume2, Trash2, Headphones, MessageSquare } from 'lucide-react';
 
 interface ActiveCall {
   id: string;
@@ -48,14 +48,14 @@ export function LiveCallFeed() {
   const [listeningCallId, setListeningCallId] = useState<string | null>(null);
   const [listenLoading, setListenLoading] = useState<string | null>(null);
   const [audioLevels, setAudioLevels] = useState<{ ai: number; customer: number }>({ ai: 0, customer: 0 });
-  const [bargeInMode, setBargeInMode] = useState<'listen' | 'barge' | 'whisper'>('listen');
-  const [isMicActive, setIsMicActive] = useState(false);
+  const [controlMode, setControlMode] = useState<'listen' | 'say' | 'context'>('listen');
+  const [controlUrl, setControlUrl] = useState<string | null>(null);
+  const [messageInput, setMessageInput] = useState<string>('');
+  const [sendingMessage, setSendingMessage] = useState(false);
   const audioContextRef = useRef<AudioContext | null>(null);
   const websocketRef = useRef<WebSocket | null>(null);
   const audioQueueRef = useRef<AudioBufferSourceNode[]>([]);
   const animationFrameRef = useRef<number | null>(null);
-  const mediaStreamRef = useRef<MediaStream | null>(null);
-  const micProcessorRef = useRef<ScriptProcessorNode | null>(null);
 
   // Play notification sound for new calls
   const playNotificationSound = () => {
@@ -376,7 +376,10 @@ export function LiveCallFeed() {
       }
 
       console.log('🎧 Now listening to call:', callId);
-      console.log('📡 WebSocket URL:', data.listenUrl);
+      console.log('🎛️ Control URL:', data.controlUrl);
+
+      // Store control URL for interventions
+      setControlUrl(data.controlUrl || null);
 
       // Stop any currently playing audio
       handleStopListening();
@@ -399,7 +402,7 @@ export function LiveCallFeed() {
 
       // Buffer to collect audio chunks for smoother playback
       let nextStartTime = audioContextRef.current.currentTime;
-      let vapiConfig: any = null; // Store VAPI audio config
+      let vapiConfig: any = null; // Store audio service config
 
       ws.onopen = () => {
         console.log('✅ WebSocket connected - audio stream started');
@@ -418,10 +421,10 @@ export function LiveCallFeed() {
           } else if (event.data instanceof Blob) {
             audioData = await event.data.arrayBuffer();
           } else if (typeof event.data === 'string') {
-            // VAPI sends JSON protocol messages - store config
+            // Audio service sends JSON protocol messages - store config
             try {
               const message = JSON.parse(event.data);
-              console.debug('📨 VAPI protocol message:', message);
+              console.debug('📨 Audio protocol message:', message);
               if (message.type === 'start') {
                 vapiConfig = message; // Store audio config
                 console.log('🎵 Audio config:', {
@@ -444,12 +447,12 @@ export function LiveCallFeed() {
           // Skip empty packets
           if (audioData.byteLength === 0) return;
 
-          // Use VAPI config if available, otherwise use defaults
+          // Use audio config if available, otherwise use defaults
           const sampleRate = vapiConfig?.sampleRate || 16000;
           const channels = vapiConfig?.channels || 2;
           const encoding = vapiConfig?.encoding || 'linear16';
 
-          // VAPI sends linear16 (16-bit PCM) stereo at 16kHz
+          // Audio service sends linear16 (16-bit PCM) stereo at 16kHz
           try {
             const int16Array = new Int16Array(audioData);
             const samplesPerChannel = int16Array.length / channels;
@@ -510,7 +513,7 @@ export function LiveCallFeed() {
 
       ws.onerror = (error) => {
         console.error('❌ WebSocket error:', error);
-        alert('Failed to connect to audio stream. This feature requires VAPI to provide audio streaming access.');
+        alert('Failed to connect to audio stream. Please check your connection and try again.');
         handleStopListening();
       };
 
@@ -530,93 +533,70 @@ export function LiveCallFeed() {
     }
   };
 
-  const handleEnableMicrophone = async () => {
-    try {
-      if (!websocketRef.current || websocketRef.current.readyState !== WebSocket.OPEN) {
-        alert('WebSocket not connected. Please start listening first.');
-        return;
-      }
+  // Send message via controlUrl (Say mode - AI speaks it)
+  const handleSendMessage = async () => {
+    if (!messageInput.trim() || !controlUrl) return;
 
-      // Request microphone access
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-          sampleRate: 16000
-        }
+    setSendingMessage(true);
+    try {
+      const response = await fetch(`${controlUrl}/say`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          message: messageInput.trim()
+        })
       });
 
-      mediaStreamRef.current = stream;
-
-      // Create audio context if not exists
-      if (!audioContextRef.current) {
-        audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
+      if (!response.ok) {
+        throw new Error('Failed to send message');
       }
 
-      // Create media stream source
-      const source = audioContextRef.current.createMediaStreamSource(stream);
-
-      // Create processor to capture and send audio chunks
-      const processor = audioContextRef.current.createScriptProcessor(4096, 1, 1);
-      micProcessorRef.current = processor;
-
-      processor.onaudioprocess = (e) => {
-        if (!websocketRef.current || websocketRef.current.readyState !== WebSocket.OPEN) return;
-
-        const inputData = e.inputBuffer.getChannelData(0);
-
-        // Convert Float32 to Int16 (PCM 16-bit)
-        const int16Data = new Int16Array(inputData.length);
-        for (let i = 0; i < inputData.length; i++) {
-          const s = Math.max(-1, Math.min(1, inputData[i]));
-          int16Data[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
-        }
-
-        // Send audio to VAPI based on mode
-        try {
-          const message = {
-            type: bargeInMode === 'whisper' ? 'whisper' : 'barge-in',
-            audio: Array.from(int16Data)
-          };
-          websocketRef.current.send(JSON.stringify(message));
-        } catch (err) {
-          console.error('Error sending audio:', err);
-        }
-      };
-
-      source.connect(processor);
-      processor.connect(audioContextRef.current.destination);
-
-      setIsMicActive(true);
-      console.log(`🎤 Microphone enabled (${bargeInMode} mode)`);
+      console.log('📤 Message sent to AI:', messageInput);
+      setMessageInput(''); // Clear input after successful send
     } catch (error) {
-      console.error('Error enabling microphone:', error);
-      alert('Failed to access microphone. Please check permissions.');
+      console.error('Error sending message:', error);
+      alert('Failed to send message. Please try again.');
+    } finally {
+      setSendingMessage(false);
     }
   };
 
-  const handleDisableMicrophone = () => {
-    // Stop microphone stream
-    if (mediaStreamRef.current) {
-      mediaStreamRef.current.getTracks().forEach(track => track.stop());
-      mediaStreamRef.current = null;
-    }
+  // Add context message via controlUrl (Context mode - adds to conversation history)
+  const handleAddContext = async () => {
+    if (!messageInput.trim() || !controlUrl) return;
 
-    // Disconnect processor
-    if (micProcessorRef.current) {
-      micProcessorRef.current.disconnect();
-      micProcessorRef.current = null;
-    }
+    setSendingMessage(true);
+    try {
+      const response = await fetch(`${controlUrl}/add-message`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          message: {
+            role: 'system',
+            content: messageInput.trim()
+          }
+        })
+      });
 
-    setIsMicActive(false);
-    console.log('🎤 Microphone disabled');
+      if (!response.ok) {
+        throw new Error('Failed to add context');
+      }
+
+      console.log('📝 Context added to conversation:', messageInput);
+      setMessageInput(''); // Clear input after successful send
+    } catch (error) {
+      console.error('Error adding context:', error);
+      alert('Failed to add context. Please try again.');
+    } finally {
+      setSendingMessage(false);
+    }
   };
 
   const handleStopListening = () => {
-    // Stop microphone first
-    handleDisableMicrophone();
-
     // Stop all playing audio sources immediately
     audioQueueRef.current.forEach(source => {
       try {
@@ -647,8 +627,9 @@ export function LiveCallFeed() {
 
     // Reset state
     setAudioLevels({ ai: 0, customer: 0 });
-    setBargeInMode('listen');
-    setIsMicActive(false);
+    setControlMode('listen');
+    setControlUrl(null);
+    setMessageInput('');
     setListeningCallId(null);
     console.log('🔇 Stopped listening');
   };
@@ -875,19 +856,16 @@ export function LiveCallFeed() {
                 {/* Waveform Visualization & Controls - Show when listening */}
                 {listeningCallId === call.vapi_call_id && (
                   <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-600 space-y-3">
-                    {/* Mode Selection */}
+                    {/* Control Mode Selection */}
                     <div>
                       <div className="text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">
-                        Monitoring Mode
+                        Control Mode {!controlUrl && <span className="text-red-500">(Not Available)</span>}
                       </div>
                       <div className="flex gap-2">
                         <button
-                          onClick={() => {
-                            if (isMicActive) handleDisableMicrophone();
-                            setBargeInMode('listen');
-                          }}
+                          onClick={() => setControlMode('listen')}
                           className={`flex-1 px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
-                            bargeInMode === 'listen'
+                            controlMode === 'listen'
                               ? 'bg-purple-600 text-white'
                               : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
                           }`}
@@ -896,70 +874,71 @@ export function LiveCallFeed() {
                           Listen Only
                         </button>
                         <button
-                          onClick={() => {
-                            setBargeInMode('barge');
-                            if (isMicActive) {
-                              handleDisableMicrophone();
-                              setTimeout(() => handleEnableMicrophone(), 100);
-                            }
-                          }}
-                          className={`flex-1 px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
-                            bargeInMode === 'barge'
+                          onClick={() => setControlMode('say')}
+                          disabled={!controlUrl}
+                          className={`flex-1 px-3 py-2 rounded-lg text-xs font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                            controlMode === 'say'
                               ? 'bg-orange-600 text-white'
                               : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
                           }`}
                         >
                           <Volume2 className="w-3.5 h-3.5 mx-auto mb-1" />
-                          Barge-In
+                          Say Message
                         </button>
                         <button
-                          onClick={() => {
-                            setBargeInMode('whisper');
-                            if (isMicActive) {
-                              handleDisableMicrophone();
-                              setTimeout(() => handleEnableMicrophone(), 100);
-                            }
-                          }}
-                          className={`flex-1 px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
-                            bargeInMode === 'whisper'
+                          onClick={() => setControlMode('context')}
+                          disabled={!controlUrl}
+                          className={`flex-1 px-3 py-2 rounded-lg text-xs font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                            controlMode === 'context'
                               ? 'bg-blue-600 text-white'
                               : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
                           }`}
                         >
-                          <MicOff className="w-3.5 h-3.5 mx-auto mb-1" />
-                          Whisper
+                          <MessageSquare className="w-3.5 h-3.5 mx-auto mb-1" />
+                          Add Context
                         </button>
                       </div>
                       <div className="mt-1.5 text-[10px] text-gray-500 dark:text-gray-400">
-                        {bargeInMode === 'listen' && '👂 Listen to the call without speaking'}
-                        {bargeInMode === 'barge' && '📢 Speak to both AI and customer'}
-                        {bargeInMode === 'whisper' && '🤫 Speak only to AI (customer won\'t hear)'}
+                        {controlMode === 'listen' && '👂 Listen to the call without intervening'}
+                        {controlMode === 'say' && '📢 Make the AI speak your message'}
+                        {controlMode === 'context' && '📝 Add context to conversation history'}
                       </div>
                     </div>
 
-                    {/* Microphone Control */}
-                    {bargeInMode !== 'listen' && (
+                    {/* Text Input Control */}
+                    {controlMode !== 'listen' && controlUrl && (
                       <div>
-                        <button
-                          onClick={isMicActive ? handleDisableMicrophone : handleEnableMicrophone}
-                          className={`w-full flex items-center justify-center gap-2 px-4 py-2 rounded-lg font-medium transition-all ${
-                            isMicActive
-                              ? 'bg-red-600 hover:bg-red-700 text-white animate-pulse'
-                              : 'bg-green-600 hover:bg-green-700 text-white'
-                          }`}
-                        >
-                          {isMicActive ? (
-                            <>
-                              <Mic className="w-4 h-4" />
-                              <span className="text-sm">Microphone Active</span>
-                            </>
-                          ) : (
-                            <>
-                              <MicOff className="w-4 h-4" />
-                              <span className="text-sm">Enable Microphone</span>
-                            </>
-                          )}
-                        </button>
+                        <div className="flex gap-2">
+                          <input
+                            type="text"
+                            value={messageInput}
+                            onChange={(e) => setMessageInput(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' && !e.shiftKey) {
+                                e.preventDefault();
+                                if (controlMode === 'say') {
+                                  handleSendMessage();
+                                } else {
+                                  handleAddContext();
+                                }
+                              }
+                            }}
+                            placeholder={
+                              controlMode === 'say'
+                                ? 'Type message for AI to speak...'
+                                : 'Type context to add to conversation...'
+                            }
+                            className="flex-1 px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+                            disabled={sendingMessage}
+                          />
+                          <button
+                            onClick={controlMode === 'say' ? handleSendMessage : handleAddContext}
+                            disabled={!messageInput.trim() || sendingMessage}
+                            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+                          >
+                            {sendingMessage ? 'Sending...' : 'Send'}
+                          </button>
+                        </div>
                       </div>
                     )}
 

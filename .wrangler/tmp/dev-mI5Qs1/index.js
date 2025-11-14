@@ -4721,9 +4721,13 @@ var workers_default = {
           }
           const callDetails = await getCallResponse.json();
           const listenUrl = callDetails.monitor?.listenUrl;
+          const controlUrl = callDetails.monitor?.controlUrl;
           console.log("[Call Streaming] Call details retrieved:", {
             callId,
-            hasListenUrl: !!listenUrl
+            hasListenUrl: !!listenUrl,
+            hasControlUrl: !!controlUrl,
+            monitorPlan: callDetails.monitorPlan,
+            fullMonitor: callDetails.monitor
           });
           if (!listenUrl) {
             console.error("[Call Streaming] No listenUrl found in call details");
@@ -4732,6 +4736,7 @@ var workers_default = {
           return jsonResponse2({
             success: true,
             listenUrl,
+            controlUrl,
             callId
           });
         } catch (error) {

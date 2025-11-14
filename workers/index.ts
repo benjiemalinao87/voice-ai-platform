@@ -4150,10 +4150,14 @@ export default {
 
           const callDetails = await getCallResponse.json() as any;
           const listenUrl = callDetails.monitor?.listenUrl;
+          const controlUrl = callDetails.monitor?.controlUrl;
 
           console.log('[Call Streaming] Call details retrieved:', {
             callId,
-            hasListenUrl: !!listenUrl
+            hasListenUrl: !!listenUrl,
+            hasControlUrl: !!controlUrl,
+            monitorPlan: callDetails.monitorPlan,
+            fullMonitor: callDetails.monitor
           });
 
           if (!listenUrl) {
@@ -4164,6 +4168,7 @@ export default {
           return jsonResponse({
             success: true,
             listenUrl,
+            controlUrl,
             callId
           });
         } catch (error) {
