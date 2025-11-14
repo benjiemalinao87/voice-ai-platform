@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { Phone, Clock, PhoneIncoming, PhoneOff, PhoneForwarded, Volume2, Trash2 } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { Phone, Clock, PhoneIncoming, PhoneOff, PhoneForwarded, Volume2, Trash2, Headphones } from 'lucide-react';
 
 interface ActiveCall {
   id: string;
@@ -15,6 +15,27 @@ interface ActiveCall {
 
 const API_URL = import.meta.env.VITE_D1_API_URL || 'http://localhost:8787';
 
+// Mulaw decoder for phone audio (G.711 μ-law)
+function decodeMulaw(mulawData: Uint8Array): Float32Array {
+  const pcmData = new Float32Array(mulawData.length);
+  const MULAW_BIAS = 0x84;
+  const MULAW_MAX = 0x1FFF;
+
+  for (let i = 0; i < mulawData.length; i++) {
+    let mulawByte = ~mulawData[i];
+    const sign = (mulawByte & 0x80);
+    const exponent = (mulawByte >> 4) & 0x07;
+    const mantissa = mulawByte & 0x0F;
+    let sample = mantissa << (exponent + 3);
+    sample += MULAW_BIAS << exponent;
+    if (exponent === 0) sample += MULAW_BIAS >> 1;
+    if (sign !== 0) sample = -sample;
+    pcmData[i] = sample / MULAW_MAX;
+  }
+
+  return pcmData;
+}
+
 export function LiveCallFeed() {
   const [activeCalls, setActiveCalls] = useState<ActiveCall[]>([]);
   const [loading, setLoading] = useState(true);
@@ -24,6 +45,11 @@ export function LiveCallFeed() {
   const [previousCallIds, setPreviousCallIds] = useState<Set<string>>(new Set());
   const [isInitialLoad, setIsInitialLoad] = useState(true);
   const [cleanupLoading, setCleanupLoading] = useState(false);
+  const [listeningCallId, setListeningCallId] = useState<string | null>(null);
+  const [listenLoading, setListenLoading] = useState<string | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const websocketRef = useRef<WebSocket | null>(null);
+  const audioQueueRef = useRef<AudioBufferSourceNode[]>([]);
 
   // Play notification sound for new calls
   const playNotificationSound = () => {
@@ -322,6 +348,204 @@ export function LiveCallFeed() {
     }
   };
 
+  const handleListenToCall = async (callId: string) => {
+    setListenLoading(callId);
+    try {
+      const token = localStorage.getItem('auth_token');
+      const response = await fetch(`${API_URL}/api/calls/${callId}/listen`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to get listen URL');
+      }
+
+      const data = await response.json();
+
+      if (!data.listenUrl) {
+        throw new Error('Listen URL not available for this call');
+      }
+
+      console.log('🎧 Now listening to call:', callId);
+      console.log('📡 WebSocket URL:', data.listenUrl);
+
+      // Stop any currently playing audio
+      handleStopListening();
+
+      // Create AudioContext for Web Audio API
+      if (!audioContextRef.current) {
+        audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+      }
+
+      // Resume AudioContext if suspended (required by some browsers)
+      if (audioContextRef.current.state === 'suspended') {
+        await audioContextRef.current.resume();
+      }
+
+      // Connect to WebSocket for audio streaming
+      const ws = new WebSocket(data.listenUrl);
+      websocketRef.current = ws;
+
+      ws.binaryType = 'arraybuffer';
+
+      // Buffer to collect audio chunks for smoother playback
+      let nextStartTime = audioContextRef.current.currentTime;
+      let vapiConfig: any = null; // Store VAPI audio config
+
+      ws.onopen = () => {
+        console.log('✅ WebSocket connected - audio stream started');
+        setListeningCallId(callId);
+      };
+
+      ws.onmessage = async (event) => {
+        try {
+          if (!audioContextRef.current) return;
+
+          // Handle different data formats
+          let audioData: ArrayBuffer;
+
+          if (event.data instanceof ArrayBuffer) {
+            audioData = event.data;
+          } else if (event.data instanceof Blob) {
+            audioData = await event.data.arrayBuffer();
+          } else if (typeof event.data === 'string') {
+            // VAPI sends JSON protocol messages - store config
+            try {
+              const message = JSON.parse(event.data);
+              console.debug('📨 VAPI protocol message:', message);
+              if (message.type === 'start') {
+                vapiConfig = message; // Store audio config
+                console.log('🎵 Audio config:', {
+                  encoding: message.encoding,
+                  sampleRate: message.sampleRate,
+                  channels: message.channels,
+                  container: message.container
+                });
+              }
+              return; // Skip non-audio messages
+            } catch {
+              console.debug('Skipping non-JSON string message');
+              return;
+            }
+          } else {
+            console.warn('Unknown audio data format:', typeof event.data);
+            return;
+          }
+
+          // Skip empty packets
+          if (audioData.byteLength === 0) return;
+
+          // Use VAPI config if available, otherwise use defaults
+          const sampleRate = vapiConfig?.sampleRate || 16000;
+          const channels = vapiConfig?.channels || 2;
+          const encoding = vapiConfig?.encoding || 'linear16';
+
+          // VAPI sends linear16 (16-bit PCM) stereo at 16kHz
+          try {
+            const int16Array = new Int16Array(audioData);
+            const samplesPerChannel = int16Array.length / channels;
+
+            // Create audio buffer
+            const audioBuffer = audioContextRef.current.createBuffer(
+              channels,
+              samplesPerChannel,
+              sampleRate
+            );
+
+            // De-interleave stereo data
+            for (let channel = 0; channel < channels; channel++) {
+              const channelData = audioBuffer.getChannelData(channel);
+              for (let i = 0; i < samplesPerChannel; i++) {
+                channelData[i] = int16Array[i * channels + channel] / 32768.0;
+              }
+            }
+
+            // Schedule audio playback
+            const source = audioContextRef.current.createBufferSource();
+            source.buffer = audioBuffer;
+            source.connect(audioContextRef.current.destination);
+
+            const now = audioContextRef.current.currentTime;
+            const startTime = Math.max(now, nextStartTime);
+            source.start(startTime);
+            nextStartTime = startTime + audioBuffer.duration;
+
+            audioQueueRef.current.push(source);
+
+            // Clean up old sources
+            source.onended = () => {
+              const index = audioQueueRef.current.indexOf(source);
+              if (index > -1) {
+                audioQueueRef.current.splice(index, 1);
+              }
+            };
+          } catch (pcmError) {
+            console.error('Error decoding PCM audio:', pcmError);
+          }
+        } catch (err) {
+          console.error('Error processing audio:', err);
+        }
+      };
+
+      ws.onerror = (error) => {
+        console.error('❌ WebSocket error:', error);
+        alert('Failed to connect to audio stream. This feature requires VAPI to provide audio streaming access.');
+        handleStopListening();
+      };
+
+      ws.onclose = (event) => {
+        console.log('🔇 WebSocket closed - audio stream ended', event.code, event.reason);
+        if (listeningCallId === callId) {
+          handleStopListening();
+        }
+      };
+
+    } catch (error) {
+      console.error('Error listening to call:', error);
+      alert(`Failed to listen to call: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      handleStopListening();
+    } finally {
+      setListenLoading(null);
+    }
+  };
+
+  const handleStopListening = () => {
+    // Stop all playing audio sources immediately
+    audioQueueRef.current.forEach(source => {
+      try {
+        source.stop();
+        source.disconnect();
+      } catch (e) {
+        // Already stopped
+      }
+    });
+    audioQueueRef.current = [];
+
+    // Close WebSocket connection
+    if (websocketRef.current) {
+      websocketRef.current.close();
+      websocketRef.current = null;
+    }
+
+    // Don't close AudioContext, just suspend it for reuse
+    if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+      audioContextRef.current.suspend();
+    }
+
+    setListeningCallId(null);
+    console.log('🔇 Stopped listening');
+  };
+
+  // Cleanup audio on unmount
+  useEffect(() => {
+    return () => {
+      handleStopListening();
+    };
+  }, []);
+
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'ringing':
@@ -486,6 +710,27 @@ export function LiveCallFeed() {
                       </div>
                     ) : (
                       <>
+                        {/* Listen Button */}
+                        {listeningCallId === call.vapi_call_id ? (
+                          <button
+                            onClick={handleStopListening}
+                            className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400 rounded-lg hover:bg-purple-200 dark:hover:bg-purple-900/50 transition-colors text-sm animate-pulse"
+                          >
+                            <Headphones className="w-4 h-4" />
+                            Listening...
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => handleListenToCall(call.vapi_call_id)}
+                            disabled={actionLoading === call.vapi_call_id || listenLoading === call.vapi_call_id || !!listeningCallId}
+                            className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400 rounded-lg hover:bg-purple-100 dark:hover:bg-purple-900/50 transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                            title="Listen to live call"
+                          >
+                            <Headphones className="w-4 h-4" />
+                            {listenLoading === call.vapi_call_id ? 'Loading...' : 'Listen'}
+                          </button>
+                        )}
+
                         <button
                           onClick={() => setShowTransferInput(call.vapi_call_id)}
                           disabled={actionLoading === call.vapi_call_id}
