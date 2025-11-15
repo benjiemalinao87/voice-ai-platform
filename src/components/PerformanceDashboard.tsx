@@ -238,7 +238,8 @@ export function PerformanceDashboard({ selectedAgentId, dateRange }: Performance
           phone_number: call.customer_number || call.phone_number || '',
           customer_name: call.customer_name || call.caller_name || call.structured_data?.name || call.structured_data?.customerName || null,
           transcript: null,
-          created_at: new Date(call.created_at * 1000).toISOString()
+          created_at: new Date(call.created_at * 1000).toISOString(),
+          ended_reason: call.ended_reason || null
         };
       });
 
@@ -539,7 +540,7 @@ export function PerformanceDashboard({ selectedAgentId, dateRange }: Performance
                 <th className="text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider py-3 px-4">Phone</th>
                 <th className="text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider py-3 px-4">Duration</th>
                 <th className="text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider py-3 px-4">Status</th>
-                <th className="text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider py-3 px-4">Qualified</th>
+                <th className="text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider py-3 px-4">Ended Reason</th>
                 <th className="text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider py-3 px-4">Sentiment</th>
               </tr>
             </thead>
@@ -586,10 +587,12 @@ export function PerformanceDashboard({ selectedAgentId, dateRange }: Performance
                     )}
                   </td>
                   <td className="py-3 px-4">
-                    {call.is_qualified_lead ? (
-                      <span className="text-green-600 dark:text-green-400 text-xs font-medium">✓ Yes</span>
+                    {call.ended_reason ? (
+                      <span className="text-sm text-gray-900 dark:text-gray-100 capitalize">
+                        {call.ended_reason.replace(/-/g, ' ')}
+                      </span>
                     ) : (
-                      <span className="text-gray-400 dark:text-gray-500 text-xs">No</span>
+                      <span className="text-gray-400 dark:text-gray-500 text-xs">-</span>
                     )}
                   </td>
                   <td className="py-3 px-4">

@@ -32,6 +32,7 @@ export interface Call {
   created_at: string;
   phone_number?: string;
   customer_name?: string;
+  ended_reason?: string | null;
 }
 
 export interface CallKeyword {

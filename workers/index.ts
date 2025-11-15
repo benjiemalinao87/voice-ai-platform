@@ -4946,25 +4946,51 @@ export default {
             const structuredOutputs = rawPayload?.message?.analysis?.structuredOutputs ||
                                      rawPayload?.message?.artifact?.structuredOutputs || {};
 
-            // Extract values from structured outputs
-            let appointmentDate = null;
-            let appointmentTime = null;
-            let qualityScore = null;
-            let issueType = null;
-            let customerFrustrated = null;
-            let escalationRequired = null;
-            let callSummary = null;
-            let product = null;
+            // Extract values - initialize all fields
+            let appointmentDate: string | null = null;
+            let appointmentTime: string | null = null;
+            let qualityScore: number | null = null;
+            let issueType: string | null = null;
+            let customerFrustrated: boolean | null = null;
+            let escalationRequired: boolean | null = null;
+            let callSummary: string | null = null;
+            let product: string | null = null;
 
-            // Extract data from structured outputs
+            // PRIORITY 1: Check structured_data FIRST for appointment date and time
+            if (row.structured_data) {
+              try {
+                const structuredData = JSON.parse(row.structured_data);
+
+                // Primary source for appointment date
+                appointmentDate = structuredData?.['appointment date'] ||
+                                 structuredData?.['Appointment date'] ||
+                                 structuredData?.['Appointment Date'] ||
+                                 structuredData?.['appointmentDate'] || null;
+
+                // Primary source for appointment time
+                appointmentTime = structuredData?.['appointment time'] ||
+                                 structuredData?.['Appointment time'] ||
+                                 structuredData?.['Appointment Time'] ||
+                                 structuredData?.['appointmentTime'] || null;
+
+                // Also check for product here
+                product = structuredData?.product ||
+                         structuredData?.Product || null;
+              } catch (e) {
+                // Ignore parse error
+              }
+            }
+
+            // PRIORITY 2: Extract data from structured outputs (fallback for date/time, primary for other fields)
             Object.entries(structuredOutputs).forEach(([key, value]: [string, any]) => {
               if (typeof value === 'object' && value !== null && 'name' in value && 'result' in value) {
                 const name = value.name.toLowerCase();
                 const result = value.result;
 
-                if (name.includes('appointment date') || name.includes('appointmentdate')) {
+                // Only use as fallback if not already found in structured_data
+                if ((name.includes('appointment date') || name.includes('appointmentdate')) && !appointmentDate) {
                   appointmentDate = result;
-                } else if (name.includes('appointment time') || name.includes('appointmenttime')) {
+                } else if ((name.includes('appointment time') || name.includes('appointmenttime')) && !appointmentTime) {
                   appointmentTime = result;
                 } else if (name.includes('quality score') || name.includes('qualityscore')) {
                   qualityScore = typeof result === 'number' ? result : parseInt(result);
@@ -4976,28 +5002,11 @@ export default {
                   escalationRequired = typeof result === 'boolean' ? result : result === 'true';
                 } else if (name.includes('call summary') || name.includes('callsummary') || name.includes('summary')) {
                   callSummary = result;
-                } else if (name.includes('product')) {
+                } else if (name.includes('product') && !product) {
                   product = result;
                 }
               }
             });
-
-            // Also check structured_data for product and appointment time fields
-            if (row.structured_data) {
-              try {
-                const structuredData = JSON.parse(row.structured_data);
-                if (!product) {
-                  product = structuredData?.product || null;
-                }
-                if (!appointmentTime) {
-                  appointmentTime = structuredData?.['appointment time'] ||
-                                   structuredData?.['Appointment time'] ||
-                                   structuredData?.['appointmentTime'] || null;
-                }
-              } catch (e) {
-                // Ignore parse error
-              }
-            }
 
             // Get phone number from customer number or phone_number field
             const phoneNumber = row.customer_number || row.phone_number || null;
