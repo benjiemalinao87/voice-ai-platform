@@ -356,12 +356,32 @@ interface TwilioCallerInfo {
 async function lookupCallerWithTwilio(
   phoneNumber: string,
   twilioAccountSid: string,
-  twilioAuthToken: string
+  twilioAuthToken: string,
+  env?: Env
 ): Promise<TwilioCallerInfo | null> {
   try {
     // Twilio Lookup API requires phone number in E.164 format (+1234567890)
     const cleanNumber = phoneNumber.replace(/[^\d+]/g, '');
 
+    // Check cache first (if env.DB is available)
+    if (env?.DB) {
+      const cached = await env.DB.prepare(
+        'SELECT * FROM phone_lookup_cache WHERE phone_number = ? AND expires_at > ?'
+      ).bind(cleanNumber, Math.floor(Date.now() / 1000)).first();
+
+      if (cached) {
+        console.log('[Twilio Lookup] Using cached data for:', cleanNumber);
+        return {
+          callerName: cached.caller_name || null,
+          callerType: cached.caller_type || null,
+          carrierName: cached.carrier_name || null,
+          lineType: cached.line_type || null
+        };
+      }
+    }
+
+    // Make API call if not cached
+    console.log('[Twilio Lookup] Fetching fresh data for:', cleanNumber);
     const response = await fetch(
       `https://lookups.twilio.com/v2/PhoneNumbers/${encodeURIComponent(cleanNumber)}?Fields=caller_name,line_type_intelligence`,
       {
@@ -379,12 +399,37 @@ async function lookupCallerWithTwilio(
 
     const data = await response.json() as any;
 
-    return {
+    const twilioInfo: TwilioCallerInfo = {
       callerName: data.caller_name?.caller_name || null,
       callerType: data.caller_name?.caller_type || null,
       carrierName: data.line_type_intelligence?.carrier_name || null,
       lineType: data.line_type_intelligence?.type || null
     };
+
+    // Cache the result (90 days expiration)
+    if (env?.DB) {
+      const now = Math.floor(Date.now() / 1000);
+      const expiresAt = now + (90 * 24 * 60 * 60); // 90 days
+
+      await env.DB.prepare(
+        `INSERT OR REPLACE INTO phone_lookup_cache
+        (id, phone_number, caller_name, caller_type, carrier_name, line_type, cached_at, expires_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      ).bind(
+        generateId(),
+        cleanNumber,
+        twilioInfo.callerName,
+        twilioInfo.callerType,
+        twilioInfo.carrierName,
+        twilioInfo.lineType,
+        now,
+        expiresAt
+      ).run();
+
+      console.log('[Twilio Lookup] Cached data for:', cleanNumber);
+    }
+
+    return twilioInfo;
   } catch (error) {
     console.error('Error looking up caller with Twilio:', error);
     return null;
@@ -927,6 +972,40 @@ export default {
           email: user.email,
           name: user.name,
           createdAt: user.created_at
+        });
+      }
+
+      // Test Twilio Lookup with Caching
+      if (url.pathname === '/api/test-twilio-lookup' && request.method === 'POST') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        const { phoneNumber } = await request.json() as any;
+        if (!phoneNumber) {
+          return jsonResponse({ error: 'Phone number required' }, 400);
+        }
+
+        const wsSettings = await getWorkspaceSettingsForUser(env, userId);
+        if (!wsSettings?.twilio_account_sid || !wsSettings?.twilio_auth_token) {
+          return jsonResponse({ error: 'Twilio credentials not configured' }, 400);
+        }
+
+        const startTime = Date.now();
+        const result = await lookupCallerWithTwilio(
+          phoneNumber,
+          wsSettings.twilio_account_sid,
+          wsSettings.twilio_auth_token,
+          env
+        );
+        const duration = Date.now() - startTime;
+
+        return jsonResponse({
+          phoneNumber,
+          result,
+          duration: `${duration}ms`,
+          cached: duration < 100 // If very fast, likely from cache
         });
       }
 
@@ -6570,7 +6649,8 @@ Need help? Contact our support team anytime!
                   twilioData = await lookupCallerWithTwilio(
                     customerNumber,
                     wsSettings.twilio_account_sid,
-                    wsSettings.twilio_auth_token
+                    wsSettings.twilio_auth_token,
+                    env
                   );
                 }
               } catch (error) {
@@ -6646,7 +6726,8 @@ Need help? Contact our support team anytime!
               twilioData = await lookupCallerWithTwilio(
                 customerNumber,
                 wsSettings.twilio_account_sid,
-                wsSettings.twilio_auth_token
+                wsSettings.twilio_auth_token,
+                env
               );
             }
           } catch (error) {
