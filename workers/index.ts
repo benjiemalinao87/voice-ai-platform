@@ -3981,16 +3981,20 @@ export default {
       // Get dashboard summary metrics with SQL aggregation (supports workspace context)
       if (url.pathname === '/api/dashboard-summary' && request.method === 'GET') {
         const userId = await getUserFromToken(request, env);
+        console.log(`[Dashboard Summary] Raw userId from token:`, userId);
+
         if (!userId) {
+          console.log(`[Dashboard Summary] No userId - returning 401`);
           return jsonResponse({ error: 'Unauthorized' }, 401);
         }
 
         // Get effective user ID for workspace context
-        const { effectiveUserId } = await getEffectiveUserId(env, userId);
+        const { effectiveUserId, isWorkspaceContext } = await getEffectiveUserId(env, userId);
+        console.log(`[Dashboard Summary] userId=${userId}, effectiveUserId=${effectiveUserId}, isWorkspaceContext=${isWorkspaceContext}`);
 
         // Single SQL query to calculate all dashboard metrics
         // This runs in <50ms on the database vs seconds of JavaScript processing
-        // Filter out test calls (those without customer_number)
+        // Show all recordings including test calls
         const result = await env.DB.prepare(
           `SELECT
             COUNT(*) as total_calls,
@@ -4006,10 +4010,13 @@ export default {
             COUNT(CASE WHEN sentiment = 'Negative' THEN 1 END) as negative_calls,
             COUNT(*) - COUNT(CASE WHEN sentiment = 'Positive' THEN 1 END) - COUNT(CASE WHEN sentiment = 'Negative' THEN 1 END) as neutral_calls
           FROM webhook_calls
-          WHERE user_id = ? AND customer_number IS NOT NULL`
+          WHERE user_id = ?`
         ).bind(effectiveUserId).first() as any;
 
+        console.log(`[Dashboard Summary] Query result for user_id=${effectiveUserId}:`, JSON.stringify(result));
+
         if (!result) {
+          console.log(`[Dashboard Summary] No result returned, sending zeros`);
           // Return zeroed metrics if no data
           return jsonResponse({
             totalCalls: 0,
@@ -5018,6 +5025,25 @@ export default {
                 return nextWeek.toISOString().split('T')[0];
               }
 
+              // Handle day of month format like "28th", "1st", "2nd", "3rd", "15th"
+              // These always refer to the current month (or next month if day has passed)
+              const dayOfMonthMatch = dateLower.match(/^(\d+)(?:st|nd|rd|th)?$/);
+              if (dayOfMonthMatch) {
+                const day = parseInt(dayOfMonthMatch[1]);
+                if (day >= 1 && day <= 31) {
+                  // Use the call date's year and month, set to the specified day
+                  const targetDate = new Date(callDate);
+                  targetDate.setDate(day);
+                  
+                  // If the day has already passed this month, assume next month
+                  if (targetDate < callDate) {
+                    targetDate.setMonth(targetDate.getMonth() + 1);
+                  }
+                  
+                  return targetDate.toISOString().split('T')[0];
+                }
+              }
+
               // Handle day names (e.g., "Monday", "Tuesday")
               const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
               const dayIndex = dayNames.findIndex(day => dateLower.includes(day));
@@ -5034,7 +5060,31 @@ export default {
               try {
                 const parsed = new Date(dateStr);
                 if (!isNaN(parsed.getTime())) {
-                  return parsed.toISOString().split('T')[0];
+                  const parsedDate = parsed.toISOString().split('T')[0];
+                  
+                  // Validate: if parsed date is in the past (more than 1 day ago), 
+                  // assume it's the same date next year or next month
+                  const parsedDateObj = new Date(parsed);
+                  const oneDayAgo = new Date(callDate);
+                  oneDayAgo.setDate(oneDayAgo.getDate() - 1);
+                  
+                  if (parsedDateObj < oneDayAgo) {
+                    // Date is in the past - try to fix the year
+                    const currentYear = callDate.getFullYear();
+                    const parsedYear = parsedDateObj.getFullYear();
+                    
+                    // If year is clearly wrong (like 2023 when call is in 2025), fix it
+                    if (parsedYear < currentYear - 1) {
+                      parsedDateObj.setFullYear(currentYear);
+                      // If still in the past, try next month
+                      if (parsedDateObj < callDate) {
+                        parsedDateObj.setMonth(parsedDateObj.getMonth() + 1);
+                      }
+                      return parsedDateObj.toISOString().split('T')[0];
+                    }
+                  }
+                  
+                  return parsedDate;
                 }
               } catch (e) {
                 // Continue to return original
@@ -5056,15 +5106,21 @@ export default {
                                structuredData?.['Appointment Date'] ||
                                structuredData?.['appointmentDate'] || null;
 
-                if (rawDate) {
+                // Only parse if rawDate exists and is not "N/A" or empty
+                if (rawDate && rawDate.trim().toUpperCase() !== 'N/A' && rawDate.trim() !== '') {
                   appointmentDate = parseNaturalDate(rawDate, row.created_at);
                 }
 
                 // Primary source for appointment time
-                appointmentTime = structuredData?.['appointment time'] ||
-                                 structuredData?.['Appointment time'] ||
-                                 structuredData?.['Appointment Time'] ||
-                                 structuredData?.['appointmentTime'] || null;
+                const rawTime = structuredData?.['appointment time'] ||
+                               structuredData?.['Appointment time'] ||
+                               structuredData?.['Appointment Time'] ||
+                               structuredData?.['appointmentTime'] || null;
+
+                // Only set time if it exists and is not "N/A" or empty
+                if (rawTime && rawTime.trim().toUpperCase() !== 'N/A' && rawTime.trim() !== '') {
+                  appointmentTime = rawTime;
+                }
 
                 // Extract customer name from Firstname/Lastname or Name fields
                 const firstname = structuredData?.['Firstname'] || structuredData?.['firstname'] || structuredData?.['FirstName'] || '';
@@ -5085,17 +5141,18 @@ export default {
               }
             }
 
-            // PRIORITY 2: Extract data from structured outputs (fallback for date/time, primary for other fields)
+            // PRIORITY 2: Extract data from structured outputs (NOT for appointment date/time - only use structured_data)
+            // Note: Appointment date/time should ONLY come from structured_data for accuracy
             Object.entries(structuredOutputs).forEach(([, value]: [string, any]) => {
               if (typeof value === 'object' && value !== null && 'name' in value && 'result' in value) {
                 const name = value.name.toLowerCase();
                 const result = value.result;
 
-                // Only use as fallback if not already found in structured_data
-                if ((name.includes('appointment date') || name.includes('appointmentdate')) && !appointmentDate) {
-                  appointmentDate = parseNaturalDate(result, row.created_at);
-                } else if ((name.includes('appointment time') || name.includes('appointmenttime')) && !appointmentTime) {
-                  appointmentTime = result;
+                // Skip appointment date/time from structuredOutputs - only use structured_data
+                // (structuredOutputs can have wrong years like 2023 instead of 2025)
+                if (name.includes('appointment date') || name.includes('appointmentdate') || 
+                    name.includes('appointment time') || name.includes('appointmenttime')) {
+                  // Skip - we only use structured_data for appointment date/time
                 } else if (name.includes('quality score') || name.includes('qualityscore')) {
                   qualityScore = typeof result === 'number' ? result : parseInt(result);
                 } else if (name.includes('issue type') || name.includes('issuetype')) {
@@ -5136,23 +5193,31 @@ export default {
           }
         }).filter((apt: any) => {
           if (!apt) return false;
-          if (!apt.appointment_date && !apt.call_summary) return false;
-
-          // Filter out appointments with dates in the past (but keep today's appointments)
-          if (apt.appointment_date) {
-            try {
-              const appointmentDate = new Date(apt.appointment_date);
-              const today = new Date();
-              today.setHours(0, 0, 0, 0); // Reset time to start of day
-
-              // Exclude if date is before today (appointments from yesterday and earlier)
-              // Use <= to exclude only past dates, not today
-              if (appointmentDate < today) {
-                return false;
-              }
-            } catch (e) {
-              // If date parsing fails, keep the appointment
+          
+          // Only include appointments that have a valid appointment_date
+          // Exclude entries with "N/A", null, or invalid dates
+          if (!apt.appointment_date) return false;
+          
+          // Validate that the date is actually a valid date string (not "Invalid Date")
+          try {
+            const appointmentDate = new Date(apt.appointment_date);
+            
+            // Check if date is valid
+            if (isNaN(appointmentDate.getTime())) {
+              return false; // Invalid date
             }
+            
+            // Filter out appointments with dates in the past (but keep today's appointments)
+            const today = new Date();
+            today.setHours(0, 0, 0, 0); // Reset time to start of day
+
+            // Exclude if date is before today (appointments from yesterday and earlier)
+            if (appointmentDate < today) {
+              return false;
+            }
+          } catch (e) {
+            // If date parsing fails, exclude the appointment
+            return false;
           }
 
           return true;

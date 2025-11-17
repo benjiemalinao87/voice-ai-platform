@@ -3786,3 +3786,59 @@ When React calls this, it passes the **event object** as the first argument. Sin
 3. Add multiple contexts - all should work
 4. Try "Say Message" mode - should also work correctly
 
+
+## Appointments Filtering - Excluding "N/A" Values
+
+**Date:** November 17, 2025
+
+**Problem:**
+Calls with "N/A" for appointment date/time were appearing in the "Appointments by AI" dashboard. For example, a voicemail call (+13304181431) showed up with "Invalid Date" even though no appointment was scheduled.
+
+**Root Cause:**
+1. The code was treating "N/A" as a valid value and trying to parse it as a date
+2. The filter allowed appointments with just a `call_summary` even if `appointment_date` was null/invalid
+3. No validation to exclude "N/A", empty strings, or invalid date strings
+
+**Solution:**
+
+1. **Added "N/A" Filtering in structured_data parsing:**
+   ```typescript
+   // Only parse if rawDate exists and is not "N/A" or empty
+   if (rawDate && rawDate.trim().toUpperCase() !== 'N/A' && rawDate.trim() !== '') {
+     appointmentDate = parseNaturalDate(rawDate, row.created_at);
+   }
+   ```
+
+2. **Added "N/A" Filtering in structured outputs parsing:**
+   ```typescript
+   if (result && typeof result === 'string' && result.trim().toUpperCase() !== 'N/A' && result.trim() !== '') {
+     appointmentDate = parseNaturalDate(result, row.created_at);
+   }
+   ```
+
+3. **Updated Filter Logic:**
+   - Changed from: `if (!apt.appointment_date && !apt.call_summary) return false;`
+   - To: `if (!apt.appointment_date) return false;` (require valid appointment_date)
+   - Added validation to check if date is actually valid (not "Invalid Date")
+   - Exclude entries where date parsing fails
+
+**How It Should Be Done:**
+- Always validate that appointment date/time values are not "N/A" before parsing
+- Require a valid appointment_date to include in appointments list
+- Don't include entries just because they have a call_summary
+- Validate date strings are actually parseable before including
+- Use case-insensitive comparison for "N/A" values
+
+**How It Should NOT Be Done:**
+- Don't treat "N/A" as a valid value that can be parsed
+- Don't include appointments without a valid appointment_date
+- Don't rely on call_summary alone to include entries
+- Don't skip validation of date strings
+- Avoid: `if (rawDate) { parseDate(rawDate); }` without checking for "N/A"
+
+**Testing:**
+1. Call with "N/A" appointment date - should NOT appear in appointments
+2. Call with valid appointment date - should appear correctly
+3. Call with voicemail (no appointment) - should NOT appear
+4. Call with invalid date string - should NOT appear
+

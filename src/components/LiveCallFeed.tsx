@@ -265,6 +265,13 @@ export function LiveCallFeed() {
         const errorMessage = errorData.error || `Server error (${response.status})`;
         const errorDetails = errorData.details ? `\n\nDetails: ${errorData.details}` : '';
 
+        // If call is not active (already ended), just refresh the list silently
+        if (errorDetails.includes('Not Active')) {
+          console.log('Call already ended, refreshing active calls list...');
+          await fetchActiveCalls();
+          return;
+        }
+
         // Provide more helpful error messages
         if (response.status === 404) {
           throw new Error('Call not found. It may have already ended.');

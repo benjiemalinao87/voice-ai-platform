@@ -210,7 +210,7 @@ export function PerformanceDashboard({ selectedAgentId, dateRange }: Performance
       ];
 
       // Convert webhook calls to Call format
-      const convertedCalls: Call[] = webhookCalls.map(call => {
+      const convertedCalls: Call[] = (webhookCalls.results || []).map(call => {
         // Extract assistant ID from raw_payload
         let assistantId = '';
         try {
