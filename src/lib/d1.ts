@@ -144,29 +144,32 @@ class D1Client {
     limit?: number;
     offset?: number;
     _t?: number; // Cache-busting timestamp
-  }): Promise<Array<{
-    id: string;
-    webhook_id: string;
-    vapi_call_id: string | null;
-    phone_number: string | null;
-    customer_number: string | null;
-    recording_url: string | null;
-    ended_reason: string;
-    summary: string;
-    structured_data: Record<string, any> | null;
-    raw_payload: any;
-    created_at: number;
-    customer_name?: string | null;
-    caller_name?: string | null;
-    intent?: string | null;
-    sentiment?: string | null;
-    outcome?: string | null;
-    duration_seconds?: number | null;
-    enhanced_data?: any | null;
-    caller_type?: string | null;
-    carrier_name?: string | null;
-    line_type?: string | null;
-  }>> {
+  }): Promise<{
+    results: Array<{
+      id: string;
+      webhook_id: string;
+      vapi_call_id: string | null;
+      phone_number: string | null;
+      customer_number: string | null;
+      recording_url: string | null;
+      ended_reason: string;
+      summary: string;
+      structured_data: Record<string, any> | null;
+      raw_payload: any;
+      created_at: number;
+      customer_name?: string | null;
+      caller_name?: string | null;
+      intent?: string | null;
+      sentiment?: string | null;
+      outcome?: string | null;
+      duration_seconds?: number | null;
+      enhanced_data?: any | null;
+      caller_type?: string | null;
+      carrier_name?: string | null;
+      line_type?: string | null;
+    }>;
+    total: number;
+  }> {
     const queryParams = new URLSearchParams();
     if (params?.webhook_id) queryParams.append('webhook_id', params.webhook_id);
     if (params?.limit) queryParams.append('limit', params.limit.toString());

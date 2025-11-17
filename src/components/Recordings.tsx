@@ -167,6 +167,7 @@ type CallTab = 'answered' | 'missed' | 'forwarded';
 
 export function Recordings() {
   const [recordings, setRecordings] = useState<Recording[]>([]);
+  const [totalCount, setTotalCount] = useState<number>(0);
   const [activeTab, setActiveTab] = useState<CallTab>('answered');
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -232,10 +233,13 @@ export function Recordings() {
         offset: currentOffset,
         _t: Date.now() // Always bypass cache to ensure we get latest data
       };
-      const webhookCalls = await d1Client.getWebhookCalls(params);
+      const response = await d1Client.getWebhookCalls(params);
+      
+      // Update total count
+      setTotalCount(response.total);
 
       // Convert webhook calls to Recording format (enhanced data is already included!)
-      const convertedRecordings: Recording[] = webhookCalls.map((call) => {
+      const convertedRecordings: Recording[] = response.results.map((call) => {
         // Parse raw_payload to extract transcript
         let transcript: TranscriptMessage[] = [];
         let location = 'Unknown';
@@ -546,7 +550,7 @@ export function Recordings() {
         </div>
         <div className="flex items-center gap-2">
           <span className="text-sm text-gray-600 dark:text-gray-400">
-            {filteredRecordings.length} of {recordings.length} recordings
+            {filteredRecordings.length} of {totalCount} recordings
           </span>
         </div>
       </div>

@@ -3638,6 +3638,19 @@ export default {
 
         console.log(`Cache MISS for recordings: user=${effectiveUserId}, page=${page}, limit=${limit}${cacheBust ? ' (cache-bust requested)' : ''}`);
 
+        // First, get the total count
+        let countQuery = env.DB.prepare(
+          `SELECT COUNT(*) as total
+          FROM webhook_calls wc
+          WHERE wc.user_id = ?
+          AND wc.customer_number IS NOT NULL
+          ${webhookId ? 'AND wc.webhook_id = ?' : ''}`
+        );
+
+        const countParams = webhookId ? [effectiveUserId, webhookId] : [effectiveUserId];
+        const countResult = await countQuery.bind(...countParams).first<{ total: number }>();
+        const totalCount = countResult?.total || 0;
+
         // Fetch from database with enhanced data (using effectiveUserId for workspace context)
         // Filter out test calls (those without customer_number)
         let query = env.DB.prepare(
@@ -3691,13 +3704,19 @@ export default {
           enhanced_data: row.enhanced_data ? JSON.parse(row.enhanced_data) : null
         }));
 
-        // Cache the results (only if no webhook filter and reasonable page size)
+        // Return both results and total count
+        const response = {
+          results: parsedResults,
+          total: totalCount
+        };
+
+        // Cache the response (only if no webhook filter and reasonable page size)
         // Use effectiveUserId for cache key to scope by workspace owner
         if (!webhookId && limit <= 100) {
-          await cache.cacheRecordings(effectiveUserId, parsedResults, page, limit, CACHE_TTL.RECORDINGS);
+          await cache.cacheRecordings(effectiveUserId, response, page, limit, CACHE_TTL.RECORDINGS);
         }
 
-        return jsonResponse(parsedResults);
+        return jsonResponse(response);
       }
 
       // Get intent analysis with caching
