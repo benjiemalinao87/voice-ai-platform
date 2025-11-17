@@ -4956,22 +4956,106 @@ export default {
             let callSummary: string | null = null;
             let product: string | null = null;
 
+            // Helper function to parse natural language dates
+            const parseNaturalDate = (dateStr: string, callTimestamp: number): string | null => {
+              if (!dateStr) return null;
+
+              const dateLower = dateStr.toLowerCase().trim();
+              const callDate = new Date(callTimestamp * 1000);
+
+              // Handle "today"
+              if (dateLower === 'today') {
+                return callDate.toISOString().split('T')[0];
+              }
+
+              // Handle "tomorrow"
+              if (dateLower === 'tomorrow') {
+                const tomorrow = new Date(callDate);
+                tomorrow.setDate(tomorrow.getDate() + 1);
+                return tomorrow.toISOString().split('T')[0];
+              }
+
+              // Handle "day after tomorrow" or "in 2 days"
+              if (dateLower.includes('day after tomorrow')) {
+                const dayAfter = new Date(callDate);
+                dayAfter.setDate(dayAfter.getDate() + 2);
+                return dayAfter.toISOString().split('T')[0];
+              }
+
+              // Handle "in X days"
+              const inDaysMatch = dateLower.match(/in (\d+) days?/);
+              if (inDaysMatch) {
+                const daysAhead = parseInt(inDaysMatch[1]);
+                const futureDate = new Date(callDate);
+                futureDate.setDate(futureDate.getDate() + daysAhead);
+                return futureDate.toISOString().split('T')[0];
+              }
+
+              // Handle "next week"
+              if (dateLower.includes('next week')) {
+                const nextWeek = new Date(callDate);
+                nextWeek.setDate(nextWeek.getDate() + 7);
+                return nextWeek.toISOString().split('T')[0];
+              }
+
+              // Handle day names (e.g., "Monday", "Tuesday")
+              const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+              const dayIndex = dayNames.findIndex(day => dateLower.includes(day));
+              if (dayIndex !== -1) {
+                const currentDay = callDate.getDay();
+                let daysUntil = dayIndex - currentDay;
+                if (daysUntil <= 0) daysUntil += 7; // Next week's day
+                const targetDate = new Date(callDate);
+                targetDate.setDate(targetDate.getDate() + daysUntil);
+                return targetDate.toISOString().split('T')[0];
+              }
+
+              // Try to parse as ISO date or standard date
+              try {
+                const parsed = new Date(dateStr);
+                if (!isNaN(parsed.getTime())) {
+                  return parsed.toISOString().split('T')[0];
+                }
+              } catch (e) {
+                // Continue to return original
+              }
+
+              // Return original if we can't parse it
+              return dateStr;
+            };
+
             // PRIORITY 1: Check structured_data FIRST for appointment date and time
+            let customerNameFromData: string | null = null;
             if (row.structured_data) {
               try {
                 const structuredData = JSON.parse(row.structured_data);
 
-                // Primary source for appointment date
-                appointmentDate = structuredData?.['appointment date'] ||
-                                 structuredData?.['Appointment date'] ||
-                                 structuredData?.['Appointment Date'] ||
-                                 structuredData?.['appointmentDate'] || null;
+                // Primary source for appointment date (with natural language parsing)
+                const rawDate = structuredData?.['appointment date'] ||
+                               structuredData?.['Appointment date'] ||
+                               structuredData?.['Appointment Date'] ||
+                               structuredData?.['appointmentDate'] || null;
+
+                if (rawDate) {
+                  appointmentDate = parseNaturalDate(rawDate, row.created_at);
+                }
 
                 // Primary source for appointment time
                 appointmentTime = structuredData?.['appointment time'] ||
                                  structuredData?.['Appointment time'] ||
                                  structuredData?.['Appointment Time'] ||
                                  structuredData?.['appointmentTime'] || null;
+
+                // Extract customer name from Firstname/Lastname or Name fields
+                const firstname = structuredData?.['Firstname'] || structuredData?.['firstname'] || structuredData?.['FirstName'] || '';
+                const lastname = structuredData?.['Lastname'] || structuredData?.['lastname'] || structuredData?.['LastName'] || '';
+                const fullName = structuredData?.['Name'] || structuredData?.['name'] || structuredData?.['FullName'] || null;
+
+                if (fullName) {
+                  customerNameFromData = fullName;
+                } else if (firstname || lastname) {
+                  customerNameFromData = `${firstname} ${lastname}`.trim() || null;
+                }
 
                 // Also check for product here
                 product = structuredData?.product ||
@@ -4982,14 +5066,14 @@ export default {
             }
 
             // PRIORITY 2: Extract data from structured outputs (fallback for date/time, primary for other fields)
-            Object.entries(structuredOutputs).forEach(([key, value]: [string, any]) => {
+            Object.entries(structuredOutputs).forEach(([, value]: [string, any]) => {
               if (typeof value === 'object' && value !== null && 'name' in value && 'result' in value) {
                 const name = value.name.toLowerCase();
                 const result = value.result;
 
                 // Only use as fallback if not already found in structured_data
                 if ((name.includes('appointment date') || name.includes('appointmentdate')) && !appointmentDate) {
-                  appointmentDate = result;
+                  appointmentDate = parseNaturalDate(result, row.created_at);
                 } else if ((name.includes('appointment time') || name.includes('appointmenttime')) && !appointmentTime) {
                   appointmentTime = result;
                 } else if (name.includes('quality score') || name.includes('qualityscore')) {
@@ -5015,7 +5099,7 @@ export default {
               id: row.id,
               vapi_call_id: row.vapi_call_id,
               phone_number: phoneNumber,
-              customer_name: row.customer_name,
+              customer_name: customerNameFromData || row.customer_name || null,
               appointment_date: appointmentDate,
               appointment_time: appointmentTime,
               quality_score: qualityScore,
@@ -5034,14 +5118,15 @@ export default {
           if (!apt) return false;
           if (!apt.appointment_date && !apt.call_summary) return false;
 
-          // Filter out appointments with dates in the past
+          // Filter out appointments with dates in the past (but keep today's appointments)
           if (apt.appointment_date) {
             try {
               const appointmentDate = new Date(apt.appointment_date);
               const today = new Date();
               today.setHours(0, 0, 0, 0); // Reset time to start of day
 
-              // Exclude if date is before today
+              // Exclude if date is before today (appointments from yesterday and earlier)
+              // Use <= to exclude only past dates, not today
               if (appointmentDate < today) {
                 return false;
               }
