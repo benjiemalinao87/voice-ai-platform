@@ -3639,20 +3639,22 @@ export default {
         console.log(`Cache MISS for recordings: user=${effectiveUserId}, page=${page}, limit=${limit}${cacheBust ? ' (cache-bust requested)' : ''}`);
 
         // First, get the total count
+        // Note: Removed customer_number filter to show all recordings including test calls
         let countQuery = env.DB.prepare(
           `SELECT COUNT(*) as total
           FROM webhook_calls wc
           WHERE wc.user_id = ?
-          AND wc.customer_number IS NOT NULL
           ${webhookId ? 'AND wc.webhook_id = ?' : ''}`
         );
 
         const countParams = webhookId ? [effectiveUserId, webhookId] : [effectiveUserId];
         const countResult = await countQuery.bind(...countParams).first<{ total: number }>();
         const totalCount = countResult?.total || 0;
+        
+        console.log(`Total recordings count for user ${effectiveUserId}: ${totalCount}`);
 
         // Fetch from database with enhanced data (using effectiveUserId for workspace context)
-        // Filter out test calls (those without customer_number)
+        // Note: Showing all recordings including test calls
         let query = env.DB.prepare(
           `SELECT
             wc.id,
@@ -3681,7 +3683,6 @@ export default {
           FROM webhook_calls wc
           LEFT JOIN addon_results ar ON ar.call_id = wc.id AND ar.addon_type = 'enhanced_data' AND ar.status = 'success'
           WHERE wc.user_id = ?
-          AND wc.customer_number IS NOT NULL
           ${webhookId ? 'AND wc.webhook_id = ?' : ''}
           ORDER BY CASE
             WHEN wc.created_at > 1000000000000 THEN wc.created_at / 1000

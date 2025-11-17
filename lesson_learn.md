@@ -3556,3 +3556,174 @@ const resampleToContext = (data, sourceRate, targetRate) => {
 - **Clear audio:** No more robotic artifacts after resampling
 - **Consistent playback:** Queue loop + resampler keep stream smooth for hours
 - **Parity with Five9/Twilio:** We now follow the exact same buffering + resampling model they document for live supervisor monitoring
+
+## Recording Total Count Display Issue
+
+**Date:** November 17, 2025
+
+**Problem:**
+The recordings page showed incorrect total count (e.g., "12 of 12 recordings" instead of "12 of 17 recordings") because it only counted the loaded recordings, not the actual total in the database. The component used pagination (loading 10 at a time), so `recordings.length` only reflected what was loaded, not the database total.
+
+**Root Cause:**
+1. Backend API (`/api/webhook-calls`) only returned an array of records, not the total count
+2. Frontend used `recordings.length` which only reflected loaded records
+3. No separate COUNT query to get the actual database total
+
+**Solution:**
+1. **Backend (workers/index.ts):**
+   - Added separate COUNT query before fetching paginated results
+   - Changed response format from array to object: `{ results: [], total: number }`
+   - Both cache hits and cache writes now use the new format
+
+2. **D1 Client (src/lib/d1.ts):**
+   - Updated `getWebhookCalls()` return type to match new response format
+   - Changed from `Promise<Array<...>>` to `Promise<{ results: Array<...>, total: number }>`
+
+3. **Recordings Component (src/components/Recordings.tsx):**
+   - Added `totalCount` state variable
+   - Updated `loadRecordings()` to extract `response.total` and `response.results`
+   - Changed display from `{recordings.length}` to `{totalCount}`
+
+**How It Should Be Done:**
+- Always return total count alongside paginated results for accurate UI display
+- Use response format: `{ results: [...], total: number, offset?: number, limit?: number }`
+- Store total count in separate state from loaded items
+- Display should always use the total count from API, not the length of loaded items
+
+**How It Should NOT Be Done:**
+- Don't rely on length of loaded array to represent total count
+- Don't assume all records are loaded when using pagination
+- Don't calculate totals on frontend when backend has the source of truth
+- Avoid making client fetch all records just to get a count
+
+**Testing:**
+Test by verifying total count appears correctly on page load without needing to click "Load More"
+
+
+## Recording Total Count and Load More Fix (Part 2)
+
+**Date:** November 17, 2025
+
+**Problem:**
+After implementing the total count fix, two additional issues appeared:
+1. Total count showed as "4 of recordings" (missing number) instead of "4 of 17 recordings"
+2. Clicking "Load More" button did nothing - no additional recordings loaded
+
+**Root Cause:**
+1. **Cache Compatibility**: Old cached data was returning array format while new code expected object with `{results, total}` structure
+2. **hasMore Logic**: The `hasMore` check used `convertedRecordings.length === limit` which didn't account for the actual total count
+
+**Solution:**
+
+1. **Backward Compatibility (Recordings.tsx):**
+   - Added defensive code to handle both old (array) and new (object) response formats
+   - Check if response is array or object with `Array.isArray(response)`
+   - Fallback to using array length if old format detected
+   - Added console warnings when old format is encountered
+
+2. **Type Flexibility (d1.ts):**
+   - Changed return type from strict object to `Promise<{...} | any>` for backward compatibility
+   - Allows runtime to handle both old cached responses and new API responses
+
+3. **hasMore Logic Fix (Recordings.tsx):**
+   - Changed from `setHasMore(convertedRecordings.length === limit)` 
+   - To: `setHasMore(sortedRecordings.length < total)` for initial load
+   - To: `setHasMore(uniqueRecordings.length < total)` for load more
+   - Now compares loaded count against total count from database
+
+4. **Better Debugging:**
+   - Added console.log in `loadRecordings()` to show loaded count vs total
+   - Added console.log in `handleLoadMore()` to debug why button might not work
+   - Added better error handling with error message logging
+
+**How It Should Be Done:**
+- When changing API response formats, always add backward compatibility for cached data
+- Use defensive programming to check response structure before accessing properties
+- Compare loaded items count against total count to determine if more data exists
+- Add comprehensive logging for debugging pagination issues
+- Handle both old and new formats gracefully during transition period
+
+**How It Should NOT Be Done:**
+- Don't assume all cache will be immediately cleared when format changes
+- Don't use `length === limit` to determine if more pages exist (could have exactly limit items)
+- Don't break TypeScript types unnecessarily - use union types for flexibility
+- Don't leave users without clear feedback when issues occur
+
+**Testing:**
+1. Verify total count displays correctly: "X of Y recordings"
+2. Click "Load More" and verify additional recordings appear
+3. Check browser console for helpful debug logs
+4. Verify button hides when all recordings are loaded
+
+
+## Pagination Implementation for Recordings
+
+**Date:** November 17, 2025
+
+**Change:**
+Replaced "Load More" button with proper pagination controls (Previous/Next buttons and page numbers) for the recordings page.
+
+**Why This Approach:**
+
+**Load More Problems:**
+- Keeps adding to DOM, making page slower over time
+- Harder to navigate to specific recordings
+- Users can't jump to different sections
+- State management becomes complex with appending/merging logic
+- No way to go back without reloading the page
+
+**Pagination Benefits:**
+- Clean, predictable UI with fixed number of items per page
+- Easy navigation with page numbers and Previous/Next buttons
+- Better performance - only renders current page
+- Users can jump to any page directly
+- Simpler state management - just replace data instead of merge
+- Standard UX pattern users are familiar with
+
+**Implementation Details:**
+
+1. **State Changes:**
+   - Removed: `loadingMore`, `hasMore`, `offset`
+   - Added: `currentPage`, `itemsPerPage` (10 per page)
+   - Simplified: No need for merge/append logic
+
+2. **Loading Logic:**
+   - `useEffect` triggers on `currentPage` change
+   - Calculate offset from current page: `(currentPage - 1) * itemsPerPage`
+   - Always replace recordings array instead of appending
+
+3. **Pagination UI:**
+   - Shows "Showing X to Y of Z recordings" text
+   - Previous/Next buttons with disabled states
+   - Smart page number display (shows 5 pages max with ellipsis)
+   - Active page highlighted in blue
+   - Always shows first and last page numbers
+
+4. **Page Number Logic:**
+   - Shows up to 5 visible page numbers
+   - Centers current page when possible
+   - Uses ellipsis (...) for skipped pages
+   - Always visible: first page, last page, current page
+
+**How It Should Be Done:**
+- Use pagination for lists with known total counts
+- Show 10-25 items per page for good balance
+- Always display current range and total
+- Disable Previous on page 1, disable Next on last page
+- Highlight current page clearly
+- Use ellipsis for large page ranges
+
+**How It Should NOT Be Done:**
+- Don't use "Load More" when you have total count available
+- Don't show all page numbers if there are 100+ pages
+- Don't make users scroll through hundreds of items
+- Don't use complex merge logic when simple replace works
+- Avoid mixing pagination with infinite scroll
+
+**Testing:**
+1. Navigate between pages with Previous/Next
+2. Click specific page numbers
+3. Verify current page is highlighted
+4. Check ellipsis appears for large page counts
+5. Verify "Showing X to Y of Z" updates correctly
+

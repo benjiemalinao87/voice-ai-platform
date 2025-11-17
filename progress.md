@@ -185,3 +185,53 @@ The Intent Analysis feature is now fully functional and ready for use. Users can
 - Only owners can change roles
 
 The Team Members & Workspaces feature is now fully functional and deployed. Users can create workspaces, invite team members, manage roles, and seamlessly switch between personal and workspace contexts. All data queries are automatically scoped to the selected workspace, ensuring proper data isolation and team collaboration.
+
+## Recording Total Count Fix - November 17, 2025
+
+✅ **Successfully Fixed**: Recording page total count display
+
+**Changes Made:**
+1. Modified backend API to return both paginated results and total count
+2. Updated D1 client to handle new response format
+3. Modified Recordings component to display accurate total count
+
+**Impact:**
+- Users now see correct total count immediately (e.g., "12 of 17 recordings") without needing to load all records
+- Improved UX by showing accurate information upfront
+- Better performance as we don't need to fetch all records to show count
+
+**Files Modified:**
+- `workers/index.ts` - Added COUNT query and changed response format
+- `src/lib/d1.ts` - Updated getWebhookCalls return type
+- `src/components/Recordings.tsx` - Added totalCount state and updated display
+
+
+## Pagination Implementation - November 17, 2025
+
+✅ **Successfully Implemented**: Proper pagination for recordings page
+
+**Changes Made:**
+1. Replaced "Load More" button with pagination controls
+2. Added Previous/Next buttons with proper disabled states
+3. Implemented smart page number display (max 5 visible pages)
+4. Shows "Showing X to Y of Z recordings" text
+5. Simplified state management (removed merge/append logic)
+
+**Features:**
+- Navigate with Previous/Next buttons
+- Click specific page numbers to jump
+- Current page highlighted in blue
+- Ellipsis (...) for large page ranges
+- Always shows first and last page
+- 10 recordings per page
+
+**Impact:**
+- Better performance (only renders current page)
+- Improved UX (standard pagination pattern)
+- Easier navigation (can jump to any page)
+- Cleaner code (simpler state management)
+- Faster page loads (no accumulating DOM elements)
+
+**Files Modified:**
+- `src/components/Recordings.tsx` - Complete pagination implementation
+

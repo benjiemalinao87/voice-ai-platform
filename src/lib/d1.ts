@@ -169,7 +169,7 @@ class D1Client {
       line_type?: string | null;
     }>;
     total: number;
-  }> {
+  } | any> {
     const queryParams = new URLSearchParams();
     if (params?.webhook_id) queryParams.append('webhook_id', params.webhook_id);
     if (params?.limit) queryParams.append('limit', params.limit.toString());

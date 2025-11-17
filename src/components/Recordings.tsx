@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Play, Pause, Phone, Clock, Calendar, User, MapPin, Download, MessageSquare, ChevronDown, ChevronUp, Languages, Loader2 } from 'lucide-react';
+import { Play, Pause, Phone, Clock, Calendar, User, MapPin, Download, MessageSquare, ChevronDown, ChevronUp, Languages, Loader2, ChevronLeft, ChevronRight } from 'lucide-react';
 import { d1Client } from '../lib/d1';
 import type { WebhookCall } from '../types';
 import { CustomerProfile } from './CustomerProfile';
@@ -166,24 +166,44 @@ const mockRecordings: Recording[] = [
 type CallTab = 'answered' | 'missed' | 'forwarded';
 
 export function Recordings() {
-  const [recordings, setRecordings] = useState<Recording[]>([]);
+  const [allRecordings, setAllRecordings] = useState<Recording[]>([]); // All loaded recordings
   const [totalCount, setTotalCount] = useState<number>(0);
   const [activeTab, setActiveTab] = useState<CallTab>('answered');
   const [loading, setLoading] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
   const [playingId, setPlayingId] = useState<string | null>(null);
   const [currentTime, setCurrentTime] = useState<{ [key: string]: number }>({});
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [expandedProfiles, setExpandedProfiles] = useState<{ [key: string]: boolean }>({});
-  const [hasMore, setHasMore] = useState(true);
-  const [limit] = useState(10); // Show 10 at a time
-  const [offset, setOffset] = useState(0);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage] = useState(10); // Show 10 per page
   const [translations, setTranslations] = useState<{ [key: string]: string }>({});
   const [translating, setTranslating] = useState<{ [key: string]: boolean }>({});
+  const [hasLoadedAll, setHasLoadedAll] = useState(false);
 
+  // Load initial recordings
   useEffect(() => {
-    loadRecordings(true);
+    setAllRecordings([]);
+    setHasLoadedAll(false);
+    loadRecordings(0, 50);
   }, []);
+
+  // Reset to page 1 when tab changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [activeTab]);
+
+  // Load more recordings if needed when page changes
+  useEffect(() => {
+    const filtered = allRecordings.filter(recording => {
+      const category = categorizeCall(recording);
+      return category === activeTab;
+    });
+    const neededCount = currentPage * itemsPerPage;
+    
+    if (filtered.length < neededCount && !hasLoadedAll && !loading) {
+      loadMoreRecordings();
+    }
+  }, [currentPage, activeTab, allRecordings.length]);
 
   // Removed auto-refresh to improve UX - user can manually refresh if needed
   // Auto-refresh was causing the page to keep refreshing every 30 seconds
@@ -211,35 +231,60 @@ export function Recordings() {
     return 'answered';
   };
 
-  // Filter recordings by active tab
-  const filteredRecordings = recordings.filter(recording => {
-    const category = categorizeCall(recording);
-    return category === activeTab;
-  });
+  // Get filtered recordings by active tab
+  const getFilteredRecordings = (): Recording[] => {
+    return allRecordings.filter(recording => {
+      const category = categorizeCall(recording);
+      return category === activeTab;
+    });
+  };
 
-  const loadRecordings = async (reset: boolean = false) => {
+  // Get paginated recordings for current page
+  const filteredRecordings = (() => {
+    const filtered = getFilteredRecordings();
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const endIndex = startIndex + itemsPerPage;
+    return filtered.slice(startIndex, endIndex);
+  })();
+
+  const loadRecordings = async (offset: number = 0, limit: number = 50) => {
     try {
-      if (reset) {
+      if (offset === 0) {
         setLoading(true);
-        setOffset(0);
-      } else {
-        setLoadingMore(true);
       }
 
-      const currentOffset = reset ? 0 : offset;
       // Add cache-busting parameter to ensure fresh data (always bypass cache for recordings)
       const params: any = {
-        limit,
-        offset: currentOffset,
+        limit: limit,
+        offset: offset,
         _t: Date.now() // Always bypass cache to ensure we get latest data
       };
       const response = await d1Client.getWebhookCalls(params);
       
-      // Update total count
-      setTotalCount(response.total);
+      // Handle both old format (array) and new format (object with results and total)
+      let webhookCalls: any[];
+      let total: number;
+      
+      if (Array.isArray(response)) {
+        // Old format from cache - just an array
+        console.warn('Received old response format (array). Consider clearing cache.');
+        webhookCalls = response;
+        total = response.length; // Fallback: use loaded count
+      } else {
+        // New format - object with results and total
+        webhookCalls = response.results || [];
+        total = response.total || 0;
+      }
+      
+      // Update total count (only on first load)
+      if (offset === 0) {
+        setTotalCount(total);
+      }
+      
+      console.log(`Loaded ${webhookCalls.length} recordings (offset: ${offset}). Total: ${total}`);
 
       // Convert webhook calls to Recording format (enhanced data is already included!)
-      const convertedRecordings: Recording[] = response.results.map((call) => {
+      const convertedRecordings: Recording[] = webhookCalls.map((call) => {
         // Parse raw_payload to extract transcript
         let transcript: TranscriptMessage[] = [];
         let location = 'Unknown';
@@ -368,51 +413,46 @@ export function Recordings() {
         return bTime - aTime;
       });
       
-      // Debug logging (remove in production if needed)
-      if (reset && sortedRecordings.length > 0) {
-        console.log('Recordings sorted:', sortedRecordings.map(r => ({
-          caller: r.caller,
-          date: r.date,
-          createdAt: r.createdAt
-        })));
+      // Append to allRecordings and remove duplicates
+      if (offset === 0) {
+        setAllRecordings(sortedRecordings);
+      } else {
+        setAllRecordings(prev => {
+          const merged = [...prev, ...sortedRecordings];
+          // Remove duplicates based on id
+          const unique = Array.from(
+            new Map(merged.map(r => [r.id, r])).values()
+          );
+          // Re-sort after merge
+          return unique.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+        });
       }
 
-      // Check if we have more data
-      setHasMore(convertedRecordings.length === limit);
-
-      // Append or replace recordings based on reset flag
-      if (reset) {
-        setRecordings(sortedRecordings);
-        setOffset(limit); // Set offset to limit for next load
-      } else {
-        // When appending, merge and re-sort all recordings to maintain newest-first order
-        const merged = [...recordings, ...sortedRecordings];
-        const allSorted = merged.sort((a, b) => 
-          (b.createdAt || 0) - (a.createdAt || 0)
-        );
-        // Remove duplicates based on id
-        const uniqueRecordings = Array.from(
-          new Map(allSorted.map(r => [r.id, r])).values()
-        );
-        setRecordings(uniqueRecordings);
-        setOffset(prev => prev + limit); // Increment offset for next load
+      // Check if we've loaded all recordings
+      if (webhookCalls.length < limit || (offset + webhookCalls.length) >= total) {
+        setHasLoadedAll(true);
       }
     } catch (error) {
       console.error('Error loading recordings:', error);
+      // Show error details
+      if (error instanceof Error) {
+        console.error('Error details:', error.message);
+      }
       // Fallback to mock data on error (only on initial load)
-      if (reset) {
-        setRecordings(mockRecordings);
+      if (offset === 0) {
+        setAllRecordings(mockRecordings);
+        setTotalCount(mockRecordings.length);
       }
     } finally {
-      setLoading(false);
-      setLoadingMore(false);
+      if (offset === 0) {
+        setLoading(false);
+      }
     }
   };
 
-  const handleLoadMore = () => {
-    if (!loadingMore && hasMore) {
-      loadRecordings(false);
-    }
+  const loadMoreRecordings = async () => {
+    const currentOffset = allRecordings.length;
+    await loadRecordings(currentOffset, 50); // Load 50 more at a time
   };
 
   const formatDuration = (seconds: number) => {
@@ -532,12 +572,15 @@ export function Recordings() {
     );
   }
 
-  // Count recordings by category
+  // Count recordings by category (from all loaded recordings)
   const counts = {
-    answered: recordings.filter(r => categorizeCall(r) === 'answered').length,
-    missed: recordings.filter(r => categorizeCall(r) === 'missed').length,
-    forwarded: recordings.filter(r => categorizeCall(r) === 'forwarded').length,
+    answered: allRecordings.filter(r => categorizeCall(r) === 'answered').length,
+    missed: allRecordings.filter(r => categorizeCall(r) === 'missed').length,
+    forwarded: allRecordings.filter(r => categorizeCall(r) === 'forwarded').length,
   };
+
+  // Get total filtered count for current tab
+  const filteredTotal = getFilteredRecordings().length;
 
   return (
     <div className="space-y-6">
@@ -550,7 +593,8 @@ export function Recordings() {
         </div>
         <div className="flex items-center gap-2">
           <span className="text-sm text-gray-600 dark:text-gray-400">
-            {filteredRecordings.length} of {totalCount} recordings
+            {filteredRecordings.length} of {filteredTotal} {activeTab} recordings
+            {hasLoadedAll ? '' : ' (loading more...)'}
           </span>
         </div>
       </div>
@@ -887,35 +931,106 @@ export function Recordings() {
         </div>
       )}
 
-      {/* Load More Button */}
-      {hasMore && !loading && (
-        <div className="flex justify-center mt-6">
-          <button
-            onClick={handleLoadMore}
-            disabled={loadingMore}
-            className="flex items-center gap-2 px-6 py-3 bg-blue-600 dark:bg-blue-500 text-white rounded-lg hover:bg-blue-700 dark:hover:bg-blue-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {loadingMore ? (
-              <>
-                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                Loading...
-              </>
-            ) : (
-              <>
-                <ChevronDown className="w-5 h-5" />
-                Load More Recordings
-              </>
-            )}
-          </button>
-        </div>
-      )}
+      {/* Pagination */}
+      {!loading && filteredTotal > 0 && (
+        <div className="flex items-center justify-between mt-6 px-4">
+          <div className="text-sm text-gray-600 dark:text-gray-400">
+            Showing {((currentPage - 1) * itemsPerPage) + 1} to {Math.min(currentPage * itemsPerPage, filteredTotal)} of {filteredTotal} {activeTab} recordings
+          </div>
+          
+          <div className="flex items-center gap-2">
+            {/* Previous Button */}
+            <button
+              onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+              disabled={currentPage === 1}
+              className="flex items-center gap-1 px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              <ChevronLeft className="w-4 h-4" />
+              Previous
+            </button>
 
-      {/* No More Recordings Message */}
-      {!hasMore && recordings.length > 0 && (
-        <div className="flex justify-center mt-6">
-          <p className="text-sm text-gray-500 dark:text-gray-400">
-            No more recordings to load
-          </p>
+            {/* Page Numbers */}
+            <div className="flex items-center gap-1">
+              {(() => {
+                const totalPages = Math.ceil(filteredTotal / itemsPerPage);
+                const pages = [];
+                const maxVisiblePages = 5;
+                
+                let startPage = Math.max(1, currentPage - Math.floor(maxVisiblePages / 2));
+                let endPage = Math.min(totalPages, startPage + maxVisiblePages - 1);
+                
+                // Adjust start if we're near the end
+                if (endPage - startPage < maxVisiblePages - 1) {
+                  startPage = Math.max(1, endPage - maxVisiblePages + 1);
+                }
+                
+                // First page
+                if (startPage > 1) {
+                  pages.push(
+                    <button
+                      key={1}
+                      onClick={() => setCurrentPage(1)}
+                      className="w-10 h-10 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                    >
+                      1
+                    </button>
+                  );
+                  if (startPage > 2) {
+                    pages.push(
+                      <span key="ellipsis1" className="px-2 text-gray-500">...</span>
+                    );
+                  }
+                }
+                
+                // Visible pages
+                for (let i = startPage; i <= endPage; i++) {
+                  pages.push(
+                    <button
+                      key={i}
+                      onClick={() => setCurrentPage(i)}
+                      className={`w-10 h-10 text-sm font-medium rounded-lg transition-colors ${
+                        currentPage === i
+                          ? 'bg-blue-600 dark:bg-blue-500 text-white'
+                          : 'text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700'
+                      }`}
+                    >
+                      {i}
+                    </button>
+                  );
+                }
+                
+                // Last page
+                if (endPage < totalPages) {
+                  if (endPage < totalPages - 1) {
+                    pages.push(
+                      <span key="ellipsis2" className="px-2 text-gray-500">...</span>
+                    );
+                  }
+                  pages.push(
+                    <button
+                      key={totalPages}
+                      onClick={() => setCurrentPage(totalPages)}
+                      className="w-10 h-10 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                    >
+                      {totalPages}
+                    </button>
+                  );
+                }
+                
+                return pages;
+              })()}
+            </div>
+
+            {/* Next Button */}
+            <button
+              onClick={() => setCurrentPage(prev => Math.min(Math.ceil(filteredTotal / itemsPerPage), prev + 1))}
+              disabled={currentPage >= Math.ceil(filteredTotal / itemsPerPage)}
+              className="flex items-center gap-1 px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              Next
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
         </div>
       )}
     </div>
