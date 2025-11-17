@@ -542,7 +542,8 @@ export function LiveCallFeed() {
 
   // Send message via backend proxy (Say mode - AI speaks it)
   const handleSendMessage = async (textOverride?: string) => {
-    const textToSend = textOverride || messageInput.trim();
+    // Ensure textOverride is a string (prevent event objects from being passed)
+    const textToSend = (typeof textOverride === 'string' ? textOverride : messageInput.trim());
     if (!textToSend || !controlUrl || !listeningCallId) return;
 
     setSendingMessage(true);
@@ -576,7 +577,8 @@ export function LiveCallFeed() {
 
   // Add context message via backend proxy (Context mode - adds to conversation history)
   const handleAddContext = async (textOverride?: string) => {
-    const textToSend = textOverride || messageInput.trim();
+    // Ensure textOverride is a string (prevent event objects from being passed)
+    const textToSend = (typeof textOverride === 'string' ? textOverride : messageInput.trim());
     if (!textToSend || !controlUrl || !listeningCallId) return;
 
     setSendingMessage(true);
@@ -1051,7 +1053,13 @@ export function LiveCallFeed() {
                             {isRecording ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
                           </button>
                           <button
-                            onClick={controlMode === 'say' ? handleSendMessage : handleAddContext}
+                            onClick={() => {
+                              if (controlMode === 'say') {
+                                handleSendMessage();
+                              } else {
+                                handleAddContext();
+                              }
+                            }}
                             disabled={!messageInput.trim() || sendingMessage || isRecording || isTranscribing}
                             className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm"
                           >

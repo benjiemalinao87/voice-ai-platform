@@ -3727,3 +3727,62 @@ Replaced "Load More" button with proper pagination controls (Previous/Next butto
 4. Check ellipsis appears for large page counts
 5. Verify "Showing X to Y of Z" updates correctly
 
+
+## Add Context Circular Reference Error Fix
+
+**Date:** November 17, 2025
+
+**Problem:**
+When adding context to an active call, the first context was successful, but subsequent attempts failed with error:
+```
+TypeError: Converting circular structure to JSON --> starting at object with constructor 'HTMLButtonElement'
+```
+
+**Root Cause:**
+The onClick handler was directly passing the function reference:
+```jsx
+onClick={controlMode === 'say' ? handleSendMessage : handleAddContext}
+```
+
+When React calls this, it passes the **event object** as the first argument. Since `handleAddContext` accepts an optional `textOverride?: string` parameter, the event object was being assigned to `textOverride`. Then when the function tried to `JSON.stringify({ message: { content: textToSend } })`, it attempted to serialize the event object, which contains circular references (like the button element that triggered it).
+
+**Solution:**
+
+1. **Fixed onClick Handler:**
+   - Changed from direct function reference to arrow function wrapper
+   - Now explicitly calls the function without passing the event:
+   ```jsx
+   onClick={() => {
+     if (controlMode === 'say') {
+       handleSendMessage();
+     } else {
+       handleAddContext();
+     }
+   }}
+   ```
+
+2. **Added Type Safety:**
+   - Added type check in both `handleAddContext` and `handleSendMessage`
+   - Ensures `textOverride` is always a string:
+   ```typescript
+   const textToSend = (typeof textOverride === 'string' ? textOverride : messageInput.trim());
+   ```
+
+**How It Should Be Done:**
+- Always wrap event handlers in arrow functions when the handler doesn't need the event
+- Add type guards when accepting optional parameters that could be confused with event objects
+- Use explicit function calls: `onClick={() => handleFunction()}` instead of `onClick={handleFunction}`
+- Validate parameter types before using them in JSON operations
+
+**How It Should NOT Be Done:**
+- Don't pass function references directly to onClick when the function doesn't expect an event
+- Don't assume optional parameters will always be the expected type
+- Don't try to JSON.stringify objects without validating their structure first
+- Avoid: `onClick={handleFunction}` when `handleFunction` doesn't expect an event parameter
+
+**Testing:**
+1. Add first context - should succeed
+2. Add second context to same call - should succeed (previously failed)
+3. Add multiple contexts - all should work
+4. Try "Say Message" mode - should also work correctly
+
