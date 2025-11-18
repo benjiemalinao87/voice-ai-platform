@@ -3842,3 +3842,67 @@ Calls with "N/A" for appointment date/time were appearing in the "Appointments b
 3. Call with voicemail (no appointment) - should NOT appear
 4. Call with invalid date string - should NOT appear
 
+
+## Fix: Appointments Not Showing (Missing 6 of 8 appointments)
+**Date:** November 18, 2025
+
+### Problem
+The appointments page was only showing 2 appointments (Ricky and Cheryl) instead of all 8. The API was returning incomplete data.
+
+### Root Cause
+The appointments API query had `LIMIT 100` but the user had 340 total calls in the database. The appointments were scattered throughout the calls:
+- Ricky: row 73 ✅ (within limit)
+- Cheryl: row 94 ✅ (within limit)  
+- Kim McNeil: row 161 ❌ (beyond limit)
+- Harry: row 194 ❌
+- Ken's wife: row 222 ❌
+- Thomas: rows 160, 233 ❌
+- Steve: row 234 ❌
+- Terrence: row 278 ❌
+
+Only calls ranked 1-100 by `created_at DESC` were fetched, missing most appointments.
+
+### The Fix
+Modified the SQL query in `workers/index.ts` to:
+1. **Prioritize appointments** using `ORDER BY has_appointment DESC, created_at DESC`
+2. **Increased LIMIT** from 100 to 500
+3. Added a computed column `has_appointment` to identify calls with valid appointment dates
+
+```typescript
+// Before: Simple ordering by date
+ORDER BY wc.created_at DESC
+LIMIT 100
+
+// After: Prioritize appointments, then by date
+ORDER BY has_appointment DESC, wc.created_at DESC
+LIMIT 500
+```
+
+The `has_appointment` computed column checks:
+```sql
+CASE 
+  WHEN wc.structured_data LIKE '%"Appointment Date"%' 
+    AND wc.structured_data NOT LIKE '%"Appointment Date":null%'
+    AND wc.structured_data NOT LIKE '%"Appointment Date":""%'
+    AND wc.structured_data NOT LIKE '%"Appointment Date":"N/A"%'
+  THEN 1 
+  ELSE 0 
+END as has_appointment
+```
+
+### Lesson Learned
+**When fetching filtered data from a large dataset:**
+- ✅ Always prioritize the data you're filtering for in the `ORDER BY` clause
+- ✅ Consider the dataset size and set appropriate LIMIT values
+- ✅ Use computed columns or subqueries to bring relevant records to the top
+- ❌ Don't rely on chronological ordering if you need specific types of records
+- ❌ Don't use fixed small LIMIT values (like 100) for growing datasets
+
+**Database query optimization principle:** If you're filtering data client-side (JavaScript), but fetching from the database, make the database do the prioritization first. This ensures the most relevant data is within your LIMIT.
+
+### Files Changed
+- `workers/index.ts` - `/api/appointments` endpoint query
+
+### Result
+All 8 appointments now appear correctly, sorted with appointments first, then by date.
+

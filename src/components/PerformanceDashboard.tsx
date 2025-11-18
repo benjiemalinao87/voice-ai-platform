@@ -12,7 +12,8 @@ import {
   Clock,
   Zap,
   Smile,
-  Users
+  Users,
+  Download
 } from 'lucide-react';
 import { MetricCard } from './MetricCard';
 import { LineChart } from './LineChart';
@@ -22,6 +23,7 @@ import { SentimentKeywords } from './SentimentKeywords';
 import { MultiLineChart } from './MultiLineChart';
 import { AreaChart } from './AreaChart';
 import { StackedBarChart } from './StackedBarChart';
+import { ReportGeneratorModal } from './ReportGeneratorModal';
 import { d1Client } from '../lib/d1';
 import type { DashboardMetrics, Call, KeywordTrend } from '../types';
 
@@ -42,6 +44,7 @@ export function PerformanceDashboard({ selectedAgentId, dateRange }: Performance
   const [granularity, setGranularity] = useState<'minute' | 'hour' | 'day'>('minute');
   const [assistantNames, setAssistantNames] = useState<Record<string, string>>({});
   const [agentDistribution, setAgentDistribution] = useState<Array<{ label: string; value: number; color: string }>>([]);
+  const [isReportModalOpen, setIsReportModalOpen] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -412,6 +415,30 @@ export function PerformanceDashboard({ selectedAgentId, dateRange }: Performance
 
   return (
     <div className="space-y-6">
+      {/* Header with Generate Report Button */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Performance Analytics</h2>
+          <p className="text-gray-600 dark:text-gray-400 mt-1">
+            Comprehensive call metrics and insights
+          </p>
+        </div>
+        <button
+          onClick={() => setIsReportModalOpen(true)}
+          className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors shadow-sm"
+        >
+          <Download className="w-4 h-4" />
+          Generate Report
+        </button>
+      </div>
+
+      {/* Report Generator Modal */}
+      <ReportGeneratorModal
+        isOpen={isReportModalOpen}
+        onClose={() => setIsReportModalOpen(false)}
+        workspaceName="HomeGenius Exteriors"
+      />
+
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <MetricCard
           title="Total Calls"

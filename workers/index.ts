@@ -4948,6 +4948,7 @@ export default {
         const { effectiveUserId } = await getEffectiveUserId(env, userId);
 
         // Fetch calls with structured outputs that contain appointment data
+        // Prioritize calls with appointment dates, then fetch recent calls
         const { results } = await env.DB.prepare(
           `SELECT
             wc.id,
@@ -4957,16 +4958,26 @@ export default {
             wc.customer_name,
             wc.raw_payload,
             wc.structured_data,
-            wc.created_at
+            wc.created_at,
+            CASE 
+              WHEN wc.structured_data LIKE '%"Appointment Date"%' 
+                AND wc.structured_data NOT LIKE '%"Appointment Date":null%'
+                AND wc.structured_data NOT LIKE '%"Appointment Date":""%'
+                AND wc.structured_data NOT LIKE '%"Appointment Date":"N/A"%'
+              THEN 1 
+              ELSE 0 
+            END as has_appointment
           FROM webhook_calls wc
           WHERE wc.user_id = ?
             AND wc.raw_payload IS NOT NULL
             AND wc.customer_number IS NOT NULL
-          ORDER BY wc.created_at DESC
-          LIMIT 100`
+          ORDER BY has_appointment DESC, wc.created_at DESC
+          LIMIT 500`
         ).bind(effectiveUserId).all();
 
         // Parse and extract appointment data from structured outputs
+        console.log(`[Appointments API] Found ${results?.length || 0} rows from database for user ${effectiveUserId}`);
+        
         const appointments = (results || []).map((row: any) => {
           try {
             const rawPayload = row.raw_payload ? JSON.parse(row.raw_payload) : null;
@@ -4989,17 +5000,22 @@ export default {
 
               const dateLower = dateStr.toLowerCase().trim();
               const callDate = new Date(callTimestamp * 1000);
+              console.log('Parsing date:', dateStr, 'Call date:', callDate.toISOString());
 
               // Handle "today"
               if (dateLower === 'today') {
-                return callDate.toISOString().split('T')[0];
+                const result = callDate.toISOString().split('T')[0];
+                console.log('Parsed "today" as:', result);
+                return result;
               }
 
               // Handle "tomorrow"
               if (dateLower === 'tomorrow') {
                 const tomorrow = new Date(callDate);
                 tomorrow.setDate(tomorrow.getDate() + 1);
-                return tomorrow.toISOString().split('T')[0];
+                const result = tomorrow.toISOString().split('T')[0];
+                console.log('Parsed "tomorrow" as:', result);
+                return result;
               }
 
               // Handle "day after tomorrow" or "in 2 days"
@@ -5025,6 +5041,61 @@ export default {
                 return nextWeek.toISOString().split('T')[0];
               }
 
+              // Handle "this [day]" format (e.g., "this friday", "this thursday")
+              const thisDayMatch = dateLower.match(/this (sunday|monday|tuesday|wednesday|thursday|friday|saturday)/);
+              if (thisDayMatch) {
+                const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+                const targetDayName = thisDayMatch[1];
+                const dayIndex = dayNames.indexOf(targetDayName);
+                if (dayIndex !== -1) {
+                  const currentDay = callDate.getDay();
+                  let daysUntil = dayIndex - currentDay;
+                  if (daysUntil <= 0) daysUntil += 7; // Next week's day
+                  const targetDate = new Date(callDate);
+                  targetDate.setDate(targetDate.getDate() + daysUntil);
+                  return targetDate.toISOString().split('T')[0];
+                }
+              }
+
+              // Handle "next [day]" format (e.g., "next thursday", "next friday")
+              // "next [day]" always means the day in the following week (at least 7 days away)
+              const nextDayMatch = dateLower.match(/next (sunday|monday|tuesday|wednesday|thursday|friday|saturday)/);
+              if (nextDayMatch) {
+                const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+                const targetDayName = nextDayMatch[1];
+                const dayIndex = dayNames.indexOf(targetDayName);
+                if (dayIndex !== -1) {
+                  const currentDay = callDate.getDay();
+                  let daysUntil = dayIndex - currentDay;
+                  // Always add at least 7 days for "next [day]" to ensure it's next week
+                  if (daysUntil <= 0) {
+                    daysUntil += 7; // Next week's day
+                  } else {
+                    daysUntil += 7; // Always add 7 to make it next week
+                  }
+                  const targetDate = new Date(callDate);
+                  targetDate.setDate(targetDate.getDate() + daysUntil);
+                  return targetDate.toISOString().split('T')[0];
+                }
+              }
+
+              // Handle combined formats like "Monday, the 24th" or "Friday, the 21st"
+              const combinedMatch = dateLower.match(/(sunday|monday|tuesday|wednesday|thursday|friday|saturday).*?(\d+)(?:st|nd|rd|th)/);
+              if (combinedMatch) {
+                const day = parseInt(combinedMatch[2]);
+                if (day >= 1 && day <= 31) {
+                  const targetDate = new Date(callDate);
+                  targetDate.setDate(day);
+                  
+                  // If the day has already passed this month, assume next month
+                  if (targetDate < callDate) {
+                    targetDate.setMonth(targetDate.getMonth() + 1);
+                  }
+                  
+                  return targetDate.toISOString().split('T')[0];
+                }
+              }
+
               // Handle day of month format like "28th", "1st", "2nd", "3rd", "15th"
               // These always refer to the current month (or next month if day has passed)
               const dayOfMonthMatch = dateLower.match(/^(\d+)(?:st|nd|rd|th)?$/);
@@ -5044,7 +5115,7 @@ export default {
                 }
               }
 
-              // Handle day names (e.g., "Monday", "Tuesday")
+              // Handle day names (e.g., "Monday", "Tuesday", "Thursday")
               const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
               const dayIndex = dayNames.findIndex(day => dateLower.includes(day));
               if (dayIndex !== -1) {
@@ -5053,7 +5124,9 @@ export default {
                 if (daysUntil <= 0) daysUntil += 7; // Next week's day
                 const targetDate = new Date(callDate);
                 targetDate.setDate(targetDate.getDate() + daysUntil);
-                return targetDate.toISOString().split('T')[0];
+                const result = targetDate.toISOString().split('T')[0];
+                console.log('Parsed day name "' + dateStr + '" as:', result);
+                return result;
               }
 
               // Try to parse as ISO date or standard date
@@ -5091,6 +5164,7 @@ export default {
               }
 
               // Return original if we can't parse it
+              console.log('Could not parse date, returning original:', dateStr);
               return dateStr;
             };
 
@@ -5196,7 +5270,10 @@ export default {
           
           // Only include appointments that have a valid appointment_date
           // Exclude entries with "N/A", null, or invalid dates
-          if (!apt.appointment_date) return false;
+          if (!apt.appointment_date) {
+            console.log('Filtered out - no appointment_date:', apt.phone_number);
+            return false;
+          }
           
           // Validate that the date is actually a valid date string (not "Invalid Date")
           try {
@@ -5204,6 +5281,7 @@ export default {
             
             // Check if date is valid
             if (isNaN(appointmentDate.getTime())) {
+              console.log('Filtered out - invalid date:', apt.phone_number, apt.appointment_date);
               return false; // Invalid date
             }
             
@@ -5211,19 +5289,208 @@ export default {
             const currentYear = new Date().getFullYear();
             const appointmentYear = appointmentDate.getFullYear();
             
+            console.log('Appointment check:', apt.phone_number, apt.customer_name, apt.appointment_date, 'Year:', appointmentYear, 'Current:', currentYear);
+            
             // Exclude if appointment is from a previous year
             if (appointmentYear < currentYear) {
+              console.log('Filtered out - previous year:', apt.phone_number);
               return false;
             }
+            
+            console.log('Appointment PASSED filter:', apt.phone_number);
           } catch (e) {
             // If date parsing fails, exclude the appointment
+            console.log('Filtered out - parsing error:', apt.phone_number, e);
             return false;
           }
 
           return true;
         });
 
+        console.log(`[Appointments API] Returning ${appointments.length} appointments after filtering`);
         return jsonResponse(appointments);
+      }
+
+      // Get call analytics report data
+      if (url.pathname === '/api/reports/call-analytics' && request.method === 'GET') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        // Get effective user ID for workspace context
+        const { effectiveUserId } = await getEffectiveUserId(env, userId);
+
+        // Get date range from query params (default: last 30 days)
+        const fromDate = url.searchParams.get('from');
+        const toDate = url.searchParams.get('to');
+        
+        const now = Math.floor(Date.now() / 1000);
+        const thirtyDaysAgo = now - (30 * 24 * 60 * 60);
+        
+        const startTimestamp = fromDate ? Math.floor(new Date(fromDate).getTime() / 1000) : thirtyDaysAgo;
+        const endTimestamp = toDate ? Math.floor(new Date(toDate).getTime() / 1000) : now;
+
+        // Fetch all calls in date range
+        const { results: allCalls } = await env.DB.prepare(
+          `SELECT
+            wc.id,
+            wc.vapi_call_id,
+            wc.phone_number,
+            wc.customer_number,
+            wc.customer_name,
+            wc.raw_payload,
+            wc.structured_data,
+            wc.created_at,
+            wc.call_status,
+            wc.ended_reason
+          FROM webhook_calls wc
+          WHERE wc.user_id = ?
+            AND wc.created_at >= ?
+            AND wc.created_at <= ?
+          ORDER BY wc.created_at DESC`
+        ).bind(effectiveUserId, startTimestamp, endTimestamp).all();
+
+        console.log(`[Report API] Found ${allCalls?.length || 0} calls in date range`);
+
+        // Initialize metrics
+        let totalCalls = allCalls?.length || 0;
+        let answeredCalls = 0;
+        let missedCalls = 0;
+        let forwardedCalls = 0;
+        let voicemailCalls = 0;
+        let totalMinutes = 0;
+        let appointmentsBooked = 0;
+        const endedReasons: Record<string, number> = {};
+        const appointmentsList: any[] = [];
+
+        // Process each call
+        (allCalls || []).forEach((call: any) => {
+          try {
+            const rawPayload = call.raw_payload ? JSON.parse(call.raw_payload) : null;
+            const message = rawPayload?.message || {};
+            
+            // Extract call status
+            const status = message.status || call.call_status || 'unknown';
+            const endedReason = message.endedReason || call.ended_reason || 'unknown';
+            
+            // Count ended reasons
+            endedReasons[endedReason] = (endedReasons[endedReason] || 0) + 1;
+            
+            // Calculate duration
+            const startedAt = message.startedAt ? new Date(message.startedAt).getTime() : 0;
+            const endedAt = message.endedAt ? new Date(message.endedAt).getTime() : 0;
+            const durationMs = endedAt - startedAt;
+            const durationMinutes = durationMs > 0 ? Math.round(durationMs / 1000 / 60) : 0;
+            totalMinutes += durationMinutes;
+            
+            // Get transcript
+            const transcript = message.transcript || '';
+            const transcriptWords = transcript.trim().split(/\s+/).length;
+            
+            // Categorize call
+            if (status === 'forwarded') {
+              forwardedCalls++;
+            } else if (endedReason === 'voicemail') {
+              voicemailCalls++;
+            } else if (status === 'ended' && transcriptWords > 50) {
+              // Actual conversation (has meaningful transcript)
+              answeredCalls++;
+            } else if (endedReason === 'assistant-ended-call' || endedReason === 'customer-ended-call') {
+              answeredCalls++;
+            } else {
+              missedCalls++;
+            }
+            
+            // Check for appointment
+            const structuredData = call.structured_data ? JSON.parse(call.structured_data) : {};
+            const appointmentDate = structuredData?.['Appointment Date'] || 
+                                   structuredData?.['appointment date'] ||
+                                   structuredData?.['appointmentDate'];
+            const appointmentTime = structuredData?.['Appointment Time'] ||
+                                   structuredData?.['appointment time'] ||
+                                   structuredData?.['appointmentTime'];
+            
+            if (appointmentDate && 
+                appointmentDate !== 'null' && 
+                appointmentDate !== 'N/A' && 
+                appointmentDate.trim() !== '') {
+              appointmentsBooked++;
+              
+              // Extract quality score
+              const structuredOutputs = message?.analysis?.structuredOutputs ||
+                                       message?.artifact?.structuredOutputs || {};
+              let qualityScore = null;
+              Object.entries(structuredOutputs).forEach(([, value]: [string, any]) => {
+                if (typeof value === 'object' && value !== null && 'name' in value && 'result' in value) {
+                  const name = value.name.toLowerCase();
+                  if (name.includes('quality score') || name.includes('qualityscore')) {
+                    qualityScore = typeof value.result === 'number' ? value.result : parseInt(value.result);
+                  }
+                }
+              });
+              
+              appointmentsList.push({
+                id: call.id,
+                phone_number: call.customer_number || call.phone_number,
+                customer_name: call.customer_name,
+                appointment_date: appointmentDate,
+                appointment_time: appointmentTime,
+                quality_score: qualityScore,
+                created_at: call.created_at
+              });
+            }
+          } catch (error) {
+            console.error('[Report API] Error processing call:', error);
+          }
+        });
+
+        // Calculate answer rate (actual conversations / total calls)
+        const answerRate = totalCalls > 0 ? Math.round((answeredCalls / totalCalls) * 100) : 0;
+        
+        // Calculate average handling time (total minutes / answered calls)
+        const avgHandlingTime = answeredCalls > 0 ? Math.round(totalMinutes / answeredCalls) : 0;
+        
+        // Format ended reasons for response
+        const endedReasonsArray = Object.entries(endedReasons).map(([reason, count]) => ({
+          reason,
+          count,
+          percentage: totalCalls > 0 ? Math.round((count / totalCalls) * 100) : 0
+        })).sort((a, b) => b.count - a.count);
+
+        const reportData = {
+          dateRange: {
+            from: new Date(startTimestamp * 1000).toISOString().split('T')[0],
+            to: new Date(endTimestamp * 1000).toISOString().split('T')[0]
+          },
+          summary: {
+            totalCalls,
+            answeredCalls,
+            missedCalls,
+            forwardedCalls,
+            voicemailCalls,
+            answerRate,
+            totalMinutes,
+            avgHandlingTime,
+            appointmentsBooked
+          },
+          appointments: appointmentsList,
+          endedReasons: endedReasonsArray,
+          callsByStatus: {
+            answered: answeredCalls,
+            missed: missedCalls,
+            forwarded: forwardedCalls,
+            voicemail: voicemailCalls
+          }
+        };
+
+        console.log(`[Report API] Returning report data:`, {
+          totalCalls,
+          answeredCalls,
+          appointmentsBooked
+        });
+
+        return jsonResponse(reportData);
       }
 
       // Generate demo data for vic@channelautomation.com
