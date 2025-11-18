@@ -49,7 +49,7 @@ export async function fetchReportData(
   fromDate?: string,
   toDate?: string
 ): Promise<ReportData> {
-  const token = localStorage.getItem('token');
+  const token = localStorage.getItem('auth_token');
   if (!token) {
     throw new Error('No authentication token found');
   }
@@ -66,7 +66,14 @@ export async function fetchReportData(
   });
 
   if (!response.ok) {
-    throw new Error(`Failed to fetch report data: ${response.statusText}`);
+    let errorMessage = `Failed to fetch report data (${response.status})`;
+    try {
+      const errorData = await response.json();
+      errorMessage += `: ${errorData.error || JSON.stringify(errorData)}`;
+    } catch {
+      errorMessage += `: ${response.statusText || 'Unknown error'}`;
+    }
+    throw new Error(errorMessage);
   }
 
   return await response.json();

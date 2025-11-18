@@ -5342,7 +5342,6 @@ export default {
             wc.raw_payload,
             wc.structured_data,
             wc.created_at,
-            wc.call_status,
             wc.ended_reason
           FROM webhook_calls wc
           WHERE wc.user_id = ?
@@ -5371,7 +5370,7 @@ export default {
             const message = rawPayload?.message || {};
             
             // Extract call status
-            const status = message.status || call.call_status || 'unknown';
+            const status = message.status || 'unknown';
             const endedReason = message.endedReason || call.ended_reason || 'unknown';
             
             // Count ended reasons
