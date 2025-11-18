@@ -5207,12 +5207,12 @@ export default {
               return false; // Invalid date
             }
             
-            // Filter out appointments with dates in the past (but keep today's appointments)
-            const today = new Date();
-            today.setHours(0, 0, 0, 0); // Reset time to start of day
-
-            // Exclude if date is before today (appointments from yesterday and earlier)
-            if (appointmentDate < today) {
+            // Filter out appointments from previous years (but keep all appointments from current year)
+            const currentYear = new Date().getFullYear();
+            const appointmentYear = appointmentDate.getFullYear();
+            
+            // Exclude if appointment is from a previous year
+            if (appointmentYear < currentYear) {
               return false;
             }
           } catch (e) {
