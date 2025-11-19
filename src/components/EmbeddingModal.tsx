@@ -109,18 +109,18 @@ export function EmbeddingModal({ isOpen, onClose, initialUrl = '', initialButton
         <div className="bg-gray-900 border-b border-gray-700 px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <Globe className="w-5 h-5 text-blue-400" />
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-gray-400">Embedded Site:</span>
-              <a
-                href={url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-sm text-blue-400 hover:text-blue-300 flex items-center gap-1"
-              >
-                {url}
-                <ExternalLink className="w-3 h-3" />
-              </a>
-            </div>
+            <span className="text-sm font-medium text-gray-200">
+              {buttonName || 'Embedded Site'}
+            </span>
+            <a
+              href={url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-gray-400 hover:text-blue-400 transition-colors"
+              title="Open in new tab"
+            >
+              <ExternalLink className="w-4 h-4" />
+            </a>
           </div>
           <div className="flex items-center gap-2">
             <button

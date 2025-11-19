@@ -30,11 +30,11 @@
 
 **UI Features:**
 - Beautiful modal interface matching existing dashboard design
-- Configuration form with URL input and validation
-- Iframe display with header bar showing current URL
+- Configuration form with URL input, Button Name input, and validation
+- Iframe display with header bar showing Button Name (URL hidden for cleaner look)
 - Fullscreen toggle button
 - Edit button to return to configuration
-- External link button to open URL in new tab
+- External link icon to open URL in new tab
 - Responsive design for all screen sizes
 - Dark mode support
 
