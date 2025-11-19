@@ -112,24 +112,8 @@ export function EmbeddingModal({ isOpen, onClose, initialUrl = '', initialButton
             <span className="text-sm font-medium text-gray-200">
               {buttonName || 'Embedded Site'}
             </span>
-            <a
-              href={url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-gray-400 hover:text-blue-400 transition-colors"
-              title="Open in new tab"
-            >
-              <ExternalLink className="w-4 h-4" />
-            </a>
           </div>
           <div className="flex items-center gap-2">
-            <button
-              onClick={() => setShowIframe(false)}
-              className="p-2 hover:bg-gray-800 rounded-lg transition-colors text-gray-400 hover:text-gray-200"
-              title="Edit URL"
-            >
-              <Settings className="w-5 h-5" />
-            </button>
             <button
               onClick={toggleFullscreen}
               className="p-2 hover:bg-gray-800 rounded-lg transition-colors text-gray-400 hover:text-gray-200"
