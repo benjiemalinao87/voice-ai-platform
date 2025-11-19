@@ -5328,8 +5328,11 @@ export default {
         const now = Math.floor(Date.now() / 1000);
         const thirtyDaysAgo = now - (30 * 24 * 60 * 60);
         
+        // Start timestamp: beginning of the day (00:00:00)
         const startTimestamp = fromDate ? Math.floor(new Date(fromDate).getTime() / 1000) : thirtyDaysAgo;
-        const endTimestamp = toDate ? Math.floor(new Date(toDate).getTime() / 1000) : now;
+        
+        // End timestamp: end of the day (23:59:59) to include all calls on that day
+        const endTimestamp = toDate ? Math.floor(new Date(toDate + 'T23:59:59Z').getTime() / 1000) : now;
 
         // Fetch all calls in date range
         const { results: allCalls } = await env.DB.prepare(
