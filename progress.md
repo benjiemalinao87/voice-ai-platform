@@ -2,6 +2,61 @@
 
 ## Completed Features
 
+### Embedding Addon Feature (January 2025)
+✅ **Successfully implemented Embedding as addons feature**
+
+**Components Created:**
+- `EmbeddingModal.tsx` - Complete embedding modal with URL configuration and iframe display
+- Updated `Addons.tsx` - Added embedding addon with configuration UI
+
+**Features Implemented:**
+- **Embedding Addon**: New addon type that allows users to embed external websites
+- **URL Configuration**: Users can provide a site URL to embed
+- **Modal Display**: Embedded sites open in a modal overlay within the dashboard
+- **Fullscreen Support**: Toggle between windowed and fullscreen modes
+- **URL Validation**: Validates URLs to ensure they use http:// or https://
+- **Settings Persistence**: Saves embedding URL to database for future use
+- **Edit Functionality**: Users can edit the URL from the iframe view
+- **Direct Open**: If URL is already saved, opens iframe directly; otherwise shows configuration form
+
+**Backend Endpoints Created:**
+- `POST /api/addons/embedding/settings` - Save embedding URL settings
+- `GET /api/addons/embedding/settings` - Get embedding URL settings
+
+**Database Integration:**
+- Uses existing `user_addons` table with `settings` column (JSON format)
+- Stores embedding URL as: `{ "url": "https://example.com" }`
+- Automatically creates addon record when settings are saved
+
+**UI Features:**
+- Beautiful modal interface matching existing dashboard design
+- Configuration form with URL input and validation
+- Iframe display with header bar showing current URL
+- Fullscreen toggle button
+- Edit button to return to configuration
+- External link button to open URL in new tab
+- Responsive design for all screen sizes
+- Dark mode support
+
+**Technical Implementation:**
+- Secure iframe sandbox attributes for security
+- URL validation on both client and server side
+- TypeScript interfaces for type safety
+- Error handling with user-friendly messages
+- Follows existing code patterns and architecture
+- No linting errors
+
+**User Experience:**
+- Clean, intuitive interface
+- Clear instructions and help text
+- Seamless integration with existing Addons page
+- Button shows "Configure Embedding" or "Open Embedded Site" based on state
+- Smooth transitions between configuration and iframe views
+
+The Embedding feature is now fully functional. Users can navigate to Settings → Addons, enable the Embedding addon, configure a URL, and open embedded sites as modals within the dashboard.
+
+## Completed Features
+
 ### Phone Numbers Management (January 24, 2025)
 ✅ **Successfully implemented Phone Numbers tab with Twilio import and free number creation**
 

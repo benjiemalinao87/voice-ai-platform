@@ -202,6 +202,19 @@ class D1Client {
     });
   }
 
+  async saveEmbeddingSettings(url: string, buttonName: string): Promise<{ message: string }> {
+    return this.request('/api/addons/embedding/settings', {
+      method: 'POST',
+      body: JSON.stringify({ url, buttonName }),
+    });
+  }
+
+  async getEmbeddingSettings(): Promise<{ url: string | null; buttonName: string | null; isEnabled: boolean }> {
+    return this.request('/api/addons/embedding/settings', {
+      method: 'GET',
+    });
+  }
+
   async getAddonResults(callId: string): Promise<{
     results: Array<{
       addon_type: string;

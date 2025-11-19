@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
-import { Zap, Database, Sparkles, ChevronRight, Check, X } from 'lucide-react';
+import { Zap, Database, Sparkles, ChevronRight, Check, X, Globe } from 'lucide-react';
 import { d1Client } from '../lib/d1';
+import { EmbeddingModal } from './EmbeddingModal';
 
 interface Addon {
   id: string;
@@ -30,6 +31,21 @@ const availableAddons: Omit<Addon, 'isEnabled'>[] = [
       'Contact enrichment',
       'Real-time verification'
     ]
+  },
+  {
+    id: 'embedding',
+    name: 'Embedding',
+    description: 'Embed external websites and applications as modals within your dashboard. Provide a URL to open any site in a modal overlay.',
+    icon: <Globe className="w-6 h-6" />,
+    type: 'embedding',
+    isPaid: false,
+    features: [
+      'Embed any website URL',
+      'Modal overlay display',
+      'Full-screen support',
+      'Easy configuration',
+      'Secure iframe embedding'
+    ]
   }
 ];
 
@@ -37,6 +53,9 @@ export function Addons() {
   const [addons, setAddons] = useState<Addon[]>([]);
   const [loading, setLoading] = useState(true);
   const [toggling, setToggling] = useState<string | null>(null);
+  const [showEmbeddingModal, setShowEmbeddingModal] = useState(false);
+  const [embeddingUrl, setEmbeddingUrl] = useState<string>('');
+  const [embeddingButtonName, setEmbeddingButtonName] = useState<string>('');
 
   useEffect(() => {
     loadAddons();
@@ -57,6 +76,22 @@ export function Addons() {
       });
 
       setAddons(mergedAddons);
+
+      // Load embedding URL and button name if embedding addon exists
+      const embeddingAddon = response.addons.find((a: any) => a.addon_type === 'embedding');
+      if (embeddingAddon && embeddingAddon.settings) {
+        try {
+          const settings = JSON.parse(embeddingAddon.settings);
+          if (settings.url) {
+            setEmbeddingUrl(settings.url);
+          }
+          if (settings.buttonName) {
+            setEmbeddingButtonName(settings.buttonName);
+          }
+        } catch (e) {
+          console.error('Error parsing embedding settings:', e);
+        }
+      }
     } catch (error) {
       console.error('Error loading addons:', error);
       // Set default state if error
@@ -173,19 +208,30 @@ export function Addons() {
             </div>
 
             {/* Status */}
-            <div className={`mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between`}>
-              <span className={`text-sm font-medium ${
-                addon.isEnabled
-                  ? 'text-green-600 dark:text-green-400'
-                  : 'text-gray-500 dark:text-gray-400'
-              }`}>
-                {addon.isEnabled ? 'Active' : 'Inactive'}
-              </span>
-              {addon.isEnabled && (
-                <span className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
-                  <Sparkles className="w-3 h-3" />
-                  Processing calls automatically
+            <div className={`mt-4 pt-4 border-t border-gray-200 dark:border-gray-700`}>
+              <div className="flex items-center justify-between mb-2">
+                <span className={`text-sm font-medium ${
+                  addon.isEnabled
+                    ? 'text-green-600 dark:text-green-400'
+                    : 'text-gray-500 dark:text-gray-400'
+                }`}>
+                  {addon.isEnabled ? 'Active' : 'Inactive'}
                 </span>
+                {addon.isEnabled && addon.type !== 'embedding' && (
+                  <span className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
+                    <Sparkles className="w-3 h-3" />
+                    Processing calls automatically
+                  </span>
+                )}
+              </div>
+              {addon.type === 'embedding' && addon.isEnabled && (
+                <button
+                  onClick={() => setShowEmbeddingModal(true)}
+                  className="w-full mt-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors flex items-center justify-center gap-2"
+                >
+                  <Globe className="w-4 h-4" />
+                  {embeddingUrl ? 'Open Embedded Site' : 'Configure Embedding'}
+                </button>
               )}
             </div>
           </div>
@@ -206,6 +252,23 @@ export function Addons() {
           </div>
         </div>
       </div>
+
+      {/* Embedding Modal */}
+      {showEmbeddingModal && (
+        <EmbeddingModal
+          isOpen={showEmbeddingModal}
+          onClose={() => setShowEmbeddingModal(false)}
+          initialUrl={embeddingUrl}
+          initialButtonName={embeddingButtonName}
+          onUrlSaved={(url, buttonName) => {
+            setEmbeddingUrl(url);
+            setEmbeddingButtonName(buttonName);
+            loadAddons(); // Reload to get updated settings
+            // Trigger a custom event to notify App.tsx to reload embedding settings
+            window.dispatchEvent(new CustomEvent('embeddingSettingsUpdated'));
+          }}
+        />
+      )}
     </div>
   );
 }

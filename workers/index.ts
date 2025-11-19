@@ -3263,6 +3263,83 @@ export default {
         return jsonResponse({ results: results || [] });
       }
 
+      // Save embedding settings
+      if (url.pathname === '/api/addons/embedding/settings' && request.method === 'POST') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        const { url: embeddingUrl, buttonName } = await request.json() as any;
+
+        if (!embeddingUrl || typeof embeddingUrl !== 'string') {
+          return jsonResponse({ error: 'URL is required' }, 400);
+        }
+
+        if (!buttonName || typeof buttonName !== 'string' || buttonName.trim().length === 0) {
+          return jsonResponse({ error: 'Button name is required' }, 400);
+        }
+
+        // Validate URL format
+        try {
+          const urlObj = new URL(embeddingUrl);
+          if (urlObj.protocol !== 'http:' && urlObj.protocol !== 'https:') {
+            return jsonResponse({ error: 'URL must use http:// or https://' }, 400);
+          }
+        } catch {
+          return jsonResponse({ error: 'Invalid URL format' }, 400);
+        }
+
+        const timestamp = now();
+        const settings = JSON.stringify({ url: embeddingUrl, buttonName: buttonName.trim() });
+
+        // Check if embedding addon exists
+        const existing = await env.DB.prepare(
+          'SELECT id FROM user_addons WHERE user_id = ? AND addon_type = ?'
+        ).bind(userId, 'embedding').first();
+
+        if (existing) {
+          // Update existing
+          await env.DB.prepare(
+            'UPDATE user_addons SET settings = ?, updated_at = ? WHERE user_id = ? AND addon_type = ?'
+          ).bind(settings, timestamp, userId, 'embedding').run();
+        } else {
+          // Create new with enabled by default
+          await env.DB.prepare(
+            'INSERT INTO user_addons (id, user_id, addon_type, is_enabled, settings, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+          ).bind(generateId(), userId, 'embedding', 1, settings, timestamp, timestamp).run();
+        }
+
+        return jsonResponse({ message: 'Embedding settings saved successfully' });
+      }
+
+      // Get embedding settings
+      if (url.pathname === '/api/addons/embedding/settings' && request.method === 'GET') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        const result = await env.DB.prepare(
+          'SELECT settings, is_enabled FROM user_addons WHERE user_id = ? AND addon_type = ?'
+        ).bind(userId, 'embedding').first();
+
+        if (!result || !result.settings) {
+          return jsonResponse({ url: null, buttonName: null, isEnabled: false });
+        }
+
+        try {
+          const settings = JSON.parse(result.settings as string);
+          return jsonResponse({ 
+            url: settings.url || null,
+            buttonName: settings.buttonName || null,
+            isEnabled: result.is_enabled === 1
+          });
+        } catch {
+          return jsonResponse({ url: null, buttonName: null, isEnabled: false });
+        }
+      }
+
       // ============================================
       // SCHEDULING TRIGGERS ENDPOINTS (Protected)
       // ============================================

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { BarChart3, Settings as SettingsIcon, Calendar, Moon, Sun, Mic, Brain, Bot, CalendarCheck } from 'lucide-react';
+import { BarChart3, Settings as SettingsIcon, Calendar, Moon, Sun, Mic, Brain, Bot, CalendarCheck, Globe } from 'lucide-react';
 import { PerformanceDashboard } from './components/PerformanceDashboard';
 import { AgentConfig } from './components/AgentConfig';
 import { Recordings } from './components/Recordings';
@@ -14,9 +14,11 @@ import { VoiceAgentsList } from './components/VoiceAgentsList';
 import { CreateAgentModal } from './components/CreateAgentModal';
 import { WhatsNew } from './components/WhatsNew';
 import { AppointmentsByAI } from './components/AppointmentsByAI';
+import { EmbeddingModal } from './components/EmbeddingModal';
 import { useAuth } from './contexts/AuthContext';
 import { useVapi } from './contexts/VapiContext';
 import { agentApi } from './lib/api';
+import { d1Client } from './lib/d1';
 import type { Agent } from './types';
 
 type View = 'dashboard' | 'config' | 'recordings' | 'settings' | 'flow' | 'intent' | 'livechat' | 'board' | 'appointments';
@@ -52,13 +54,41 @@ function App() {
     from: new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString(),
     to: new Date().toISOString()
   });
+  const [embeddingSettings, setEmbeddingSettings] = useState<{
+    url: string | null;
+    buttonName: string | null;
+    isEnabled: boolean;
+  }>({ url: null, buttonName: null, isEnabled: false });
+  const [showEmbeddingModal, setShowEmbeddingModal] = useState(false);
 
   // Reload agents when API client, selected org, or workspace changes
   useEffect(() => {
     if (isAuthenticated) {
       loadAgents();
+      loadEmbeddingSettings();
     }
   }, [vapiClient, selectedOrgId, selectedWorkspaceId, isAuthenticated]);
+
+  // Listen for embedding settings updates
+  useEffect(() => {
+    const handleEmbeddingUpdate = () => {
+      loadEmbeddingSettings();
+    };
+    window.addEventListener('embeddingSettingsUpdated', handleEmbeddingUpdate);
+    return () => {
+      window.removeEventListener('embeddingSettingsUpdated', handleEmbeddingUpdate);
+    };
+  }, []);
+
+  const loadEmbeddingSettings = async () => {
+    try {
+      const settings = await d1Client.getEmbeddingSettings();
+      setEmbeddingSettings(settings);
+    } catch (error) {
+      console.error('Error loading embedding settings:', error);
+      setEmbeddingSettings({ url: null, buttonName: null, isEnabled: false });
+    }
+  };
 
   // Save current view to localStorage when it changes
   useEffect(() => {
@@ -331,6 +361,15 @@ function App() {
                       <SettingsIcon className="w-4 h-4" />
                       Settings
                     </button>
+                    {embeddingSettings.isEnabled && embeddingSettings.buttonName && embeddingSettings.url && (
+                      <button
+                        onClick={() => setShowEmbeddingModal(true)}
+                        className="flex items-center gap-2 px-4 py-2 rounded-md font-medium transition-colors bg-blue-600 hover:bg-blue-700 text-white shadow-sm"
+                      >
+                        <Globe className="w-4 h-4" />
+                        {embeddingSettings.buttonName}
+                      </button>
+                    )}
               </div>
             </div>
           </div>
@@ -462,6 +501,20 @@ function App() {
         <CreateAgentModal
           onClose={() => setShowCreateAgentModal(false)}
           onCreate={handleCreateAgent}
+        />
+      )}
+
+      {/* Embedding Modal */}
+      {showEmbeddingModal && embeddingSettings.url && (
+        <EmbeddingModal
+          isOpen={showEmbeddingModal}
+          onClose={() => setShowEmbeddingModal(false)}
+          initialUrl={embeddingSettings.url || ''}
+          initialButtonName={embeddingSettings.buttonName || ''}
+          onUrlSaved={(url, buttonName) => {
+            setEmbeddingSettings({ ...embeddingSettings, url, buttonName });
+            loadEmbeddingSettings();
+          }}
         />
       )}
     </div>
