@@ -25,9 +25,9 @@ export function FunnelChart({ data, height = 400 }: FunnelChartProps) {
           const percentage = (item.value / maxValue) * 100;
           const percentageOfTotal = totalCalls > 0 ? (item.value / totalCalls) * 100 : 0;
 
-          // Calculate width - funnel effect (narrower as we go down)
-          // Ensure minimum width of 30% for visibility
-          const widthPercentage = Math.max(percentage * 0.9, 30);
+          // Calculate width - true funnel effect based on actual value
+          // Scale from 100% (max value) to minimum 20% (for visibility)
+          const widthPercentage = 20 + (percentage * 0.8); // Maps 100% -> 100%, 0% -> 20%
 
           return (
             <div
