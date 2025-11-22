@@ -23,6 +23,7 @@ import { SentimentKeywords } from './SentimentKeywords';
 import { MultiLineChart } from './MultiLineChart';
 import { AreaChart } from './AreaChart';
 import { StackedBarChart } from './StackedBarChart';
+import { FunnelChart } from './FunnelChart';
 import { ReportGeneratorModal } from './ReportGeneratorModal';
 import { d1Client } from '../lib/d1';
 import type { DashboardMetrics, Call, KeywordTrend } from '../types';
@@ -527,9 +528,10 @@ export function PerformanceDashboard({ selectedAgentId, dateRange }: Performance
         />
       </div>
 
+      {/* Call Ended Reasons - Timeline View */}
       <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Reason Call Ended</h3>
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Reason Call Ended - Timeline</h3>
         </div>
         {callEndedReasons && callEndedReasons.dates.length > 0 && Object.keys(callEndedReasons.reasons).length > 0 ? (
           <StackedBarChart
@@ -542,6 +544,33 @@ export function PerformanceDashboard({ selectedAgentId, dateRange }: Performance
         ) : (
           <div className="flex items-center justify-center h-[300px] text-gray-400 dark:text-gray-500">
             No call ended reason data available
+          </div>
+        )}
+      </div>
+
+      {/* Call Outcome Funnel */}
+      <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Call Outcome Funnel</h3>
+          <p className="text-sm text-gray-500 dark:text-gray-400">Distribution by end reason</p>
+        </div>
+        {callEndedReasons && Object.keys(callEndedReasons.reasons).length > 0 ? (
+          <FunnelChart
+            data={Object.entries(callEndedReasons.reasons).map(([reason, counts]) => {
+              const total = Array.isArray(counts)
+                ? counts.reduce((sum, count) => sum + count, 0)
+                : 0;
+              return {
+                label: reason.split('-').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' '),
+                value: total,
+                color: callEndedReasons.colors[reason] || '#6B7280'
+              };
+            })}
+            height={400}
+          />
+        ) : (
+          <div className="flex items-center justify-center h-[400px] text-gray-400 dark:text-gray-500">
+            No call outcome data available
           </div>
         )}
       </div>

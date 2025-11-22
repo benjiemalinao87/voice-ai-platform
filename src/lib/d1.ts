@@ -329,7 +329,7 @@ class D1Client {
     });
   }
 
-  // Get call ended reasons data
+  // Get call ended reasons data (timeline view)
   async getCallEndedReasons(params?: {
     start_date?: string;
     end_date?: string;
@@ -344,6 +344,13 @@ class D1Client {
 
     const query = queryParams.toString();
     return this.request(`/api/call-ended-reasons${query ? '?' + query : ''}`, {
+      method: 'GET',
+    });
+  }
+
+  // Get call ended reason counts (total counts, no date grouping)
+  async getCallEndedReasonCounts(): Promise<Record<string, number>> {
+    return this.request('/api/call-ended-reason-counts', {
       method: 'GET',
     });
   }

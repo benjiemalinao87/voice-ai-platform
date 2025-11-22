@@ -3716,22 +3716,22 @@ export default {
         console.log(`Cache MISS for recordings: user=${effectiveUserId}, page=${page}, limit=${limit}${cacheBust ? ' (cache-bust requested)' : ''}`);
 
         // First, get the total count
-        // Note: Removed customer_number filter to show all recordings including test calls
+        // Filter out test calls (those without customer_number) to match funnel data
         let countQuery = env.DB.prepare(
           `SELECT COUNT(*) as total
           FROM webhook_calls wc
-          WHERE wc.user_id = ?
+          WHERE wc.user_id = ? AND wc.customer_number IS NOT NULL
           ${webhookId ? 'AND wc.webhook_id = ?' : ''}`
         );
 
         const countParams = webhookId ? [effectiveUserId, webhookId] : [effectiveUserId];
         const countResult = await countQuery.bind(...countParams).first<{ total: number }>();
         const totalCount = countResult?.total || 0;
-        
+
         console.log(`Total recordings count for user ${effectiveUserId}: ${totalCount}`);
 
         // Fetch from database with enhanced data (using effectiveUserId for workspace context)
-        // Note: Showing all recordings including test calls
+        // Filter out test calls (those without customer_number) to match funnel data
         let query = env.DB.prepare(
           `SELECT
             wc.id,
@@ -3759,7 +3759,7 @@ export default {
             ar.result_data as enhanced_data
           FROM webhook_calls wc
           LEFT JOIN addon_results ar ON ar.call_id = wc.id AND ar.addon_type = 'enhanced_data' AND ar.status = 'success'
-          WHERE wc.user_id = ?
+          WHERE wc.user_id = ? AND wc.customer_number IS NOT NULL
           ${webhookId ? 'AND wc.webhook_id = ?' : ''}
           ORDER BY CASE
             WHEN wc.created_at > 1000000000000 THEN wc.created_at / 1000
@@ -4256,6 +4256,44 @@ export default {
           reasons: reasonData,
           colors: reasonColors
         });
+      }
+
+      // Get call ended reason counts (total, not by date)
+      if (url.pathname === '/api/call-ended-reason-counts' && request.method === 'GET') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        // Get effective user ID for workspace context
+        const { effectiveUserId } = await getEffectiveUserId(env, userId);
+
+        // Get total counts by ended_reason (no date filtering for Recordings page)
+        const { results } = await env.DB.prepare(
+          `SELECT
+            ended_reason,
+            COUNT(*) as count
+          FROM webhook_calls
+          WHERE user_id = ?
+          AND ended_reason IS NOT NULL
+          AND customer_number IS NOT NULL
+          GROUP BY ended_reason
+          ORDER BY count DESC`
+        ).bind(effectiveUserId).all();
+
+        // Convert to object format
+        const counts: Record<string, number> = {};
+        let total = 0;
+
+        for (const row of (results || []) as any[]) {
+          counts[row.ended_reason] = row.count;
+          total += row.count;
+        }
+
+        // Add total count
+        counts['all'] = total;
+
+        return jsonResponse(counts);
       }
 
       // Get top keywords
@@ -4787,7 +4825,7 @@ export default {
 
         console.log(`Cache MISS for intent analysis: user=${effectiveUserId}`);
 
-        // Fetch analyzed calls from database with enhanced data (using effectiveUserId)
+        // Fetch all calls from database with enhanced data (using effectiveUserId)
         // Filter out test calls (those without customer_number)
         const { results } = await env.DB.prepare(
           `SELECT
@@ -4816,7 +4854,7 @@ export default {
             ar.result_data as enhanced_data
           FROM webhook_calls wc
           LEFT JOIN addon_results ar ON ar.call_id = wc.id AND ar.addon_type = 'enhanced_data' AND ar.status = 'success'
-          WHERE wc.user_id = ? AND wc.analysis_completed = 1 AND wc.customer_number IS NOT NULL
+          WHERE wc.user_id = ? AND wc.customer_number IS NOT NULL
           ORDER BY wc.created_at DESC
           LIMIT ? OFFSET ?`
         ).bind(effectiveUserId, limit, offset).all();

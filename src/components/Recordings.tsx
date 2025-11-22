@@ -163,12 +163,10 @@ const mockRecordings: Recording[] = [
   }
 ];
 
-type CallTab = 'answered' | 'missed' | 'forwarded';
-
 export function Recordings() {
   const [allRecordings, setAllRecordings] = useState<Recording[]>([]); // All loaded recordings
   const [totalCount, setTotalCount] = useState<number>(0);
-  const [activeTab, setActiveTab] = useState<CallTab>('answered');
+  const [activeTab, setActiveTab] = useState<string>('all');
   const [loading, setLoading] = useState(true);
   const [playingId, setPlayingId] = useState<string | null>(null);
   const [currentTime, setCurrentTime] = useState<{ [key: string]: number }>({});
@@ -179,12 +177,24 @@ export function Recordings() {
   const [translations, setTranslations] = useState<{ [key: string]: string }>({});
   const [translating, setTranslating] = useState<{ [key: string]: boolean }>({});
   const [hasLoadedAll, setHasLoadedAll] = useState(false);
+  const [actualCounts, setActualCounts] = useState<Record<string, number>>({});
 
-  // Load initial recordings
+  // Load end reason counts from API
+  const loadEndReasonCounts = async () => {
+    try {
+      const counts = await d1Client.getCallEndedReasonCounts();
+      setActualCounts(counts);
+    } catch (error) {
+      console.error('Error loading end reason counts:', error);
+    }
+  };
+
+  // Load initial recordings and counts
   useEffect(() => {
     setAllRecordings([]);
     setHasLoadedAll(false);
     loadRecordings(0, 50);
+    loadEndReasonCounts();
   }, []);
 
   // Reset to page 1 when tab changes
@@ -194,12 +204,11 @@ export function Recordings() {
 
   // Load more recordings if needed when page changes
   useEffect(() => {
-    const filtered = allRecordings.filter(recording => {
-      const category = categorizeCall(recording);
-      return category === activeTab;
-    });
+    const filtered = activeTab === 'all'
+      ? allRecordings
+      : allRecordings.filter(recording => recording.endedReason === activeTab);
     const neededCount = currentPage * itemsPerPage;
-    
+
     if (filtered.length < neededCount && !hasLoadedAll && !loading) {
       loadMoreRecordings();
     }
@@ -208,35 +217,23 @@ export function Recordings() {
   // Removed auto-refresh to improve UX - user can manually refresh if needed
   // Auto-refresh was causing the page to keep refreshing every 30 seconds
 
-  // Categorize calls based on ended_reason and recording_url
-  const categorizeCall = (recording: Recording): CallTab => {
-    const endedReason = (recording.endedReason || '').toLowerCase();
-    
-    // Check for forwarded calls
-    if (endedReason.includes('forwarded') || endedReason.includes('forward')) {
-      return 'forwarded';
-    }
-    
-    // Check for missed calls (no recording and specific ended reasons)
-    if (!recording.wasAnswered && (
-      endedReason.includes('silence') || 
-      endedReason.includes('timeout') ||
-      endedReason.includes('no-answer') ||
-      recording.duration === 0
-    )) {
-      return 'missed';
-    }
-    
-    // Default to answered if there's a recording or the call completed
-    return 'answered';
+  // Get unique end reasons from all loaded recordings
+  const getUniqueEndReasons = (): string[] => {
+    const reasons = new Set<string>();
+    allRecordings.forEach(recording => {
+      if (recording.endedReason) {
+        reasons.add(recording.endedReason);
+      }
+    });
+    return Array.from(reasons).sort();
   };
 
   // Get filtered recordings by active tab
   const getFilteredRecordings = (): Recording[] => {
-    return allRecordings.filter(recording => {
-      const category = categorizeCall(recording);
-      return category === activeTab;
-    });
+    if (activeTab === 'all') {
+      return allRecordings;
+    }
+    return allRecordings.filter(recording => recording.endedReason === activeTab);
   };
 
   // Get paginated recordings for current page
@@ -572,12 +569,9 @@ export function Recordings() {
     );
   }
 
-  // Count recordings by category (from all loaded recordings)
-  const counts = {
-    answered: allRecordings.filter(r => categorizeCall(r) === 'answered').length,
-    missed: allRecordings.filter(r => categorizeCall(r) === 'missed').length,
-    forwarded: allRecordings.filter(r => categorizeCall(r) === 'forwarded').length,
-  };
+  // Use actual counts from API (not just loaded recordings)
+  const counts = actualCounts;
+  const uniqueEndReasons = Object.keys(actualCounts).filter(key => key !== 'all').sort();
 
   // Get total filtered count for current tab
   const filteredTotal = getFilteredRecordings().length;
@@ -599,72 +593,53 @@ export function Recordings() {
         </div>
       </div>
 
-      {/* Tab Navigation */}
+      {/* Tab Navigation - Dynamic based on endedReason */}
       <div className="border-b border-gray-200 dark:border-gray-700">
-        <nav className="-mb-px flex space-x-8" aria-label="Tabs">
+        <nav className="-mb-px flex space-x-8 overflow-x-auto" aria-label="Tabs">
+          {/* All Tab */}
           <button
-            onClick={() => setActiveTab('answered')}
+            onClick={() => setActiveTab('all')}
             className={`
               py-4 px-1 border-b-2 font-medium text-sm whitespace-nowrap
-              ${activeTab === 'answered'
+              ${activeTab === 'all'
                 ? 'border-blue-500 text-blue-600 dark:text-blue-400'
                 : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
               }
             `}
           >
-            Answered
-            {counts.answered > 0 && (
+            All
+            <span className={`ml-2 py-0.5 px-2 rounded-full text-xs ${
+              activeTab === 'all'
+                ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400'
+                : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400'
+            }`}>
+              {counts.all || 0}
+            </span>
+          </button>
+
+          {/* Dynamic tabs based on unique endedReason values */}
+          {uniqueEndReasons.map(reason => (
+            <button
+              key={reason}
+              onClick={() => setActiveTab(reason)}
+              className={`
+                py-4 px-1 border-b-2 font-medium text-sm whitespace-nowrap
+                ${activeTab === reason
+                  ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
+                }
+              `}
+            >
+              {reason.split('-').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')}
               <span className={`ml-2 py-0.5 px-2 rounded-full text-xs ${
-                activeTab === 'answered'
+                activeTab === reason
                   ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400'
                   : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400'
               }`}>
-                {counts.answered}
+                {counts[reason] || 0}
               </span>
-            )}
-          </button>
-          <button
-            onClick={() => setActiveTab('missed')}
-            className={`
-              py-4 px-1 border-b-2 font-medium text-sm whitespace-nowrap
-              ${activeTab === 'missed'
-                ? 'border-blue-500 text-blue-600 dark:text-blue-400'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
-              }
-            `}
-          >
-            Missed
-            {counts.missed > 0 && (
-              <span className={`ml-2 py-0.5 px-2 rounded-full text-xs ${
-                activeTab === 'missed'
-                  ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400'
-                  : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400'
-              }`}>
-                {counts.missed}
-              </span>
-            )}
-          </button>
-          <button
-            onClick={() => setActiveTab('forwarded')}
-            className={`
-              py-4 px-1 border-b-2 font-medium text-sm whitespace-nowrap
-              ${activeTab === 'forwarded'
-                ? 'border-blue-500 text-blue-600 dark:text-blue-400'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
-              }
-            `}
-          >
-            Forwarded
-            {counts.forwarded > 0 && (
-              <span className={`ml-2 py-0.5 px-2 rounded-full text-xs ${
-                activeTab === 'forwarded'
-                  ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400'
-                  : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400'
-              }`}>
-                {counts.forwarded}
-              </span>
-            )}
-          </button>
+            </button>
+          ))}
         </nav>
       </div>
 
