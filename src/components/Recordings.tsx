@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Play, Pause, Phone, Clock, Calendar, User, MapPin, Download, MessageSquare, ChevronDown, ChevronUp, Languages, Loader2, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Play, Pause, Phone, PhoneIncoming, Clock, Calendar, User, MapPin, Download, MessageSquare, ChevronDown, ChevronUp, Languages, Loader2, ChevronLeft, ChevronRight } from 'lucide-react';
 import { d1Client } from '../lib/d1';
 import type { WebhookCall } from '../types';
 import { CustomerProfile } from './CustomerProfile';
