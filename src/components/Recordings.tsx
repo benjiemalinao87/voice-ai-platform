@@ -180,6 +180,7 @@ export function Recordings() {
   const [translating, setTranslating] = useState<{ [key: string]: boolean }>({});
   const [hasLoadedAll, setHasLoadedAll] = useState(false);
   const [actualCounts, setActualCounts] = useState<Record<string, number>>({});
+  const [phoneCallCounts, setPhoneCallCounts] = useState<{ [phoneNumber: string]: number }>({});
 
   // Load end reason counts from API
   const loadEndReasonCounts = async () => {
@@ -438,8 +439,10 @@ export function Recordings() {
       });
       
       // Append to allRecordings and remove duplicates
+      let updatedRecordings;
       if (offset === 0) {
         setAllRecordings(sortedRecordings);
+        updatedRecordings = sortedRecordings;
       } else {
         setAllRecordings(prev => {
           const merged = [...prev, ...sortedRecordings];
@@ -448,9 +451,22 @@ export function Recordings() {
             new Map(merged.map(r => [r.id, r])).values()
           );
           // Re-sort after merge
-          return unique.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+          const sorted = unique.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+          updatedRecordings = sorted;
+          return sorted;
         });
       }
+
+      // Calculate call counts per phone number for outbound calls
+      const callCounts: { [phoneNumber: string]: number } = {};
+      const recordingsToCount = updatedRecordings || sortedRecordings;
+      recordingsToCount.forEach((recording) => {
+        if (recording.callType === 'outboundPhoneCall' && recording.customerPhone) {
+          const phone = recording.customerPhone;
+          callCounts[phone] = (callCounts[phone] || 0) + 1;
+        }
+      });
+      setPhoneCallCounts(callCounts);
 
       // Check if we've loaded all recordings
       if (webhookCalls.length < limit || (offset + webhookCalls.length) >= total) {
@@ -600,9 +616,11 @@ export function Recordings() {
   const counts = actualCounts;
   const uniqueEndReasons = Object.keys(actualCounts).filter(key => key !== 'all').sort();
 
-  // Calculate inbound/outbound counts from loaded recordings
+  // Calculate inbound/outbound counts from ALL recordings (not just loaded)
+  // We need to use the total count from the database, not just loaded recordings
   const inboundCount = allRecordings.filter(r => r.callType === 'inboundPhoneCall').length;
   const outboundCount = allRecordings.filter(r => r.callType === 'outboundPhoneCall').length;
+  const totalCallsCount = counts.all || totalCount;
 
   // Get total filtered count for current tab
   const filteredTotal = getFilteredRecordings().length;
@@ -626,25 +644,18 @@ export function Recordings() {
 
       {/* Call Type Filter */}
       <div className="flex items-center gap-3">
-        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Call Type:</span>
+        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Filter by:</span>
         <div className="flex gap-2">
           <button
             onClick={() => setCallTypeFilter('all')}
             className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
               callTypeFilter === 'all'
-                ? 'bg-blue-600 dark:bg-blue-500 text-white'
+                ? 'bg-gray-600 dark:bg-gray-500 text-white'
                 : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
             }`}
           >
             <Phone className="w-4 h-4" />
-            All Calls
-            <span className={`ml-1 px-2 py-0.5 rounded-full text-xs ${
-              callTypeFilter === 'all'
-                ? 'bg-blue-500 dark:bg-blue-400 text-white'
-                : 'bg-gray-200 dark:bg-gray-600 text-gray-600 dark:text-gray-400'
-            }`}>
-              {allRecordings.length}
-            </span>
+            All
           </button>
 
           <button
@@ -657,13 +668,6 @@ export function Recordings() {
           >
             <PhoneIncoming className="w-4 h-4" />
             Inbound
-            <span className={`ml-1 px-2 py-0.5 rounded-full text-xs ${
-              callTypeFilter === 'inbound'
-                ? 'bg-blue-500 dark:bg-blue-400 text-white'
-                : 'bg-gray-200 dark:bg-gray-600 text-gray-600 dark:text-gray-400'
-            }`}>
-              {inboundCount}
-            </span>
           </button>
 
           <button
@@ -676,13 +680,6 @@ export function Recordings() {
           >
             <Phone className="w-4 h-4" />
             Outbound
-            <span className={`ml-1 px-2 py-0.5 rounded-full text-xs ${
-              callTypeFilter === 'outbound'
-                ? 'bg-green-500 dark:bg-green-400 text-white'
-                : 'bg-gray-200 dark:bg-gray-600 text-gray-600 dark:text-gray-400'
-            }`}>
-              {outboundCount}
-            </span>
           </button>
         </div>
       </div>
@@ -784,10 +781,17 @@ export function Recordings() {
                         </span>
                       )}
                       {recording.callType === 'outboundPhoneCall' && (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 rounded text-xs font-medium">
-                          <Phone className="w-3 h-3" />
-                          Outbound
-                        </span>
+                        <>
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 rounded text-xs font-medium">
+                            <Phone className="w-3 h-3" />
+                            Outbound
+                          </span>
+                          {recording.customerPhone && phoneCallCounts[recording.customerPhone] && phoneCallCounts[recording.customerPhone] > 1 && (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 rounded text-xs font-medium">
+                              Called {phoneCallCounts[recording.customerPhone]}x
+                            </span>
+                          )}
+                        </>
                       )}
                     </div>
                     <div className="flex items-center gap-3 mt-0.5 text-xs text-gray-600 dark:text-gray-400">

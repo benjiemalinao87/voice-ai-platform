@@ -521,24 +521,6 @@ export function PerformanceDashboard({ selectedAgentId, dateRange }: Performance
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Call Distribution by Voice Agent</h3>
-            <Users className="w-5 h-5 text-gray-400 dark:text-gray-500" />
-          </div>
-          <div className="flex justify-center py-4">
-            {agentDistribution.length > 0 ? (
-              <DonutChart data={agentDistribution} size={200} innerSize={70} />
-            ) : (
-              <div className="flex items-center justify-center h-[200px] text-gray-400 dark:text-gray-500">
-                No agent distribution data available
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <MetricCard
           title="Avg Summary Length"
@@ -590,31 +572,51 @@ export function PerformanceDashboard({ selectedAgentId, dateRange }: Performance
         )}
       </div>
 
-      {/* Call Outcome Funnel */}
-      <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Call Outcome Funnel</h3>
-          <p className="text-sm text-gray-500 dark:text-gray-400">Distribution by end reason</p>
-        </div>
-        {callEndedReasons && Object.keys(callEndedReasons.reasons).length > 0 ? (
-          <FunnelChart
-            data={Object.entries(callEndedReasons.reasons).map(([reason, counts]) => {
-              const total = Array.isArray(counts)
-                ? counts.reduce((sum, count) => sum + count, 0)
-                : 0;
-              return {
-                label: reason.split('-').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' '),
-                value: total,
-                color: callEndedReasons.colors[reason] || '#6B7280'
-              };
-            })}
-            height={400}
-          />
-        ) : (
-          <div className="flex items-center justify-center h-[400px] text-gray-400 dark:text-gray-500">
-            No call outcome data available
+      {/* Call Distribution and Outcome Funnel Row */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Call Distribution by Voice Agent */}
+        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Call Distribution by Voice Agent</h3>
+            <Users className="w-5 h-5 text-gray-400 dark:text-gray-500" />
           </div>
-        )}
+          <div className="flex justify-center py-4">
+            {agentDistribution.length > 0 ? (
+              <DonutChart data={agentDistribution} size={200} innerSize={70} />
+            ) : (
+              <div className="flex items-center justify-center h-[200px] text-gray-400 dark:text-gray-500">
+                No agent distribution data available
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Call Outcome Funnel */}
+        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Call Outcome Funnel</h3>
+            <p className="text-sm text-gray-500 dark:text-gray-400">Distribution by end reason</p>
+          </div>
+          {callEndedReasons && Object.keys(callEndedReasons.reasons).length > 0 ? (
+            <FunnelChart
+              data={Object.entries(callEndedReasons.reasons).map(([reason, counts]) => {
+                const total = Array.isArray(counts)
+                  ? counts.reduce((sum, count) => sum + count, 0)
+                  : 0;
+                return {
+                  label: reason.split('-').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' '),
+                  value: total,
+                  color: callEndedReasons.colors[reason] || '#6B7280'
+                };
+              })}
+              height={300}
+            />
+          ) : (
+            <div className="flex items-center justify-center h-[300px] text-gray-400 dark:text-gray-500">
+              No call outcome data available
+            </div>
+          )}
+        </div>
       </div>
 
       <SentimentKeywords
