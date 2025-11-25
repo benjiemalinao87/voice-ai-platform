@@ -5743,6 +5743,8 @@ export default {
         let voicemailCalls = 0;
         let totalMinutes = 0;
         let appointmentsBooked = 0;
+        let inboundCalls = 0;
+        let outboundCalls = 0;
         const endedReasons: Record<string, number> = {};
         const appointmentsList: any[] = [];
 
@@ -5751,11 +5753,19 @@ export default {
           try {
             const rawPayload = call.raw_payload ? JSON.parse(call.raw_payload) : null;
             const message = rawPayload?.message || {};
-            
+
             // Extract call status
             const status = message.status || 'unknown';
             const endedReason = message.endedReason || call.ended_reason || 'unknown';
-            
+
+            // Count call type (inbound vs outbound)
+            const callType = message?.call?.type;
+            if (callType === 'inboundPhoneCall') {
+              inboundCalls++;
+            } else if (callType === 'outboundPhoneCall') {
+              outboundCalls++;
+            }
+
             // Count ended reasons
             endedReasons[endedReason] = (endedReasons[endedReason] || 0) + 1;
             
@@ -5854,7 +5864,9 @@ export default {
             answerRate,
             totalMinutes,
             avgHandlingTime,
-            appointmentsBooked
+            appointmentsBooked,
+            inboundCalls,
+            outboundCalls
           },
           appointments: appointmentsList,
           endedReasons: endedReasonsArray,

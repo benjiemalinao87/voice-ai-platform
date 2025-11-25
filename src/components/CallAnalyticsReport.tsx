@@ -17,6 +17,8 @@ interface ReportData {
     totalMinutes: number;
     avgHandlingTime: number;
     appointmentsBooked: number;
+    inboundCalls?: number;
+    outboundCalls?: number;
   };
   appointments: Array<{
     id: string;
@@ -266,6 +268,25 @@ export const CallAnalyticsReport: React.FC<CallAnalyticsReportProps> = ({ data, 
             <Text style={styles.summaryValue}>{summary.voicemailCalls} ({Math.round((summary.voicemailCalls / summary.totalCalls) * 100)}%)</Text>
           </View>
         </View>
+
+        {/* Inbound vs Outbound Calls */}
+        {(summary.inboundCalls !== undefined || summary.outboundCalls !== undefined) && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Inbound vs Outbound Calls</Text>
+            <View style={styles.summaryRow}>
+              <Text style={styles.summaryLabel}>Inbound Calls (customers calling in)</Text>
+              <Text style={styles.summaryValue}>
+                {summary.inboundCalls || 0} ({summary.totalCalls > 0 ? Math.round(((summary.inboundCalls || 0) / summary.totalCalls) * 100) : 0}%)
+              </Text>
+            </View>
+            <View style={styles.summaryRow}>
+              <Text style={styles.summaryLabel}>Outbound Calls (AI calling customers)</Text>
+              <Text style={styles.summaryValue}>
+                {summary.outboundCalls || 0} ({summary.totalCalls > 0 ? Math.round(((summary.outboundCalls || 0) / summary.totalCalls) * 100) : 0}%)
+              </Text>
+            </View>
+          </View>
+        )}
 
         {/* Performance Metrics */}
         <View style={styles.section}>

@@ -19,6 +19,8 @@ interface ReportData {
     totalMinutes: number;
     avgHandlingTime: number;
     appointmentsBooked: number;
+    inboundCalls?: number;
+    outboundCalls?: number;
   };
   appointments: Array<{
     id: string;
