@@ -29,6 +29,7 @@ interface Recording {
   callerType?: string;
   carrierName?: string;
   lineType?: string;
+  callType?: 'inboundPhoneCall' | 'outboundPhoneCall' | null;
 }
 
 // Mock recordings data
@@ -167,6 +168,7 @@ export function Recordings() {
   const [allRecordings, setAllRecordings] = useState<Recording[]>([]); // All loaded recordings
   const [totalCount, setTotalCount] = useState<number>(0);
   const [activeTab, setActiveTab] = useState<string>('all');
+  const [callTypeFilter, setCallTypeFilter] = useState<'all' | 'inbound' | 'outbound'>('all');
   const [loading, setLoading] = useState(true);
   const [playingId, setPlayingId] = useState<string | null>(null);
   const [currentTime, setCurrentTime] = useState<{ [key: string]: number }>({});
@@ -228,12 +230,23 @@ export function Recordings() {
     return Array.from(reasons).sort();
   };
 
-  // Get filtered recordings by active tab
+  // Get filtered recordings by active tab and call type
   const getFilteredRecordings = (): Recording[] => {
-    if (activeTab === 'all') {
-      return allRecordings;
+    let filtered = allRecordings;
+
+    // Filter by ended reason
+    if (activeTab !== 'all') {
+      filtered = filtered.filter(recording => recording.endedReason === activeTab);
     }
-    return allRecordings.filter(recording => recording.endedReason === activeTab);
+
+    // Filter by call type
+    if (callTypeFilter === 'inbound') {
+      filtered = filtered.filter(recording => recording.callType === 'inboundPhoneCall');
+    } else if (callTypeFilter === 'outbound') {
+      filtered = filtered.filter(recording => recording.callType === 'outboundPhoneCall');
+    }
+
+    return filtered;
   };
 
   // Get paginated recordings for current page
@@ -328,6 +341,19 @@ export function Recordings() {
         // Enhanced data is now included in the API response - no need for separate fetch!
         const enhancedData = call.enhanced_data || null;
 
+        // Extract call type (inbound vs outbound)
+        let callType: 'inboundPhoneCall' | 'outboundPhoneCall' | null = null;
+        try {
+          if (call.raw_payload) {
+            const payload = typeof call.raw_payload === 'string'
+              ? JSON.parse(call.raw_payload)
+              : call.raw_payload;
+            callType = payload.message?.call?.type || null;
+          }
+        } catch (error) {
+          console.error('Error extracting call type:', error);
+        }
+
         // Get duration from database, or calculate from raw_payload if not available
         let duration = call.duration_seconds || null;
         
@@ -395,7 +421,8 @@ export function Recordings() {
           enhancedData: enhancedData,
           callerType: call.caller_type || undefined,
           carrierName: call.carrier_name || undefined,
-          lineType: call.line_type || undefined
+          lineType: call.line_type || undefined,
+          callType: callType
         };
       });
 
@@ -573,6 +600,10 @@ export function Recordings() {
   const counts = actualCounts;
   const uniqueEndReasons = Object.keys(actualCounts).filter(key => key !== 'all').sort();
 
+  // Calculate inbound/outbound counts from loaded recordings
+  const inboundCount = allRecordings.filter(r => r.callType === 'inboundPhoneCall').length;
+  const outboundCount = allRecordings.filter(r => r.callType === 'outboundPhoneCall').length;
+
   // Get total filtered count for current tab
   const filteredTotal = getFilteredRecordings().length;
 
@@ -590,6 +621,69 @@ export function Recordings() {
             {filteredRecordings.length} of {filteredTotal} {activeTab} recordings
             {hasLoadedAll ? '' : ' (loading more...)'}
           </span>
+        </div>
+      </div>
+
+      {/* Call Type Filter */}
+      <div className="flex items-center gap-3">
+        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Call Type:</span>
+        <div className="flex gap-2">
+          <button
+            onClick={() => setCallTypeFilter('all')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+              callTypeFilter === 'all'
+                ? 'bg-blue-600 dark:bg-blue-500 text-white'
+                : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+            }`}
+          >
+            <Phone className="w-4 h-4" />
+            All Calls
+            <span className={`ml-1 px-2 py-0.5 rounded-full text-xs ${
+              callTypeFilter === 'all'
+                ? 'bg-blue-500 dark:bg-blue-400 text-white'
+                : 'bg-gray-200 dark:bg-gray-600 text-gray-600 dark:text-gray-400'
+            }`}>
+              {allRecordings.length}
+            </span>
+          </button>
+
+          <button
+            onClick={() => setCallTypeFilter('inbound')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+              callTypeFilter === 'inbound'
+                ? 'bg-blue-600 dark:bg-blue-500 text-white'
+                : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+            }`}
+          >
+            <PhoneIncoming className="w-4 h-4" />
+            Inbound
+            <span className={`ml-1 px-2 py-0.5 rounded-full text-xs ${
+              callTypeFilter === 'inbound'
+                ? 'bg-blue-500 dark:bg-blue-400 text-white'
+                : 'bg-gray-200 dark:bg-gray-600 text-gray-600 dark:text-gray-400'
+            }`}>
+              {inboundCount}
+            </span>
+          </button>
+
+          <button
+            onClick={() => setCallTypeFilter('outbound')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+              callTypeFilter === 'outbound'
+                ? 'bg-green-600 dark:bg-green-500 text-white'
+                : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+            }`}
+          >
+            <Phone className="w-4 h-4" />
+            Outbound
+            <span className={`ml-1 px-2 py-0.5 rounded-full text-xs ${
+              callTypeFilter === 'outbound'
+                ? 'bg-green-500 dark:bg-green-400 text-white'
+                : 'bg-gray-200 dark:bg-gray-600 text-gray-600 dark:text-gray-400'
+            }`}>
+              {outboundCount}
+            </span>
+          </button>
         </div>
       </div>
 
@@ -679,9 +773,23 @@ export function Recordings() {
               <div className="flex-1 min-w-0">
                 <div className="flex items-start justify-between mb-1">
                   <div>
-                    <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">
-                      {recording.caller}
-                    </h3>
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">
+                        {recording.caller}
+                      </h3>
+                      {recording.callType === 'inboundPhoneCall' && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded text-xs font-medium">
+                          <PhoneIncoming className="w-3 h-3" />
+                          Inbound
+                        </span>
+                      )}
+                      {recording.callType === 'outboundPhoneCall' && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 rounded text-xs font-medium">
+                          <Phone className="w-3 h-3" />
+                          Outbound
+                        </span>
+                      )}
+                    </div>
                     <div className="flex items-center gap-3 mt-0.5 text-xs text-gray-600 dark:text-gray-400">
                       <span className="flex items-center gap-1">
                         <Phone className="w-4 h-4" />
@@ -890,12 +998,18 @@ export function Recordings() {
                 )}
 
                 {/* Action Buttons */}
-                {recording.wasAnswered && (
+                {recording.wasAnswered && recording.audioUrl && (
                   <div className="flex items-center gap-2 mt-2">
-                    <button className="flex items-center gap-1 px-2.5 py-1 text-xs bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors">
+                    <a
+                      href={recording.audioUrl}
+                      download={`recording-${recording.caller.replace(/\s+/g, '-')}-${new Date(recording.date).toISOString().split('T')[0]}.wav`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-1 px-2.5 py-1 text-xs bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+                    >
                       <Download className="w-3.5 h-3.5" />
                       Download
-                    </button>
+                    </a>
                   </div>
                 )}
               </div>

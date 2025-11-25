@@ -46,6 +46,7 @@ export function PerformanceDashboard({ selectedAgentId, dateRange }: Performance
   const [assistantNames, setAssistantNames] = useState<Record<string, string>>({});
   const [agentDistribution, setAgentDistribution] = useState<Array<{ label: string; value: number; color: string }>>([]);
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
+  const [callTypeDistribution, setCallTypeDistribution] = useState<Array<{ label: string; value: number; color: string }>>([]);
 
   useEffect(() => {
     loadData();
@@ -214,7 +215,7 @@ export function PerformanceDashboard({ selectedAgentId, dateRange }: Performance
       ];
 
       // Convert webhook calls to Call format
-      const convertedCalls: Call[] = (webhookCalls.results || []).map(call => {
+      const convertedCalls: Call[] = (webhookCalls.results || []).map((call: any) => {
         // Extract assistant ID from raw_payload
         let assistantId = '';
         try {
@@ -262,6 +263,28 @@ export function PerformanceDashboard({ selectedAgentId, dateRange }: Performance
         color: colorPalette[index % colorPalette.length]
       }));
 
+      // Calculate call type distribution (inbound vs outbound)
+      let inboundCount = 0;
+      let outboundCount = 0;
+
+      webhookCalls.results.forEach((call: any) => {
+        try {
+          const callType = call.raw_payload?.message?.call?.type;
+          if (callType === 'inboundPhoneCall') {
+            inboundCount++;
+          } else if (callType === 'outboundPhoneCall') {
+            outboundCount++;
+          }
+        } catch (error) {
+          // Skip calls with parsing errors
+        }
+      });
+
+      const callTypeChart = [
+        { label: 'Inbound', value: inboundCount, color: '#3b82f6' },
+        { label: 'Outbound', value: outboundCount, color: '#10b981' }
+      ];
+
       // Fetch assistant names for all unique assistant IDs
       const uniqueAssistantIds = [...new Set(convertedCalls.map(call => call.agent_id).filter(id => id))];
       const assistantNamesMap: Record<string, string> = {};
@@ -291,6 +314,7 @@ export function PerformanceDashboard({ selectedAgentId, dateRange }: Performance
       setCallEndedReasons(reasonsData);
       setAssistantNames(assistantNamesMap);
       setAgentDistribution(agentDistChart);
+      setCallTypeDistribution(callTypeChart);
     } catch (error) {
       console.error('Error loading dashboard data:', error);
       // Set empty state on error
@@ -480,6 +504,24 @@ export function PerformanceDashboard({ selectedAgentId, dateRange }: Performance
           <MultiLineChart series={callVolumeSeries} height={200} showLegend={true} />
         </div>
 
+        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Inbound vs Outbound Calls</h3>
+            <Phone className="w-5 h-5 text-gray-400 dark:text-gray-500" />
+          </div>
+          <div className="flex justify-center py-4">
+            {callTypeDistribution.length > 0 && (callTypeDistribution[0].value > 0 || callTypeDistribution[1].value > 0) ? (
+              <DonutChart data={callTypeDistribution} size={200} innerSize={70} />
+            ) : (
+              <div className="flex items-center justify-center h-[200px] text-gray-400 dark:text-gray-500">
+                No call type data available
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Call Distribution by Voice Agent</h3>
