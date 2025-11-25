@@ -2,6 +2,97 @@
 
 ## Completed Features
 
+### Warm Transfer Feature (November 24, 2025)
+✅ **Successfully implemented Warm Transfer feature for live call handoff to human agents**
+
+**What It Does:**
+- During a live AI call with a customer, operators can initiate a "warm transfer"
+- The system dials the human agent first in the background
+- Once the agent answers, the customer is automatically connected to the agent
+- The AI drops off, leaving customer and agent connected
+
+**Architecture:**
+```
+[Customer] <--VAPI Call--> [AI Assistant]
+                              |
+                    (Warm Transfer Triggered)
+                              |
+                              v
+[Backend] --Twilio API--> [Dial Agent]
+                              |
+                    (Agent Answers)
+                              |
+                              v
+[VAPI] --Transfer--> [Customer + Agent Connected]
+                         (AI Disconnects)
+```
+
+**Files Created:**
+- `workers/twilio-conference.ts` - Twilio conference utilities for agent dialing
+- `workers/migrations/0022_create_warm_transfers.sql` - Database table for tracking transfers
+- `src/components/WarmTransferModal.tsx` - UI modal for warm transfer configuration
+
+**Files Modified:**
+- `workers/index.ts` - Added warm transfer endpoints and webhook handlers
+- `src/components/LiveCallFeed.tsx` - Added Warm Transfer button and modal integration
+- `src/components/AgentConfig.tsx` - Added Transfer Settings section with instructions
+
+**Backend Endpoints:**
+- `POST /api/calls/:callId/warm-transfer` - Initiate warm transfer (dials agent)
+- `GET /api/calls/:callId/warm-transfer-status` - Poll transfer progress
+- `POST /api/calls/:callId/warm-transfer-cancel` - Cancel pending transfer
+- `POST /twiml/join-conference/:conferenceName` - TwiML for agent joining
+- `POST /twiml/join-conference-with-announcement/:conferenceName` - TwiML with announcement
+- `POST /webhook/agent-call-status` - Twilio callback for agent call status
+- `POST /webhook/conference-status` - Twilio callback for conference events
+
+**Database Table:**
+```sql
+CREATE TABLE warm_transfers (
+  id TEXT PRIMARY KEY,
+  vapi_call_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  conference_sid TEXT,
+  agent_number TEXT NOT NULL,
+  agent_call_sid TEXT,
+  status TEXT DEFAULT 'initiated',
+  announcement TEXT,
+  error_message TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+```
+
+**Transfer Status Flow:**
+1. `initiated` - Transfer request received
+2. `dialing_agent` - Twilio is calling the agent
+3. `agent_answered` - Agent picked up, connecting customer
+4. `connected` - Customer and agent are now connected
+5. `failed` - Transfer failed (agent didn't answer, etc.)
+6. `cancelled` - Transfer was cancelled by operator
+
+**UI Features:**
+- "Warm Transfer" button in Live Call Feed (green, distinct from cold transfer)
+- Modal with agent number input and optional announcement message
+- Real-time status updates with polling
+- Progress indicators (Dialing Agent → Agent Answered → Connected)
+- Cancel transfer option during dial-out phase
+- Transfer Settings section in Agent Config with setup instructions
+
+**Requirements:**
+- Twilio Account SID and Auth Token configured in Settings
+- Transfer phone number configured (or VAPI phone number available)
+- Active live call to transfer
+
+**Technical Implementation:**
+- Uses Twilio REST API for outbound calls
+- TwiML endpoints for call handling
+- Webhook-based status updates
+- VAPI controlUrl for final customer transfer
+- Async status polling from frontend
+
+The Warm Transfer feature is now fully functional. Operators can use it from the Live Call Feed to seamlessly connect customers with human agents during live AI calls.
+
 ### Embedding Addon Feature (January 2025)
 ✅ **Successfully implemented Embedding as addons feature**
 

@@ -7,7 +7,9 @@ import {
   Power,
   Edit3,
   Check,
-  X
+  X,
+  PhoneForwarded,
+  Users
 } from 'lucide-react';
 import { agentApi } from '../lib/api';
 import { VoiceTest } from './VoiceTest';
@@ -468,6 +470,47 @@ export function AgentConfig({ agentId }: AgentConfigProps) {
           {/* Knowledge Base Section */}
           <div className="border-b border-gray-200 dark:border-gray-700 pb-6">
             <KnowledgeBase agentId={agentId} />
+          </div>
+
+          {/* Transfer Settings Section */}
+          <div className="border-b border-gray-200 dark:border-gray-700 pb-6">
+            <div className="flex items-center gap-2 mb-4">
+              <Users className="w-5 h-5 text-gray-400 dark:text-gray-500" />
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Transfer Settings</h3>
+            </div>
+            <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-4 space-y-4">
+              <div>
+                <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2">
+                  <PhoneForwarded className="w-4 h-4" />
+                  Warm Transfer
+                </h4>
+                <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
+                  Enable AI-initiated warm transfers to connect customers with human agents. The AI will dial the agent first, 
+                  wait for them to answer, then connect the customer.
+                </p>
+                <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3">
+                  <p className="text-sm text-blue-700 dark:text-blue-300 mb-2 font-medium">
+                    To enable AI-triggered transfers:
+                  </p>
+                  <ol className="text-sm text-blue-600 dark:text-blue-400 space-y-1 list-decimal list-inside">
+                    <li>Configure a transfer phone number in <strong>Settings</strong></li>
+                    <li>Ensure Twilio credentials are set up</li>
+                    <li>Add transfer instructions to the system prompt (e.g., "Transfer to a human agent when the customer requests it")</li>
+                  </ol>
+                </div>
+              </div>
+              <div>
+                <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Example System Prompt Addition</h4>
+                <div className="bg-gray-100 dark:bg-gray-800 rounded-lg p-3">
+                  <code className="text-xs text-gray-700 dark:text-gray-300 whitespace-pre-wrap">
+{`If the customer asks to speak with a human agent or representative:
+1. Acknowledge their request politely
+2. Say "Let me connect you with one of our team members"
+3. Use the transferCall function with the configured agent number`}
+                  </code>
+                </div>
+              </div>
+            </div>
           </div>
 
           <div>

@@ -40,6 +40,11 @@ import {
   ensureValidToken as ensureValidDynamicsToken,
   syncCallToDynamics
 } from './dynamics-service';
+import {
+  generateConferenceTwiML,
+  generateAgentAnnouncementTwiML,
+  dialAgentWithAnnouncement
+} from './twilio-conference';
 
 // Cloudflare Worker types
 interface D1Database {
@@ -4797,6 +4802,266 @@ export default {
         }
       }
 
+      // ============================================
+      // WARM TRANSFER ENDPOINTS
+      // ============================================
+
+      // Initiate warm transfer - dials agent first, then connects customer
+      if (url.pathname.startsWith('/api/calls/') && url.pathname.endsWith('/warm-transfer') && request.method === 'POST') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        const callId = url.pathname.split('/')[3];
+        const body = await request.json() as any;
+        const agentNumber = body.agentNumber;
+        const announcement = body.announcement; // Optional message to play to agent
+
+        console.log('[Warm Transfer] Request received:', {
+          callId,
+          userId,
+          agentNumber,
+          hasAnnouncement: !!announcement
+        });
+
+        if (!agentNumber) {
+          return jsonResponse({ error: 'Agent phone number required' }, 400);
+        }
+
+        // Get workspace settings for Twilio and VAPI credentials
+        const settings = await getWorkspaceSettingsForUser(env, userId);
+
+        if (!settings?.private_key) {
+          return jsonResponse({ error: 'VAPI credentials not configured' }, 400);
+        }
+
+        if (!settings?.twilio_account_sid || !settings?.twilio_auth_token) {
+          return jsonResponse({ error: 'Twilio credentials not configured for warm transfer' }, 400);
+        }
+
+        // Get a Twilio phone number from the USER's Twilio account to use as caller ID (FROM number)
+        // This MUST be a phone number purchased in the user's own Twilio account
+        let twilioPhoneNumber: string | null = null;
+        
+        // Fetch phone numbers from user's Twilio account
+        try {
+          const twilioResponse = await fetch(
+            `https://api.twilio.com/2010-04-01/Accounts/${settings.twilio_account_sid}/IncomingPhoneNumbers.json?PageSize=1`,
+            {
+              method: 'GET',
+              headers: {
+                'Authorization': 'Basic ' + btoa(`${settings.twilio_account_sid}:${settings.twilio_auth_token}`)
+              }
+            }
+          );
+          
+          if (twilioResponse.ok) {
+            const data = await twilioResponse.json() as any;
+            console.log('[Warm Transfer] Twilio phone numbers found:', data.incoming_phone_numbers?.length || 0);
+            if (data.incoming_phone_numbers && data.incoming_phone_numbers.length > 0) {
+              twilioPhoneNumber = data.incoming_phone_numbers[0].phone_number;
+              console.log('[Warm Transfer] Using Twilio phone as caller ID:', twilioPhoneNumber);
+            }
+          } else {
+            const errorText = await twilioResponse.text();
+            console.error('[Warm Transfer] Failed to fetch Twilio numbers:', twilioResponse.status, errorText);
+          }
+        } catch (e) {
+          console.error('[Warm Transfer] Failed to get Twilio phone numbers:', e);
+        }
+
+        if (!twilioPhoneNumber) {
+          return jsonResponse({ 
+            error: 'No phone numbers found in your Twilio account. Please purchase a phone number in Twilio first.' 
+          }, 400);
+        }
+
+        // Normalize phone numbers to E.164 format (remove spaces, dashes, parentheses)
+        twilioPhoneNumber = twilioPhoneNumber.replace(/[\s\-\(\)]/g, '');
+        const normalizedAgentNumber = agentNumber.replace(/[\s\-\(\)]/g, '');
+
+        console.log('[Warm Transfer] Phone numbers normalized:', {
+          twilioPhoneNumber,
+          agentNumber: normalizedAgentNumber
+        });
+
+        const timestamp = now();
+        const transferId = generateId();
+
+        try {
+          // Step 1: Create warm transfer record
+          await env.DB.prepare(
+            `INSERT INTO warm_transfers (id, vapi_call_id, user_id, agent_number, announcement, status, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, 'initiated', ?, ?)`
+          ).bind(transferId, callId, userId, normalizedAgentNumber, announcement || null, timestamp, timestamp).run();
+
+          // Step 2: Get VAPI call details for controlUrl
+          const getCallResponse = await fetch(`https://api.vapi.ai/call/${callId}`, {
+            method: 'GET',
+            headers: { 'Authorization': `Bearer ${settings.private_key}` }
+          });
+
+          if (!getCallResponse.ok) {
+            await env.DB.prepare(
+              `UPDATE warm_transfers SET status = 'failed', error_message = ?, updated_at = ? WHERE id = ?`
+            ).bind('Failed to get VAPI call details', now(), transferId).run();
+            return jsonResponse({ error: 'Failed to get call details' }, getCallResponse.status);
+          }
+
+          const callDetails = await getCallResponse.json() as any;
+          const controlUrl = callDetails.monitor?.controlUrl;
+
+          if (!controlUrl) {
+            await env.DB.prepare(
+              `UPDATE warm_transfers SET status = 'failed', error_message = ?, updated_at = ? WHERE id = ?`
+            ).bind('Call control URL not available', now(), transferId).run();
+            return jsonResponse({ error: 'Call control URL not available' }, 400);
+          }
+
+          // Step 3: Dial agent using Twilio
+          await env.DB.prepare(
+            `UPDATE warm_transfers SET status = 'dialing_agent', updated_at = ? WHERE id = ?`
+          ).bind(now(), transferId).run();
+
+          const workerUrl = url.origin;
+          const twilioConfig = {
+            accountSid: settings.twilio_account_sid,
+            authToken: settings.twilio_auth_token,
+            workerUrl,
+            twilioPhoneNumber
+          };
+
+          // Dial agent with announcement
+          // Flow: Agent answers → hears announcement → call ends → customer transferred to agent
+          const agentCall = await dialAgentWithAnnouncement(
+            twilioConfig,
+            transferId,
+            normalizedAgentNumber,
+            announcement || `You have an incoming transfer. Please stay on the line.`
+          );
+
+          // Update transfer record with agent call SID
+          await env.DB.prepare(
+            `UPDATE warm_transfers SET agent_call_sid = ?, updated_at = ? WHERE id = ?`
+          ).bind(agentCall.callSid, now(), transferId).run();
+
+          console.log('[Warm Transfer] Agent dial initiated:', {
+            transferId,
+            callId,
+            agentCallSid: agentCall.callSid
+          });
+
+          // Return immediately - the actual transfer will happen when agent answers and hears announcement
+          // Flow: Agent answers → TwiML plays announcement → call ends → webhook triggers → customer transferred
+          // Frontend should poll /api/calls/:callId/warm-transfer-status to track progress
+          return jsonResponse({
+            success: true,
+            transferId,
+            status: 'dialing_agent',
+            message: 'Dialing agent. Agent will hear announcement, then customer will be transferred.',
+            agentCallSid: agentCall.callSid
+          });
+
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          console.error('[Warm Transfer] Error:', {
+            error: errorMessage,
+            stack: error instanceof Error ? error.stack : undefined,
+            callId,
+            agentNumber: normalizedAgentNumber,
+            twilioPhoneNumber
+          });
+          
+          try {
+            await env.DB.prepare(
+              `UPDATE warm_transfers SET status = 'failed', error_message = ?, updated_at = ? WHERE id = ?`
+            ).bind(errorMessage, now(), transferId).run();
+          } catch (dbError) {
+            console.error('[Warm Transfer] Failed to update DB:', dbError);
+          }
+          
+          return jsonResponse({ 
+            error: 'Failed to initiate warm transfer', 
+            details: errorMessage 
+          }, 500);
+        }
+      }
+
+      // Get warm transfer status
+      if (url.pathname.startsWith('/api/calls/') && url.pathname.endsWith('/warm-transfer-status') && request.method === 'GET') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        const callId = url.pathname.split('/')[3];
+
+        const transfer = await env.DB.prepare(
+          `SELECT * FROM warm_transfers WHERE vapi_call_id = ? AND user_id = ? ORDER BY created_at DESC LIMIT 1`
+        ).bind(callId, userId).first() as any;
+
+        if (!transfer) {
+          return jsonResponse({ error: 'No warm transfer found for this call' }, 404);
+        }
+
+        return jsonResponse({
+          transferId: transfer.id,
+          status: transfer.status,
+          agentNumber: transfer.agent_number,
+          agentCallSid: transfer.agent_call_sid,
+          conferenceSid: transfer.conference_sid,
+          errorMessage: transfer.error_message,
+          createdAt: transfer.created_at,
+          updatedAt: transfer.updated_at
+        });
+      }
+
+      // Cancel warm transfer
+      if (url.pathname.startsWith('/api/calls/') && url.pathname.endsWith('/warm-transfer-cancel') && request.method === 'POST') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        const callId = url.pathname.split('/')[3];
+
+        const transfer = await env.DB.prepare(
+          `SELECT * FROM warm_transfers WHERE vapi_call_id = ? AND user_id = ? AND status IN ('initiated', 'dialing_agent') ORDER BY created_at DESC LIMIT 1`
+        ).bind(callId, userId).first() as any;
+
+        if (!transfer) {
+          return jsonResponse({ error: 'No active warm transfer found to cancel' }, 404);
+        }
+
+        const settings = await getWorkspaceSettingsForUser(env, userId);
+
+        // Try to cancel the agent call if it exists
+        if (transfer.agent_call_sid && settings?.twilio_account_sid && settings?.twilio_auth_token) {
+          try {
+            await fetch(
+              `https://api.twilio.com/2010-04-01/Accounts/${settings.twilio_account_sid}/Calls/${transfer.agent_call_sid}.json`,
+              {
+                method: 'POST',
+                headers: {
+                  'Authorization': 'Basic ' + btoa(`${settings.twilio_account_sid}:${settings.twilio_auth_token}`),
+                  'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: new URLSearchParams({ 'Status': 'canceled' }),
+              }
+            );
+          } catch (e) {
+            console.error('[Warm Transfer] Failed to cancel agent call:', e);
+          }
+        }
+
+        await env.DB.prepare(
+          `UPDATE warm_transfers SET status = 'cancelled', updated_at = ? WHERE id = ?`
+        ).bind(now(), transfer.id).run();
+
+        return jsonResponse({ success: true, message: 'Warm transfer cancelled' });
+      }
+
       // Get intent analysis (supports workspace context)
       if (url.pathname === '/api/intent-analysis' && request.method === 'GET') {
         const userId = await getUserFromToken(request, env);
@@ -7144,6 +7409,260 @@ Need help? Contact our support team anytime!
       // ============================================
       // PUBLIC WEBHOOK RECEIVER (No Auth Required)
       // ============================================
+
+      // TwiML endpoint for agent announcement (warm transfer)
+      // Plays announcement to agent, then hangs up so customer can be transferred
+      if (url.pathname.startsWith('/twiml/agent-announcement/') && (request.method === 'POST' || request.method === 'GET')) {
+        const transferId = url.pathname.split('/').pop();
+        const announcement = url.searchParams.get('announcement') || 'You have an incoming transfer. The caller will be connected shortly.';
+        
+        console.log('[TwiML] Agent announcement for transfer:', {
+          transferId,
+          announcement
+        });
+        
+        const twiml = generateAgentAnnouncementTwiML(announcement);
+        
+        return new Response(twiml, {
+          status: 200,
+          headers: {
+            'Content-Type': 'text/xml',
+            ...corsHeaders,
+          },
+        });
+      }
+
+      // TwiML endpoint for conference (kept for potential future use)
+      if (url.pathname.startsWith('/twiml/join-conference/') && (request.method === 'POST' || request.method === 'GET')) {
+        const conferenceName = url.pathname.split('/').pop();
+        
+        if (!conferenceName) {
+          return new Response('Conference name required', { status: 400 });
+        }
+
+        console.log('[TwiML] Conference TwiML:', conferenceName);
+        
+        const twiml = generateConferenceTwiML(conferenceName);
+        
+        return new Response(twiml, {
+          status: 200,
+          headers: {
+            'Content-Type': 'text/xml',
+            ...corsHeaders,
+          },
+        });
+      }
+
+      // Webhook for agent call status updates (warm transfer)
+      // Flow: Agent answers → hears announcement → call completes → customer transferred to agent's phone
+      if (url.pathname === '/webhook/agent-call-status' && request.method === 'POST') {
+        console.log('');
+        console.log('🔔🔔🔔🔔🔔🔔🔔🔔🔔🔔🔔🔔🔔🔔🔔🔔🔔🔔🔔🔔');
+        console.log('[WEBHOOK] AGENT CALL STATUS RECEIVED!');
+        console.log('🔔🔔🔔🔔🔔🔔🔔🔔🔔🔔🔔🔔🔔🔔🔔🔔🔔🔔🔔🔔');
+        console.log('');
+        try {
+          const formData = await request.formData();
+          const callSid = formData.get('CallSid') as string;
+          const callStatus = formData.get('CallStatus') as string;
+          const from = formData.get('From') as string;
+          const to = formData.get('To') as string;
+          
+          console.log('[Warm Transfer] Agent call status:', {
+            callSid,
+            callStatus,
+            from,
+            to
+          });
+
+          // Find the warm transfer record
+          const transfer = await env.DB.prepare(
+            `SELECT * FROM warm_transfers WHERE agent_call_sid = ?`
+          ).bind(callSid).first() as any;
+
+          if (!transfer) {
+            console.log('[Warm Transfer] No transfer found for call:', callSid);
+            return new Response('OK', { status: 200 });
+          }
+
+          console.log('[Warm Transfer] Found transfer record:', {
+            transferId: transfer.id,
+            currentStatus: transfer.status,
+            agentNumber: transfer.agent_number
+          });
+
+          const timestamp = now();
+
+          // Handle different call statuses
+          if (callStatus === 'in-progress' || callStatus === 'answered') {
+            // Agent answered - they are now hearing the announcement
+            // Update status but don't transfer yet - wait for announcement to finish
+            await env.DB.prepare(
+              `UPDATE warm_transfers SET status = 'agent_answered', updated_at = ? WHERE id = ?`
+            ).bind(timestamp, transfer.id).run();
+
+            console.log('[Warm Transfer] Agent answered - hearing announcement:', {
+              transferId: transfer.id,
+              agentNumber: transfer.agent_number
+            });
+
+          } else if (callStatus === 'completed') {
+            // Agent call completed (announcement finished)
+            // Now transfer the customer to the agent's phone
+            console.log('[Warm Transfer] Agent call completed, checking if ready to transfer:', {
+              transferId: transfer.id,
+              previousStatus: transfer.status
+            });
+
+            // Only transfer if agent actually answered (heard the announcement)
+            if (transfer.status === 'agent_answered' || transfer.status === 'dialing_agent') {
+              console.log('[Warm Transfer] Agent ready - initiating customer transfer');
+              
+              // Get user's settings
+              const settings = await getWorkspaceSettingsForUser(env, transfer.user_id);
+              
+              if (settings?.private_key) {
+                try {
+                  // Get VAPI call's controlUrl
+                  const getCallResponse = await fetch(`https://api.vapi.ai/call/${transfer.vapi_call_id}`, {
+                    method: 'GET',
+                    headers: { 'Authorization': `Bearer ${settings.private_key}` }
+                  });
+
+                  if (getCallResponse.ok) {
+                    const callDetails = await getCallResponse.json() as any;
+                    const controlUrl = callDetails.monitor?.controlUrl;
+                    const callStatus = callDetails.status;
+
+                    console.log('[Warm Transfer] VAPI call details:', {
+                      vapiCallId: transfer.vapi_call_id,
+                      hasControlUrl: !!controlUrl,
+                      vapiCallStatus: callStatus
+                    });
+
+                    // Check if VAPI call is still active
+                    if (callStatus !== 'ended' && controlUrl) {
+                      // Transfer the VAPI call to the agent's phone number
+                      const transferPayload = {
+                        type: 'transfer',
+                        destination: {
+                          type: 'number',
+                          number: transfer.agent_number
+                        }
+                      };
+
+                      console.log('[Warm Transfer] Sending transfer command to VAPI:', {
+                        controlUrl,
+                        destination: transfer.agent_number
+                      });
+
+                      const transferResponse = await fetch(controlUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(transferPayload)
+                      });
+
+                      const transferResult = await transferResponse.text();
+                      console.log('[Warm Transfer] VAPI transfer response:', {
+                        status: transferResponse.status,
+                        ok: transferResponse.ok,
+                        result: transferResult
+                      });
+
+                      if (transferResponse.ok) {
+                        await env.DB.prepare(
+                          `UPDATE warm_transfers SET status = 'connected', updated_at = ? WHERE id = ?`
+                        ).bind(now(), transfer.id).run();
+                        
+                        console.log('[Warm Transfer] SUCCESS - Customer being transferred to agent');
+                      } else {
+                        console.error('[Warm Transfer] VAPI transfer failed:', transferResult);
+                        await env.DB.prepare(
+                          `UPDATE warm_transfers SET status = 'failed', error_message = ?, updated_at = ? WHERE id = ?`
+                        ).bind(`Transfer failed: ${transferResult}`, now(), transfer.id).run();
+                      }
+                    } else {
+                      console.log('[Warm Transfer] VAPI call ended or no controlUrl:', {
+                        callStatus,
+                        hasControlUrl: !!controlUrl
+                      });
+                      await env.DB.prepare(
+                        `UPDATE warm_transfers SET status = 'failed', error_message = ?, updated_at = ? WHERE id = ?`
+                      ).bind('Original call ended before transfer', now(), transfer.id).run();
+                    }
+                  } else {
+                    const error = await getCallResponse.text();
+                    console.error('[Warm Transfer] Failed to get VAPI call:', error);
+                    await env.DB.prepare(
+                      `UPDATE warm_transfers SET status = 'failed', error_message = ?, updated_at = ? WHERE id = ?`
+                    ).bind('Could not get call details', now(), transfer.id).run();
+                  }
+                } catch (e) {
+                  console.error('[Warm Transfer] Error during transfer:', e);
+                  await env.DB.prepare(
+                    `UPDATE warm_transfers SET status = 'failed', error_message = ?, updated_at = ? WHERE id = ?`
+                  ).bind(String(e), now(), transfer.id).run();
+                }
+              } else {
+                console.error('[Warm Transfer] No VAPI key configured');
+                await env.DB.prepare(
+                  `UPDATE warm_transfers SET status = 'failed', error_message = ?, updated_at = ? WHERE id = ?`
+                ).bind('VAPI not configured', now(), transfer.id).run();
+              }
+            } else {
+              // Agent call completed but status wasn't agent_answered
+              // This might happen if the call was cancelled
+              console.log('[Warm Transfer] Call completed but not in expected state:', transfer.status);
+              await env.DB.prepare(
+                `UPDATE warm_transfers SET status = 'completed', updated_at = ? WHERE id = ?`
+              ).bind(timestamp, transfer.id).run();
+            }
+            
+          } else if (callStatus === 'no-answer' || callStatus === 'busy' || callStatus === 'failed' || callStatus === 'canceled') {
+            // Agent didn't answer or call failed
+            await env.DB.prepare(
+              `UPDATE warm_transfers SET status = 'failed', error_message = ?, updated_at = ? WHERE id = ?`
+            ).bind(`Agent ${callStatus}`, timestamp, transfer.id).run();
+            
+            console.log('[Warm Transfer] Agent call failed:', {
+              transferId: transfer.id,
+              reason: callStatus
+            });
+          } else if (callStatus === 'ringing' || callStatus === 'initiated' || callStatus === 'queued') {
+            // Call still in progress, update status for tracking
+            console.log('[Warm Transfer] Call in progress:', callStatus);
+          }
+
+          return new Response('OK', { status: 200 });
+        } catch (error) {
+          console.error('[Warm Transfer] Error processing webhook:', error);
+          return new Response('Error', { status: 500 });
+        }
+      }
+
+      // Webhook for conference status updates (warm transfer)
+      if (url.pathname === '/webhook/conference-status' && request.method === 'POST') {
+        try {
+          const formData = await request.formData();
+          const conferenceSid = formData.get('ConferenceSid') as string;
+          const statusCallbackEvent = formData.get('StatusCallbackEvent') as string;
+          const friendlyName = formData.get('FriendlyName') as string;
+          
+          console.log('[Warm Transfer] Conference status update:', {
+            conferenceSid,
+            friendlyName,
+            event: statusCallbackEvent
+          });
+
+          // We can track conference events here if needed
+          // For now, just log them
+
+          return new Response('OK', { status: 200 });
+        } catch (error) {
+          console.error('[Warm Transfer] Error processing conference status:', error);
+          return new Response('Error', { status: 500 });
+        }
+      }
 
       // Receive VAPI webhook data
       if (url.pathname.startsWith('/webhook/') && request.method === 'POST') {

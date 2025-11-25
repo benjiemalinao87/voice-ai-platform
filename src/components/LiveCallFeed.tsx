@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
-import { Phone, Clock, PhoneIncoming, PhoneOff, PhoneForwarded, Volume2, Trash2, Headphones, MessageSquare, Mic, MicOff } from 'lucide-react';
+import { Phone, Clock, PhoneIncoming, PhoneOff, PhoneForwarded, Volume2, Trash2, Headphones, MessageSquare, Mic, MicOff, Users } from 'lucide-react';
+import { WarmTransferModal } from './WarmTransferModal';
 
 interface ActiveCall {
   id: string;
@@ -54,6 +55,7 @@ export function LiveCallFeed() {
   const [sendingMessage, setSendingMessage] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
+  const [warmTransferCallId, setWarmTransferCallId] = useState<string | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const websocketRef = useRef<WebSocket | null>(null);
   const audioQueueRef = useRef<AudioBufferSourceNode[]>([]);
@@ -941,9 +943,19 @@ export function LiveCallFeed() {
                         )}
 
                         <button
+                          onClick={() => setWarmTransferCallId(call.vapi_call_id)}
+                          disabled={actionLoading === call.vapi_call_id}
+                          className="flex items-center gap-1.5 px-3 py-1.5 bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-400 rounded-lg hover:bg-green-100 dark:hover:bg-green-900/50 transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                          title="Warm transfer - dial agent first, then connect customer"
+                        >
+                          <Users className="w-4 h-4" />
+                          Warm Transfer
+                        </button>
+                        <button
                           onClick={() => setShowTransferInput(call.vapi_call_id)}
                           disabled={actionLoading === call.vapi_call_id}
                           className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                          title="Cold transfer - immediate transfer to agent"
                         >
                           <PhoneForwarded className="w-4 h-4" />
                           Transfer
@@ -1123,6 +1135,13 @@ export function LiveCallFeed() {
           ))}
         </div>
       )}
+
+      {/* Warm Transfer Modal */}
+      <WarmTransferModal
+        isOpen={!!warmTransferCallId}
+        onClose={() => setWarmTransferCallId(null)}
+        callId={warmTransferCallId || ''}
+      />
     </div>
   );
 }

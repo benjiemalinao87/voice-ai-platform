@@ -3906,3 +3906,77 @@ END as has_appointment
 ### Result
 All 8 appointments now appear correctly, sorted with appointments first, then by date.
 
+---
+
+## Warm Transfer Implementation - November 24, 2025
+
+### Problem
+Need to implement a warm transfer feature where during a live AI call with a customer, the system can dial a human agent first, wait for them to answer, and then connect the customer - rather than a "cold transfer" that immediately redirects.
+
+### Solution Approach
+VAPI's native `transferCall` function performs cold transfers (AI disconnects immediately). For true warm transfer, we integrated Twilio's outbound calling with VAPI's call control.
+
+### Architecture Decision
+Used a hybrid approach:
+1. **Twilio** to dial the agent (outbound call)
+2. **Twilio webhooks** to detect when agent answers
+3. **VAPI controlUrl** to transfer the customer once agent is connected
+
+This avoids the complexity of Twilio conferencing while achieving the warm transfer goal.
+
+### Key Implementation Details
+
+**1. Backend Flow:**
+```
+POST /warm-transfer → Create DB record → Dial agent via Twilio
+                                              ↓
+Twilio callback (agent answers) → Update DB → Transfer customer via VAPI controlUrl
+                                              ↓
+                                   Customer + Agent connected, AI drops
+```
+
+**2. Status Tracking:**
+Database table tracks transfer status: initiated → dialing_agent → agent_answered → connected
+Frontend polls `/warm-transfer-status` to show real-time progress.
+
+**3. TwiML Endpoints:**
+Created TwiML endpoints that Twilio calls when agent answers:
+- `/twiml/join-conference/:name` - Basic join
+- `/twiml/join-conference-with-announcement/:name` - Play message to agent first
+
+### What NOT To Do
+- ❌ Don't try to use VAPI's transferCall for warm transfers - it's designed for cold transfers
+- ❌ Don't create full Twilio conferences unless you need 3+ parties - simpler to transfer directly
+- ❌ Don't forget to handle edge cases (agent doesn't answer, call cancellation)
+
+### What To Do
+- ✅ Use Twilio REST API for outbound calls - well-documented and reliable
+- ✅ Use webhook callbacks for async status updates - don't poll Twilio
+- ✅ Store transfer state in database - enables status tracking and debugging
+- ✅ Provide cancel functionality - agents may not answer
+- ✅ Add optional announcement - helps agent prepare for the call
+
+### Files Created
+- `workers/twilio-conference.ts` - Twilio utilities
+- `workers/migrations/0022_create_warm_transfers.sql` - Transfer tracking table
+- `src/components/WarmTransferModal.tsx` - UI modal
+
+### Files Modified
+- `workers/index.ts` - Endpoints and webhook handlers
+- `src/components/LiveCallFeed.tsx` - Warm transfer button
+- `src/components/AgentConfig.tsx` - Transfer settings info
+
+### Prerequisites Learned
+For warm transfer to work, user needs:
+1. Twilio credentials (Account SID + Auth Token) in Settings
+2. A transfer phone number configured (outbound caller ID)
+3. An active live call to transfer
+
+### Lesson Learned
+**When integrating multiple telephony services (VAPI + Twilio):**
+- Each service has specific capabilities - use them for what they're best at
+- VAPI excels at AI conversation handling
+- Twilio excels at call control and routing
+- Webhook-based architectures work well for async telephony events
+- Always track state in your own database - don't rely solely on external service state
+
