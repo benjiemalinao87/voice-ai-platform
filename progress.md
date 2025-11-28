@@ -2,6 +2,90 @@
 
 ## Completed Features
 
+### CustomerConnect Auto-Context Injection (November 28, 2025)
+✅ **Successfully implemented automatic customer context injection via VAPI Tool**
+
+**What It Does:**
+- When the AI assistant collects a customer's phone number during a call
+- The AI calls the `lookup_customer` tool automatically
+- Backend fetches customer data from CustomerConnect API
+- Returns appointment details and household/decision maker info
+- AI uses this context to provide personalized assistance
+
+**Architecture:**
+```
+[AI asks for phone number]
+         |
+         v
+[Customer says phone number]
+         |
+         v
+[AI calls lookup_customer tool]
+         |
+         v
+[VAPI sends tool-call webhook to backend]
+         |
+         v
+[Backend calls CustomerConnect API]
+GET https://api-customerconnect.app/api/v3/contacts/search
+    ?workspace_id={workspace_id}&phone_number={phone}
+         |
+         v
+[Backend returns formatted context to VAPI]
+"Customer found: Benjie Malinao. Existing appointment: 12-15-2025 at 3:30PM. 
+ Household/Decision maker: Test Household"
+         |
+         v
+[AI uses context in conversation]
+```
+
+**Files Created:**
+- `workers/migrations/0023_add_customerconnect_settings.sql` - Database migration for CustomerConnect settings
+
+**Files Modified:**
+- `workers/index.ts` - Added tool-calls webhook handler and CustomerConnect API integration
+- `src/components/Settings.tsx` - Added CustomerConnect settings UI section
+- `src/components/AgentConfig.tsx` - Added Customer Lookup Tool configuration guide
+- `src/lib/d1.ts` - Updated settings interface for CustomerConnect fields
+
+**Backend Changes:**
+- New helper function `lookupCustomerFromCustomerConnect()` for API integration
+- Updated `getWorkspaceSettingsForUser()` to include CustomerConnect credentials
+- Tool-calls webhook handler that:
+  - Detects `lookup_customer` tool call
+  - Extracts phone number from parameters
+  - Calls CustomerConnect API
+  - Returns formatted customer context
+
+**Settings UI:**
+- CustomerConnect Workspace ID input
+- CustomerConnect API Key input (masked)
+- Instructions on how it works
+
+**Agent Config UI:**
+- Full tool configuration JSON (copyable)
+- System prompt instruction example
+- Sample tool response preview
+
+**Context Format Returned:**
+When customer found:
+```
+Customer found: Benjie Malinao. Existing appointment: 12-15-2025 at 3:30PM. 
+Household/Decision maker: Test Household. Please acknowledge this information naturally.
+```
+
+When not found:
+```
+No existing customer record found for this phone number. This appears to be a new customer.
+```
+
+**Setup Requirements:**
+1. Configure CustomerConnect credentials in Settings → API Configuration
+2. Add `lookup_customer` tool to VAPI assistant
+3. Add instruction to system prompt to call tool after collecting phone number
+
+---
+
 ### Warm Transfer Feature (November 24, 2025)
 ✅ **Successfully implemented Warm Transfer feature for live call handoff to human agents**
 
@@ -380,4 +464,39 @@ The Team Members & Workspaces feature is now fully functional and deployed. User
 
 **Files Modified:**
 - `src/components/Recordings.tsx` - Complete pagination implementation
+
+## Documentation - Live Call Listen & Add Context Flow (January 15, 2025)
+
+✅ **Successfully Created**: Comprehensive technical documentation for Live Call Listen and Add Context feature
+
+**Document Created:**
+- `docs/live-call-listen-and-context-flow.md` - Complete technical documentation with ASCII diagrams
+
+**Features Documented:**
+- **Architecture Overview**: Complete system architecture from frontend to VAPI API
+- **Step-by-Step Flow**: Detailed flow diagrams for:
+  - Initializing Listen Connection
+  - Audio Streaming via WebSocket
+  - Adding Context to Live Calls
+- **Technical Details**: 
+  - Frontend state management
+  - Backend endpoint implementations
+  - VAPI API integration
+- **Code References**: Specific line numbers and file locations
+- **Common Issues & Solutions**: Troubleshooting guide for common problems
+- **Testing Checklist**: Manual and error scenario testing guidelines
+
+**Documentation Highlights:**
+- ASCII diagrams for visual understanding
+- Beginner-friendly explanations
+- Complete code references with line numbers
+- Real-world troubleshooting scenarios
+- Future improvement suggestions
+
+**Target Audience:**
+- New developers joining the team
+- Interns learning the codebase
+- Future reference for the development team
+
+The documentation provides a complete understanding of how the Listen functionality works, specifically focusing on the Add Context feature that allows supervisors to inject system messages into live VAPI AI and customer calls in real-time.
 

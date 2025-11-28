@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Key, Save, Eye, EyeOff, AlertCircle, CheckCircle, Trash2, RefreshCw, LogOut, User, Settings as SettingsIcon, Plug, Webhook, Maximize2, Zap, Calendar, PhoneForwarded, Phone, Users } from 'lucide-react';
+import { Key, Save, Eye, EyeOff, AlertCircle, CheckCircle, Trash2, RefreshCw, LogOut, User, Settings as SettingsIcon, Plug, Webhook, Maximize2, Zap, Calendar, PhoneForwarded, Phone, Users, UserSearch } from 'lucide-react';
 import { VapiClient } from '../lib/vapi';
 import { useAuth } from '../contexts/AuthContext';
 import { useVapi } from '../contexts/VapiContext';
@@ -36,6 +36,8 @@ interface UserSettings {
   twilioAccountSid?: string;
   twilioAuthToken?: string;
   transferPhoneNumber?: string;
+  customerconnectWorkspaceId?: string;
+  customerconnectApiKey?: string;
 }
 
 const API_URL = import.meta.env.VITE_D1_API_URL || 'http://localhost:8787';
@@ -55,6 +57,9 @@ export function Settings({ wideView = false, onWideViewChange }: SettingsProps =
   const [showPrivateKey, setShowPrivateKey] = useState(false);
   const [showPublicKey, setShowPublicKey] = useState(false);
   const [transferPhoneNumber, setTransferPhoneNumber] = useState('');
+  const [customerconnectWorkspaceId, setCustomerconnectWorkspaceId] = useState('');
+  const [customerconnectApiKey, setCustomerconnectApiKey] = useState('');
+  const [showCustomerconnectApiKey, setShowCustomerconnectApiKey] = useState(false);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -101,6 +106,8 @@ export function Settings({ wideView = false, onWideViewChange }: SettingsProps =
       setSelectedAssistantId(settings.selectedAssistantId || '');
       setSelectedPhoneId(settings.selectedPhoneId || '');
       setTransferPhoneNumber(settings.transferPhoneNumber || '');
+      setCustomerconnectWorkspaceId(settings.customerconnectWorkspaceId || '');
+      setCustomerconnectApiKey(settings.customerconnectApiKey || '');
 
       // Store workspace owner status
       setIsWorkspaceOwner(settings.isWorkspaceOwner ?? false);
@@ -226,6 +233,8 @@ export function Settings({ wideView = false, onWideViewChange }: SettingsProps =
         selectedPhoneId: selectedPhoneId || null,
         selectedWorkspaceId: userSettings.selectedWorkspaceId,
         transferPhoneNumber: transferPhoneNumber || null,
+        customerconnectWorkspaceId: customerconnectWorkspaceId || null,
+        customerconnectApiKey: customerconnectApiKey || null,
       });
 
       setStatus('success');
@@ -551,6 +560,71 @@ export function Settings({ wideView = false, onWideViewChange }: SettingsProps =
               />
               <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                 Phone number to transfer calls to (e.g., human agent, backup line)
+              </p>
+            </div>
+          </div>
+
+          {/* CustomerConnect Integration */}
+          <div className="border-t border-gray-200 dark:border-gray-700 pt-6">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4 flex items-center gap-2">
+              <UserSearch className="w-5 h-5 text-gray-400" />
+              CustomerConnect Integration (optional)
+            </h3>
+            <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+              Enable automatic customer lookup during calls. When the AI collects a phone number, it will fetch customer data from CustomerConnect and provide context to the conversation.
+            </p>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  CustomerConnect Workspace ID
+                </label>
+                <input
+                  type="text"
+                  value={customerconnectWorkspaceId}
+                  onChange={(e) => setCustomerconnectWorkspaceId(e.target.value)}
+                  placeholder="e.g., 76692"
+                  disabled={!isWorkspaceOwner}
+                  readOnly={!isWorkspaceOwner}
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 font-mono text-sm disabled:opacity-60 disabled:cursor-not-allowed"
+                />
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                  Your CustomerConnect workspace identifier
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  CustomerConnect API Key
+                </label>
+                <div className="relative">
+                  <input
+                    type={showCustomerconnectApiKey ? 'text' : 'password'}
+                    value={customerconnectApiKey}
+                    onChange={(e) => setCustomerconnectApiKey(e.target.value)}
+                    placeholder="Your CustomerConnect API key"
+                    disabled={!isWorkspaceOwner}
+                    readOnly={!isWorkspaceOwner}
+                    className="w-full px-4 py-2 pr-10 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 font-mono text-sm disabled:opacity-60 disabled:cursor-not-allowed"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowCustomerconnectApiKey(!showCustomerconnectApiKey)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                  >
+                    {showCustomerconnectApiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                  API key for authenticating with CustomerConnect
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-4 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
+              <p className="text-xs text-blue-700 dark:text-blue-300">
+                <strong>How it works:</strong> When configured, create a <code className="bg-blue-100 dark:bg-blue-800 px-1 rounded">lookup_customer</code> tool in your VAPI assistant. 
+                After collecting the customer's phone number, the AI will call this tool to fetch appointment details and household information from CustomerConnect.
               </p>
             </div>
           </div>

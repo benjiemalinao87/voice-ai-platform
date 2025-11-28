@@ -619,6 +619,8 @@ async function getWorkspaceSettingsForUser(env: Env, userId: string): Promise<{
   twilio_account_sid?: string;
   twilio_auth_token?: string;
   transfer_phone_number?: string;
+  customerconnect_workspace_id?: string;
+  customerconnect_api_key?: string;
 } | null> {
   // Find user's workspace (they own it or are a member)
   const userSettings = await env.DB.prepare(
@@ -633,7 +635,7 @@ async function getWorkspaceSettingsForUser(env: Env, userId: string): Promise<{
 
     if (ownedWorkspace) {
       const wsSettings = await env.DB.prepare(
-        'SELECT workspace_id, private_key, openai_api_key, twilio_account_sid, twilio_auth_token, transfer_phone_number FROM workspace_settings WHERE workspace_id = ?'
+        'SELECT workspace_id, private_key, openai_api_key, twilio_account_sid, twilio_auth_token, transfer_phone_number, customerconnect_workspace_id, customerconnect_api_key FROM workspace_settings WHERE workspace_id = ?'
       ).bind(ownedWorkspace.id).first() as any;
       return wsSettings || null;
     }
@@ -642,7 +644,7 @@ async function getWorkspaceSettingsForUser(env: Env, userId: string): Promise<{
 
   const workspaceId = userSettings.selected_workspace_id;
   let wsSettings = await env.DB.prepare(
-    'SELECT workspace_id, private_key, openai_api_key, twilio_account_sid, twilio_auth_token, transfer_phone_number FROM workspace_settings WHERE workspace_id = ?'
+    'SELECT workspace_id, private_key, openai_api_key, twilio_account_sid, twilio_auth_token, transfer_phone_number, customerconnect_workspace_id, customerconnect_api_key FROM workspace_settings WHERE workspace_id = ?'
   ).bind(workspaceId).first() as any;
 
   // FALLBACK: If workspace_settings is empty, try user_settings (migration path)
@@ -663,6 +665,63 @@ async function getWorkspaceSettingsForUser(env: Env, userId: string): Promise<{
   }
 
   return wsSettings || null;
+}
+
+// Helper: Lookup customer from CustomerConnect API
+async function lookupCustomerFromCustomerConnect(
+  phoneNumber: string,
+  workspaceId: string,
+  apiKey: string
+): Promise<{
+  found: boolean;
+  name?: string;
+  appointmentDate?: string;
+  appointmentTime?: string;
+  household?: string;
+}> {
+  try {
+    // Clean phone number - remove non-digits and ensure proper format
+    const cleanPhone = phoneNumber.replace(/\D/g, '');
+    
+    console.log('[CustomerConnect] Looking up customer:', cleanPhone);
+    
+    const response = await fetch(
+      `https://api-customerconnect.app/api/v3/contacts/search?workspace_id=${workspaceId}&phone_number=${cleanPhone}`,
+      {
+        method: 'GET',
+        headers: {
+          'X-API-Key': apiKey,
+          'Content-Type': 'application/json'
+        }
+      }
+    );
+
+    if (!response.ok) {
+      console.error('[CustomerConnect] API error:', response.status, await response.text());
+      return { found: false };
+    }
+
+    const data = await response.json() as any;
+    
+    if (!data.success || !data.data || data.data.length === 0) {
+      console.log('[CustomerConnect] No customer found for phone:', cleanPhone);
+      return { found: false };
+    }
+
+    const customer = data.data[0];
+    console.log('[CustomerConnect] Customer found:', customer.name);
+
+    return {
+      found: true,
+      name: customer.name || `${customer.firstname || ''} ${customer.lastname || ''}`.trim(),
+      appointmentDate: customer.appointment_date_display || null,
+      appointmentTime: customer.appointment_time || null,
+      household: customer.metadata?.custom_fields?.household || null
+    };
+  } catch (error) {
+    console.error('[CustomerConnect] Error looking up customer:', error);
+    return { found: false };
+  }
 }
 
 // Helper: Enhanced Data addon - fetch phone number enrichment
@@ -1069,7 +1128,7 @@ export default {
 
         // Get workspace settings (workspace owner's credentials)
         const wsSettings = await env.DB.prepare(
-          'SELECT private_key, public_key, selected_assistant_id, selected_phone_id, selected_org_id, openai_api_key, twilio_account_sid, twilio_auth_token, transfer_phone_number FROM workspace_settings WHERE workspace_id = ?'
+          'SELECT private_key, public_key, selected_assistant_id, selected_phone_id, selected_org_id, openai_api_key, twilio_account_sid, twilio_auth_token, transfer_phone_number, customerconnect_workspace_id, customerconnect_api_key FROM workspace_settings WHERE workspace_id = ?'
         ).bind(workspaceId).first() as any;
 
         // FALLBACK: If workspace_settings is empty, try to get from user_settings (migration path)
@@ -1126,6 +1185,8 @@ export default {
           twilioAccountSid: finalSettings?.twilio_account_sid || null,
           twilioAuthToken: finalSettings?.twilio_auth_token || null,
           transferPhoneNumber: finalSettings?.transfer_phone_number || null,
+          customerconnectWorkspaceId: finalSettings?.customerconnect_workspace_id || null,
+          customerconnectApiKey: finalSettings?.customerconnect_api_key || null,
           isWorkspaceOwner: isOwner
         });
       }
@@ -1147,7 +1208,9 @@ export default {
           openaiApiKey,
           twilioAccountSid,
           twilioAuthToken,
-          transferPhoneNumber
+          transferPhoneNumber,
+          customerconnectWorkspaceId,
+          customerconnectApiKey
         } = await request.json() as any;
 
         // Validate workspace selection
@@ -1177,7 +1240,7 @@ export default {
 
         if (existing) {
           await env.DB.prepare(
-            'UPDATE workspace_settings SET private_key = ?, public_key = ?, selected_assistant_id = ?, selected_phone_id = ?, selected_org_id = ?, openai_api_key = ?, twilio_account_sid = ?, twilio_auth_token = ?, transfer_phone_number = ?, updated_at = ? WHERE workspace_id = ?'
+            'UPDATE workspace_settings SET private_key = ?, public_key = ?, selected_assistant_id = ?, selected_phone_id = ?, selected_org_id = ?, openai_api_key = ?, twilio_account_sid = ?, twilio_auth_token = ?, transfer_phone_number = ?, customerconnect_workspace_id = ?, customerconnect_api_key = ?, updated_at = ? WHERE workspace_id = ?'
           ).bind(
             privateKey || null,
             publicKey || null,
@@ -1188,13 +1251,15 @@ export default {
             twilioAccountSid || null,
             twilioAuthToken || null,
             transferPhoneNumber || null,
+            customerconnectWorkspaceId || null,
+            customerconnectApiKey || null,
             timestamp,
             selectedWorkspaceId
           ).run();
         } else {
           const settingsId = generateId();
           await env.DB.prepare(
-            'INSERT INTO workspace_settings (id, workspace_id, private_key, public_key, selected_assistant_id, selected_phone_id, selected_org_id, openai_api_key, twilio_account_sid, twilio_auth_token, transfer_phone_number, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+            'INSERT INTO workspace_settings (id, workspace_id, private_key, public_key, selected_assistant_id, selected_phone_id, selected_org_id, openai_api_key, twilio_account_sid, twilio_auth_token, transfer_phone_number, customerconnect_workspace_id, customerconnect_api_key, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
           ).bind(
             settingsId,
             selectedWorkspaceId,
@@ -1207,6 +1272,8 @@ export default {
             twilioAccountSid || null,
             twilioAuthToken || null,
             transferPhoneNumber || null,
+            customerconnectWorkspaceId || null,
+            customerconnectApiKey || null,
             timestamp,
             timestamp
           ).run();
@@ -7803,6 +7870,106 @@ Need help? Contact our support team anytime!
           }
 
           return jsonResponse({ success: true, message: 'Status update received' });
+        }
+
+        // Handle tool-calls events (VAPI function/tool calls)
+        if (messageType === 'tool-calls') {
+          const toolCalls = message.toolCalls || [];
+          console.log('[Webhook Debug] Tool calls received:', toolCalls.length);
+
+          const results: Array<{ toolCallId: string; result: string }> = [];
+
+          for (const toolCall of toolCalls) {
+            const toolName = toolCall.function?.name;
+            const toolCallId = toolCall.id;
+
+            console.log('[Webhook Debug] Processing tool call:', toolName, toolCallId);
+
+            if (toolName === 'lookup_customer') {
+              // Parse arguments
+              let args: { phone_number?: string } = {};
+              try {
+                args = typeof toolCall.function?.arguments === 'string'
+                  ? JSON.parse(toolCall.function.arguments)
+                  : toolCall.function?.arguments || {};
+              } catch (e) {
+                console.error('[Tool Call] Error parsing arguments:', e);
+              }
+
+              const phoneNumber = args.phone_number;
+
+              if (!phoneNumber) {
+                results.push({
+                  toolCallId,
+                  result: 'No phone number provided. Please ask the customer for their phone number.'
+                });
+                continue;
+              }
+
+              // Get CustomerConnect settings for this user
+              const wsSettings = await getWorkspaceSettingsForUser(env, webhook.user_id);
+
+              if (!wsSettings?.customerconnect_workspace_id || !wsSettings?.customerconnect_api_key) {
+                console.log('[Tool Call] CustomerConnect not configured for user:', webhook.user_id);
+                results.push({
+                  toolCallId,
+                  result: 'Customer lookup is not configured. Proceeding without customer history.'
+                });
+                continue;
+              }
+
+              // Lookup customer from CustomerConnect API
+              const customerData = await lookupCustomerFromCustomerConnect(
+                phoneNumber,
+                wsSettings.customerconnect_workspace_id,
+                wsSettings.customerconnect_api_key
+              );
+
+              if (customerData.found) {
+                // Build context message with appointment and household info
+                let contextParts: string[] = [];
+                
+                if (customerData.name) {
+                  contextParts.push(`Customer found: ${customerData.name}`);
+                }
+                
+                if (customerData.appointmentDate && customerData.appointmentTime) {
+                  contextParts.push(`Existing appointment: ${customerData.appointmentDate} at ${customerData.appointmentTime}`);
+                } else if (customerData.appointmentDate) {
+                  contextParts.push(`Existing appointment: ${customerData.appointmentDate}`);
+                }
+                
+                if (customerData.household) {
+                  contextParts.push(`Household/Decision maker: ${customerData.household}`);
+                }
+
+                const resultMessage = contextParts.length > 0
+                  ? contextParts.join('. ') + '. Please acknowledge this information naturally in the conversation.'
+                  : 'Customer found but no appointment or household information available.';
+
+                console.log('[Tool Call] Customer context:', resultMessage);
+                results.push({
+                  toolCallId,
+                  result: resultMessage
+                });
+              } else {
+                results.push({
+                  toolCallId,
+                  result: 'No existing customer record found for this phone number. This appears to be a new customer.'
+                });
+              }
+            } else {
+              // Unknown tool - return empty result
+              console.log('[Tool Call] Unknown tool:', toolName);
+              results.push({
+                toolCallId,
+                result: 'Tool not implemented.'
+              });
+            }
+          }
+
+          // Return results to VAPI
+          return jsonResponse({ results });
         }
 
         // Handle end-of-call-report (existing logic)

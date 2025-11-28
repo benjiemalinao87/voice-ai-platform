@@ -3980,3 +3980,94 @@ For warm transfer to work, user needs:
 - Webhook-based architectures work well for async telephony events
 - Always track state in your own database - don't rely solely on external service state
 
+
+## CustomerConnect Auto-Context Injection via VAPI Tool
+
+**Date:** November 28, 2025
+
+**Feature:**
+Implemented automatic customer lookup during VAPI calls. When the AI collects a customer's phone number, it calls a `lookup_customer` tool that fetches customer data from CustomerConnect API and returns appointment/household context.
+
+**Problem Solved:**
+Manual "Add Context" required human intervention - supervisors had to listen to calls and manually add context. This automates context injection based on customer phone number.
+
+**Implementation Approach:**
+
+**Option A (NOT chosen - voice-input webhooks):**
+- Listen to voice-input server messages
+- Use regex to detect phone numbers in transcripts
+- Manually inject context via Control API
+
+**Option B (CHOSEN - VAPI Tool):**
+- Define a `lookup_customer` tool on the assistant
+- AI calls the tool after collecting phone number
+- Backend handles tool-call webhook
+- Returns context directly to VAPI - automatic context injection
+
+**Why Option B is Better:**
+1. AI controls when to call (smarter trigger)
+2. VAPI automatically adds tool result to conversation
+3. No need for separate context injection via Control API
+4. Cleaner architecture - standard tool pattern
+5. More reliable phone number extraction (AI parses it)
+
+**Key Implementation Details:**
+
+1. **Tool-calls webhook handler:**
+   ```typescript
+   if (messageType === 'tool-calls') {
+     for (const toolCall of message.toolCalls) {
+       if (toolCall.function?.name === 'lookup_customer') {
+         // Extract phone, call CustomerConnect API
+         // Return formatted context
+       }
+     }
+     return jsonResponse({ results });
+   }
+   ```
+
+2. **CustomerConnect API Integration:**
+   - Endpoint: `GET /api/v3/contacts/search?workspace_id=X&phone_number=Y`
+   - Auth: X-API-Key header
+   - Extracts: `appointment_date_display`, `appointment_time`, `metadata.custom_fields.household`
+
+3. **Response Format for VAPI:**
+   ```json
+   {
+     "results": [
+       {
+         "toolCallId": "call_xxx",
+         "result": "Customer found: Name. Existing appointment: Date at Time. Household: X"
+       }
+     ]
+   }
+   ```
+
+**How It Should Be Done:**
+- Use VAPI tools for automated actions triggered by conversation
+- Handle tool-calls in same webhook as other VAPI events
+- Return structured results that VAPI can use
+- Store credentials per-workspace, not per-user
+- Provide clear setup instructions in UI
+
+**How It Should NOT Be Done:**
+- Don't use voice-input monitoring for structured data extraction (AI does it better)
+- Don't try to inject context via Control API when tools work
+- Don't hardcode credentials - make them configurable
+- Don't skip error handling (API failures, missing config)
+
+**Files Created:**
+- `workers/migrations/0023_add_customerconnect_settings.sql`
+
+**Files Modified:**
+- `workers/index.ts` - Tool handler + CustomerConnect API helper
+- `src/components/Settings.tsx` - CustomerConnect settings UI
+- `src/components/AgentConfig.tsx` - Tool configuration guide
+- `src/lib/d1.ts` - Updated settings type
+
+**Testing:**
+1. Configure CustomerConnect credentials in Settings
+2. Add lookup_customer tool to VAPI assistant
+3. Call assistant, provide phone number
+4. Verify AI receives and uses customer context
+

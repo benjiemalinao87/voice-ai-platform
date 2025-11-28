@@ -99,6 +99,8 @@ class D1Client {
     twilioAccountSid?: string | null;
     twilioAuthToken?: string | null;
     transferPhoneNumber?: string | null;
+    customerconnectWorkspaceId?: string | null;
+    customerconnectApiKey?: string | null;
   }): Promise<{ message: string }> {
     return this.request('/api/settings', {
       method: 'PUT',

@@ -9,7 +9,9 @@ import {
   Check,
   X,
   PhoneForwarded,
-  Users
+  Users,
+  UserSearch,
+  Copy
 } from 'lucide-react';
 import { agentApi } from '../lib/api';
 import { VoiceTest } from './VoiceTest';
@@ -507,6 +509,110 @@ export function AgentConfig({ agentId }: AgentConfigProps) {
 1. Acknowledge their request politely
 2. Say "Let me connect you with one of our team members"
 3. Use the transferCall function with the configured agent number`}
+                  </code>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* CustomerConnect Tool Section */}
+          <div className="border-b border-gray-200 dark:border-gray-700 pb-6">
+            <div className="flex items-center gap-2 mb-4">
+              <UserSearch className="w-5 h-5 text-gray-400 dark:text-gray-500" />
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Customer Lookup Tool</h3>
+            </div>
+            <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-4 space-y-4">
+              <div>
+                <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
+                  Enable automatic customer lookup during calls. When the AI collects a phone number, it can fetch customer data 
+                  from CustomerConnect to provide personalized context (existing appointments, household members, etc.).
+                </p>
+                <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3 mb-4">
+                  <p className="text-xs text-blue-700 dark:text-blue-300">
+                    <strong>Setup Required:</strong> Configure your CustomerConnect credentials in{' '}
+                    <span className="font-mono bg-blue-100 dark:bg-blue-800 px-1 rounded">Settings → API Configuration</span>
+                  </p>
+                </div>
+              </div>
+              <div>
+                <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Tool Configuration</h4>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
+                  Add this tool to your VAPI assistant via the VAPI Dashboard or API:
+                </p>
+                <div className="relative">
+                  <pre className="bg-gray-100 dark:bg-gray-800 rounded-lg p-3 text-xs text-gray-700 dark:text-gray-300 overflow-x-auto">
+{`{
+  "type": "function",
+  "function": {
+    "name": "lookup_customer",
+    "description": "Look up customer information by phone number. Call this after collecting the customer's phone number to get appointment details and household information.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "phone_number": {
+          "type": "string",
+          "description": "Customer phone number (digits only, e.g., 6267888831)"
+        }
+      },
+      "required": ["phone_number"]
+    }
+  },
+  "server": {
+    "url": "${window.location.origin}/webhook/{YOUR_WEBHOOK_ID}"
+  }
+}`}
+                  </pre>
+                  <button
+                    onClick={() => {
+                      const toolConfig = `{
+  "type": "function",
+  "function": {
+    "name": "lookup_customer",
+    "description": "Look up customer information by phone number. Call this after collecting the customer's phone number to get appointment details and household information.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "phone_number": {
+          "type": "string",
+          "description": "Customer phone number (digits only, e.g., 6267888831)"
+        }
+      },
+      "required": ["phone_number"]
+    }
+  },
+  "server": {
+    "url": "${window.location.origin}/webhook/{YOUR_WEBHOOK_ID}"
+  }
+}`;
+                      navigator.clipboard.writeText(toolConfig);
+                      alert('Tool configuration copied to clipboard!');
+                    }}
+                    className="absolute top-2 right-2 p-1.5 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 rounded text-gray-600 dark:text-gray-300"
+                    title="Copy to clipboard"
+                  >
+                    <Copy className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+              <div>
+                <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">System Prompt Addition</h4>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
+                  Add this instruction to your assistant's system prompt:
+                </p>
+                <div className="bg-gray-100 dark:bg-gray-800 rounded-lg p-3">
+                  <code className="text-xs text-gray-700 dark:text-gray-300 whitespace-pre-wrap">
+{`After collecting the customer's phone number, call the lookup_customer tool to check for existing appointments and customer information. Use this context to provide personalized assistance.`}
+                  </code>
+                </div>
+              </div>
+              <div>
+                <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">What the AI Receives</h4>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
+                  When a customer is found, the tool returns context like:
+                </p>
+                <div className="bg-green-50 dark:bg-green-900/20 rounded-lg p-3">
+                  <code className="text-xs text-green-700 dark:text-green-300 whitespace-pre-wrap">
+{`Customer found: Benjie Malinao. Existing appointment: 12-15-2025 at 3:30PM. Household/Decision maker: Test Household. Please acknowledge this information naturally in the conversation.`}
                   </code>
                 </div>
               </div>
