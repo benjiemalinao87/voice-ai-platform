@@ -667,6 +667,60 @@ async function getWorkspaceSettingsForUser(env: Env, userId: string): Promise<{
   return wsSettings || null;
 }
 
+// Helper: Log tool call to database
+async function logToolCall(env: Env, data: {
+  userId: string;
+  workspaceId?: string;
+  vapiCallId?: string | null;
+  toolName: string;
+  phoneNumber?: string | null;
+  status: 'success' | 'not_found' | 'error' | 'not_configured';
+  requestTimestamp: number;
+  responseTimestamp?: number;
+  responseTimeMs?: number;
+  customerName?: string | null;
+  appointmentDate?: string | null;
+  appointmentTime?: string | null;
+  household?: string | null;
+  errorMessage?: string | null;
+  rawResponse?: string | null;
+}): Promise<void> {
+  try {
+    const logId = generateId();
+    await env.DB.prepare(
+      `INSERT INTO tool_call_logs (
+        id, user_id, workspace_id, vapi_call_id, tool_name, phone_number,
+        status, request_timestamp, response_timestamp, response_time_ms,
+        customer_name, appointment_date, appointment_time, household,
+        error_message, raw_response, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).bind(
+      logId,
+      data.userId,
+      data.workspaceId || null,
+      data.vapiCallId || null,
+      data.toolName,
+      data.phoneNumber || null,
+      data.status,
+      data.requestTimestamp,
+      data.responseTimestamp || null,
+      data.responseTimeMs || null,
+      data.customerName || null,
+      data.appointmentDate || null,
+      data.appointmentTime || null,
+      data.household || null,
+      data.errorMessage || null,
+      data.rawResponse || null,
+      Date.now()
+    ).run();
+
+    console.log('[Tool Call Log] Saved log entry:', logId, 'Status:', data.status);
+  } catch (error) {
+    console.error('[Tool Call Log] Error saving log:', error);
+    // Don't throw - logging failure shouldn't break the main flow
+  }
+}
+
 // Helper: Lookup customer from CustomerConnect API
 async function lookupCustomerFromCustomerConnect(
   phoneNumber: string,
@@ -3928,6 +3982,74 @@ export default {
           success: true,
           deletedCalls: result.meta.changes,
           message: `Removed ${result.meta.changes} stale call(s)`
+        });
+      }
+
+      // Get tool call logs (CustomerConnect lookups)
+      if (url.pathname === '/api/tool-call-logs' && request.method === 'GET') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        // Get effective user ID for workspace context
+        const { effectiveUserId } = await getEffectiveUserId(env, userId);
+
+        // Parse query params
+        const limit = parseInt(url.searchParams.get('limit') || '50');
+        const status = url.searchParams.get('status'); // filter by status
+        const phone = url.searchParams.get('phone'); // filter by phone
+
+        let query = `
+          SELECT
+            id, user_id, workspace_id, vapi_call_id, tool_name, phone_number,
+            status, request_timestamp, response_timestamp, response_time_ms,
+            customer_name, appointment_date, appointment_time, household,
+            error_message, created_at
+          FROM tool_call_logs
+          WHERE user_id = ?
+        `;
+        const params: any[] = [effectiveUserId];
+
+        if (status) {
+          query += ' AND status = ?';
+          params.push(status);
+        }
+
+        if (phone) {
+          query += ' AND phone_number LIKE ?';
+          params.push(`%${phone}%`);
+        }
+
+        query += ' ORDER BY created_at DESC LIMIT ?';
+        params.push(limit);
+
+        const stmt = env.DB.prepare(query);
+        const { results } = await stmt.bind(...params).all();
+
+        // Get stats
+        const statsQuery = await env.DB.prepare(`
+          SELECT
+            COUNT(*) as total,
+            SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) as success_count,
+            SUM(CASE WHEN status = 'not_found' THEN 1 ELSE 0 END) as not_found_count,
+            SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) as error_count,
+            SUM(CASE WHEN status = 'not_configured' THEN 1 ELSE 0 END) as not_configured_count,
+            AVG(response_time_ms) as avg_response_time
+          FROM tool_call_logs
+          WHERE user_id = ?
+        `).bind(effectiveUserId).first() as any;
+
+        return jsonResponse({
+          logs: results,
+          stats: {
+            total: statsQuery?.total || 0,
+            success: statsQuery?.success_count || 0,
+            notFound: statsQuery?.not_found_count || 0,
+            errors: statsQuery?.error_count || 0,
+            notConfigured: statsQuery?.not_configured_count || 0,
+            avgResponseTimeMs: Math.round(statsQuery?.avg_response_time || 0)
+          }
         });
       }
 
@@ -7875,15 +7997,20 @@ Need help? Contact our support team anytime!
         // Handle tool-calls events (VAPI function/tool calls)
         if (messageType === 'tool-calls') {
           const toolCalls = message.toolCalls || [];
-          console.log('[Webhook Debug] Tool calls received:', toolCalls.length);
+          const vapiCallId = call.id || null;
+          console.log('[Tool Call] ========================================');
+          console.log('[Tool Call] Tool calls received:', toolCalls.length);
+          console.log('[Tool Call] VAPI Call ID:', vapiCallId);
+          console.log('[Tool Call] User ID:', webhook.user_id);
 
           const results: Array<{ toolCallId: string; result: string }> = [];
 
           for (const toolCall of toolCalls) {
             const toolName = toolCall.function?.name;
             const toolCallId = toolCall.id;
+            const requestTimestamp = Date.now();
 
-            console.log('[Webhook Debug] Processing tool call:', toolName, toolCallId);
+            console.log('[Tool Call] Processing:', { toolName, toolCallId });
 
             if (toolName === 'lookup_customer') {
               // Parse arguments
@@ -7897,8 +8024,20 @@ Need help? Contact our support team anytime!
               }
 
               const phoneNumber = args.phone_number;
+              console.log('[Tool Call] Phone number received:', phoneNumber);
 
+              // Log entry for missing phone number
               if (!phoneNumber) {
+                console.log('[Tool Call] ERROR: No phone number provided');
+                await logToolCall(env, {
+                  userId: webhook.user_id,
+                  vapiCallId,
+                  toolName,
+                  phoneNumber: null,
+                  status: 'error',
+                  requestTimestamp,
+                  errorMessage: 'No phone number provided'
+                });
                 results.push({
                   toolCallId,
                   result: 'No phone number provided. Please ask the customer for their phone number.'
@@ -7910,7 +8049,17 @@ Need help? Contact our support team anytime!
               const wsSettings = await getWorkspaceSettingsForUser(env, webhook.user_id);
 
               if (!wsSettings?.customerconnect_workspace_id || !wsSettings?.customerconnect_api_key) {
-                console.log('[Tool Call] CustomerConnect not configured for user:', webhook.user_id);
+                console.log('[Tool Call] ERROR: CustomerConnect not configured for user:', webhook.user_id);
+                await logToolCall(env, {
+                  userId: webhook.user_id,
+                  workspaceId: wsSettings?.workspace_id,
+                  vapiCallId,
+                  toolName,
+                  phoneNumber,
+                  status: 'not_configured',
+                  requestTimestamp,
+                  errorMessage: 'CustomerConnect credentials not configured'
+                });
                 results.push({
                   toolCallId,
                   result: 'Customer lookup is not configured. Proceeding without customer history.'
@@ -7918,12 +8067,18 @@ Need help? Contact our support team anytime!
                 continue;
               }
 
+              console.log('[Tool Call] Calling CustomerConnect API...');
+              console.log('[Tool Call] Workspace ID:', wsSettings.customerconnect_workspace_id);
+
               // Lookup customer from CustomerConnect API
               const customerData = await lookupCustomerFromCustomerConnect(
                 phoneNumber,
                 wsSettings.customerconnect_workspace_id,
                 wsSettings.customerconnect_api_key
               );
+
+              const responseTimestamp = Date.now();
+              const responseTimeMs = responseTimestamp - requestTimestamp;
 
               if (customerData.found) {
                 // Build context message with appointment and household info
@@ -7947,12 +8102,50 @@ Need help? Contact our support team anytime!
                   ? contextParts.join('. ') + '. Please acknowledge this information naturally in the conversation.'
                   : 'Customer found but no appointment or household information available.';
 
-                console.log('[Tool Call] Customer context:', resultMessage);
+                console.log('[Tool Call] SUCCESS: Customer found');
+                console.log('[Tool Call] Response time:', responseTimeMs, 'ms');
+                console.log('[Tool Call] Customer:', customerData.name);
+                console.log('[Tool Call] Appointment:', customerData.appointmentDate, customerData.appointmentTime);
+                console.log('[Tool Call] Household:', customerData.household);
+
+                // Log successful lookup
+                await logToolCall(env, {
+                  userId: webhook.user_id,
+                  workspaceId: wsSettings.workspace_id,
+                  vapiCallId,
+                  toolName,
+                  phoneNumber,
+                  status: 'success',
+                  requestTimestamp,
+                  responseTimestamp,
+                  responseTimeMs,
+                  customerName: customerData.name,
+                  appointmentDate: customerData.appointmentDate,
+                  appointmentTime: customerData.appointmentTime,
+                  household: customerData.household
+                });
+
                 results.push({
                   toolCallId,
                   result: resultMessage
                 });
               } else {
+                console.log('[Tool Call] NOT FOUND: No customer record');
+                console.log('[Tool Call] Response time:', responseTimeMs, 'ms');
+
+                // Log not found
+                await logToolCall(env, {
+                  userId: webhook.user_id,
+                  workspaceId: wsSettings.workspace_id,
+                  vapiCallId,
+                  toolName,
+                  phoneNumber,
+                  status: 'not_found',
+                  requestTimestamp,
+                  responseTimestamp,
+                  responseTimeMs
+                });
+
                 results.push({
                   toolCallId,
                   result: 'No existing customer record found for this phone number. This appears to be a new customer.'
@@ -7967,6 +8160,8 @@ Need help? Contact our support team anytime!
               });
             }
           }
+
+          console.log('[Tool Call] ========================================');
 
           // Return results to VAPI
           return jsonResponse({ results });

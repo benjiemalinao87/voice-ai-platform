@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Key, Save, Eye, EyeOff, AlertCircle, CheckCircle, Trash2, RefreshCw, LogOut, User, Settings as SettingsIcon, Plug, Webhook, Maximize2, Zap, Calendar, PhoneForwarded, Phone, Users, UserSearch } from 'lucide-react';
+import { Key, Save, Eye, EyeOff, AlertCircle, CheckCircle, Trash2, RefreshCw, LogOut, User, Settings as SettingsIcon, Plug, Webhook, Maximize2, Zap, Calendar, PhoneForwarded, Phone, Users, UserSearch, Activity } from 'lucide-react';
 import { VapiClient } from '../lib/vapi';
 import { useAuth } from '../contexts/AuthContext';
 import { useVapi } from '../contexts/VapiContext';
@@ -10,6 +10,7 @@ import { Addons } from './Addons';
 import { SchedulingTriggers } from './SchedulingTriggers';
 import { PhoneNumbers } from './PhoneNumbers';
 import { TeamMembers } from './TeamMembers';
+import { ToolCallLogs } from './ToolCallLogs';
 
 interface VapiCredentials {
   privateKey: string;
@@ -49,7 +50,7 @@ interface SettingsProps {
 
 export function Settings({ wideView = false, onWideViewChange }: SettingsProps = {}) {
   const { user, token, logout } = useAuth();
-  const [activeTab, setActiveTab] = useState<'api' | 'integrations' | 'webhooks' | 'addons' | 'scheduling' | 'phoneNumbers' | 'team' | 'preferences'>('api');
+  const [activeTab, setActiveTab] = useState<'api' | 'integrations' | 'webhooks' | 'addons' | 'scheduling' | 'phoneNumbers' | 'logs' | 'team' | 'preferences'>('api');
   const [credentials, setCredentials] = useState<VapiCredentials>({
     privateKey: '',
     publicKey: ''
@@ -384,6 +385,19 @@ export function Settings({ wideView = false, onWideViewChange }: SettingsProps =
                   <div className="flex items-center gap-2">
                     <Phone className="w-4 h-4" />
                     Phone Numbers
+                  </div>
+                </button>
+                <button
+                  onClick={() => setActiveTab('logs')}
+                  className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
+                    activeTab === 'logs'
+                      ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                      : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <Activity className="w-4 h-4" />
+                    Tool Logs
                   </div>
                 </button>
               </>
@@ -749,6 +763,10 @@ export function Settings({ wideView = false, onWideViewChange }: SettingsProps =
 
           {activeTab === 'phoneNumbers' && (
             <PhoneNumbers />
+          )}
+
+          {activeTab === 'logs' && (
+            <ToolCallLogs />
           )}
 
           {activeTab === 'team' && (
