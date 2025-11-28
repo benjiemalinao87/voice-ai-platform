@@ -133,7 +133,6 @@ export function ToolCallLogs() {
           <Activity className="w-6 h-6 text-blue-600 dark:text-blue-400" />
         </div>
         <div>
-          <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">CustomerConnect Logs</h2>
           <p className="text-sm text-gray-500 dark:text-gray-400">Monitor all customer lookup requests from the <code className="bg-gray-100 dark:bg-gray-800 px-1 rounded">lookup_customer</code> tool</p>
         </div>
       </div>
