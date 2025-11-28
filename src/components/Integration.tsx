@@ -97,14 +97,14 @@ export function Integration({ onNavigateToApiConfig }: IntegrationProps = {}) {
   const [integrations, setIntegrations] = useState<Integration[]>(getInitialIntegrations());
   const [selectedIntegration, setSelectedIntegration] = useState<string | null>(null);
   const [isConnecting, setIsConnecting] = useState<string | null>(null);
-  
+
   // OpenAI Modal State
   const [showOpenAIModal, setShowOpenAIModal] = useState(false);
   const [openaiApiKey, setOpenaiApiKey] = useState('');
   const [showOpenaiKey, setShowOpenaiKey] = useState(false);
   const [savingOpenAI, setSavingOpenAI] = useState(false);
   const [openaiError, setOpenaiError] = useState('');
-  
+
   // Twilio Modal State
   const [showTwilioModal, setShowTwilioModal] = useState(false);
   const [twilioAccountSid, setTwilioAccountSid] = useState('');
@@ -682,15 +682,14 @@ export function Integration({ onNavigateToApiConfig }: IntegrationProps = {}) {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="max-w-5xl mx-auto space-y-8">
       {/* Salesforce Notification Banner */}
       {salesforceNotification && (
         <div
-          className={`rounded-lg border p-4 ${
-            salesforceNotification.type === 'success'
-              ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800'
-              : 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800'
-          }`}
+          className={`rounded-xl border p-4 ${salesforceNotification.type === 'success'
+            ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800'
+            : 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800'
+            }`}
         >
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
@@ -700,11 +699,10 @@ export function Integration({ onNavigateToApiConfig }: IntegrationProps = {}) {
                 <AlertCircle className="w-5 h-5 text-red-600 dark:text-red-400" />
               )}
               <span
-                className={`text-sm font-medium ${
-                  salesforceNotification.type === 'success'
-                    ? 'text-green-900 dark:text-green-100'
-                    : 'text-red-900 dark:text-red-100'
-                }`}
+                className={`text-sm font-medium ${salesforceNotification.type === 'success'
+                  ? 'text-green-900 dark:text-green-100'
+                  : 'text-red-900 dark:text-red-100'
+                  }`}
               >
                 {salesforceNotification.message}
               </span>
@@ -722,11 +720,10 @@ export function Integration({ onNavigateToApiConfig }: IntegrationProps = {}) {
       {/* HubSpot Notification Banner */}
       {hubspotNotification && (
         <div
-          className={`rounded-lg border p-4 ${
-            hubspotNotification.type === 'success'
-              ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800'
-              : 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800'
-          }`}
+          className={`rounded-xl border p-4 ${hubspotNotification.type === 'success'
+            ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800'
+            : 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800'
+            }`}
         >
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
@@ -736,11 +733,10 @@ export function Integration({ onNavigateToApiConfig }: IntegrationProps = {}) {
                 <AlertCircle className="w-5 h-5 text-red-600 dark:text-red-400" />
               )}
               <span
-                className={`text-sm font-medium ${
-                  hubspotNotification.type === 'success'
-                    ? 'text-green-900 dark:text-green-100'
-                    : 'text-red-900 dark:text-red-100'
-                }`}
+                className={`text-sm font-medium ${hubspotNotification.type === 'success'
+                  ? 'text-green-900 dark:text-green-100'
+                  : 'text-red-900 dark:text-red-100'
+                  }`}
               >
                 {hubspotNotification.message}
               </span>
@@ -758,11 +754,10 @@ export function Integration({ onNavigateToApiConfig }: IntegrationProps = {}) {
       {/* Dynamics 365 Notification Banner */}
       {dynamicsNotification && (
         <div
-          className={`rounded-lg border p-4 ${
-            dynamicsNotification.type === 'success'
-              ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800'
-              : 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800'
-          }`}
+          className={`rounded-xl border p-4 ${dynamicsNotification.type === 'success'
+            ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800'
+            : 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800'
+            }`}
         >
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
@@ -772,11 +767,10 @@ export function Integration({ onNavigateToApiConfig }: IntegrationProps = {}) {
                 <AlertCircle className="w-5 h-5 text-red-600 dark:text-red-400" />
               )}
               <span
-                className={`text-sm font-medium ${
-                  dynamicsNotification.type === 'success'
-                    ? 'text-green-900 dark:text-green-100'
-                    : 'text-red-900 dark:text-red-100'
-                }`}
+                className={`text-sm font-medium ${dynamicsNotification.type === 'success'
+                  ? 'text-green-900 dark:text-green-100'
+                  : 'text-red-900 dark:text-red-100'
+                  }`}
               >
                 {dynamicsNotification.message}
               </span>
@@ -791,28 +785,27 @@ export function Integration({ onNavigateToApiConfig }: IntegrationProps = {}) {
         </div>
       )}
 
-      {/* Header */}
-      <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
-        <div className="flex items-center gap-3 mb-4">
-          <SettingsIcon className="w-8 h-8 text-blue-600 dark:text-blue-400" />
-          <div>
-            <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Integrations</h2>
-            <p className="text-gray-600 dark:text-gray-400">
-              Connect your voice AI system with popular CRM and business tools
-            </p>
-          </div>
+      <div className="flex items-center gap-3 mb-8">
+        <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
+          <SettingsIcon className="w-6 h-6 text-blue-600 dark:text-blue-400" />
         </div>
+        <div>
+          <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Integrations</h2>
+          <p className="text-sm text-gray-500 dark:text-gray-400">Connect your voice AI system with popular CRM and business tools</p>
+        </div>
+      </div>
 
-        <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
-          <div className="flex items-start gap-3">
-            <AlertCircle className="w-5 h-5 text-blue-600 dark:text-blue-400 flex-shrink-0 mt-0.5" />
-            <div className="text-sm text-blue-900 dark:text-blue-100">
-              <p className="font-medium mb-1">Integration Benefits</p>
-              <p className="text-blue-700 dark:text-blue-300">
-                Connect your CRM systems to automatically sync contact data, track interactions, 
-                and enhance your voice AI with customer context and history.
-              </p>
-            </div>
+      <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl border border-blue-100 dark:border-blue-800/50 p-4">
+        <div className="flex gap-3">
+          <div className="p-1 bg-blue-100 dark:bg-blue-800 rounded-full h-fit">
+            <AlertCircle className="w-4 h-4 text-blue-600 dark:text-blue-300" />
+          </div>
+          <div className="text-sm text-blue-900 dark:text-blue-100">
+            <p className="font-medium mb-1">Integration Benefits</p>
+            <p className="text-blue-700 dark:text-blue-300">
+              Connect your CRM systems to automatically sync contact data, track interactions,
+              and enhance your voice AI with customer context and history.
+            </p>
           </div>
         </div>
       </div>
@@ -822,7 +815,7 @@ export function Integration({ onNavigateToApiConfig }: IntegrationProps = {}) {
         {integrations.map((integration) => (
           <div
             key={integration.id}
-            className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6 hover:shadow-lg transition-shadow"
+            className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-6 shadow-sm hover:shadow-md transition-all duration-200"
           >
             {/* Integration Header */}
             <div className="flex items-start justify-between mb-4">
@@ -981,8 +974,8 @@ export function Integration({ onNavigateToApiConfig }: IntegrationProps = {}) {
                   ) : (
                     <button
                       onClick={() => setSelectedIntegration(integration.id)}
-                    className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
-                  >
+                      className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+                    >
                       <SettingsIcon className="w-4 h-4" />
                       Configure
                     </button>
@@ -1246,95 +1239,95 @@ export function Integration({ onNavigateToApiConfig }: IntegrationProps = {}) {
             </div>
           </div>
         ) : (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white dark:bg-gray-800 rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="p-6">
-              <div className="flex items-center justify-between mb-6">
-                <h3 className="text-xl font-semibold text-gray-900 dark:text-gray-100">
-                  Configure {integrations.find(i => i.id === selectedIntegration)?.name}
-                </h3>
-                <button
-                  onClick={() => setSelectedIntegration(null)}
-                  className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
-                >
-                  <XCircle className="w-6 h-6" />
-                </button>
-              </div>
-
-              <div className="space-y-6">
-                {/* Connection Status */}
-                <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4">
-                  <div className="flex items-center gap-2 text-green-900 dark:text-green-100">
-                    <CheckCircle className="w-5 h-5" />
-                    <span className="font-medium">Successfully Connected</span>
-                  </div>
-                  <p className="text-green-700 dark:text-green-300 text-sm mt-1">
-                    Your integration is active and syncing data
-                  </p>
-                </div>
-
-                {/* Configuration Options */}
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                      Sync Frequency
-                    </label>
-                    <select className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100">
-                      <option>Real-time</option>
-                      <option>Every 15 minutes</option>
-                      <option>Every hour</option>
-                      <option>Daily</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                      Data to Sync
-                    </label>
-                    <div className="space-y-2">
-                      {['Contacts', 'Leads', 'Opportunities', 'Custom Fields'].map((item) => (
-                        <label key={item} className="flex items-center gap-2">
-                          <input type="checkbox" defaultChecked className="rounded" />
-                          <span className="text-sm text-gray-700 dark:text-gray-300">{item}</span>
-                        </label>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                      Webhook URL
-                    </label>
-                    <div className="flex gap-2">
-                      <input
-                        type="text"
-                        value="https://api.voiceai.com/webhook/salesforce"
-                        readOnly
-                        className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700 text-gray-500 dark:text-gray-400 text-sm"
-                      />
-                      <button className="px-3 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600">
-                        Copy
-                      </button>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Action Buttons */}
-                <div className="flex gap-3 pt-4 border-t border-gray-200 dark:border-gray-700">
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+            <div className="bg-white dark:bg-gray-800 rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+              <div className="p-6">
+                <div className="flex items-center justify-between mb-6">
+                  <h3 className="text-xl font-semibold text-gray-900 dark:text-gray-100">
+                    Configure {integrations.find(i => i.id === selectedIntegration)?.name}
+                  </h3>
                   <button
                     onClick={() => setSelectedIntegration(null)}
-                    className="flex-1 px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+                    className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
                   >
-                    Cancel
+                    <XCircle className="w-6 h-6" />
                   </button>
-                  <button className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
-                    Save Configuration
-                  </button>
+                </div>
+
+                <div className="space-y-6">
+                  {/* Connection Status */}
+                  <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4">
+                    <div className="flex items-center gap-2 text-green-900 dark:text-green-100">
+                      <CheckCircle className="w-5 h-5" />
+                      <span className="font-medium">Successfully Connected</span>
+                    </div>
+                    <p className="text-green-700 dark:text-green-300 text-sm mt-1">
+                      Your integration is active and syncing data
+                    </p>
+                  </div>
+
+                  {/* Configuration Options */}
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                        Sync Frequency
+                      </label>
+                      <select className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100">
+                        <option>Real-time</option>
+                        <option>Every 15 minutes</option>
+                        <option>Every hour</option>
+                        <option>Daily</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                        Data to Sync
+                      </label>
+                      <div className="space-y-2">
+                        {['Contacts', 'Leads', 'Opportunities', 'Custom Fields'].map((item) => (
+                          <label key={item} className="flex items-center gap-2">
+                            <input type="checkbox" defaultChecked className="rounded" />
+                            <span className="text-sm text-gray-700 dark:text-gray-300">{item}</span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                        Webhook URL
+                      </label>
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          value="https://api.voiceai.com/webhook/salesforce"
+                          readOnly
+                          className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700 text-gray-500 dark:text-gray-400 text-sm"
+                        />
+                        <button className="px-3 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600">
+                          Copy
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Action Buttons */}
+                  <div className="flex gap-3 pt-4 border-t border-gray-200 dark:border-gray-700">
+                    <button
+                      onClick={() => setSelectedIntegration(null)}
+                      className="flex-1 px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+                    >
+                      Cancel
+                    </button>
+                    <button className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
+                      Save Configuration
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
-        </div>
         )
       )}
 
@@ -1391,13 +1384,12 @@ export function Integration({ onNavigateToApiConfig }: IntegrationProps = {}) {
                             ) : (
                               <XCircle className="w-5 h-5 text-red-600 dark:text-red-400" />
                             )}
-                            <span className={`text-sm font-medium ${
-                              log.status === 'success'
-                                ? 'text-green-700 dark:text-green-400'
-                                : log.status === 'skipped'
+                            <span className={`text-sm font-medium ${log.status === 'success'
+                              ? 'text-green-700 dark:text-green-400'
+                              : log.status === 'skipped'
                                 ? 'text-yellow-700 dark:text-yellow-400'
                                 : 'text-red-700 dark:text-red-400'
-                            }`}>
+                              }`}>
                               {log.status.toUpperCase()}
                             </span>
                             <span className="text-xs text-gray-500 dark:text-gray-400">
@@ -1499,17 +1491,15 @@ export function Integration({ onNavigateToApiConfig }: IntegrationProps = {}) {
 
                 {dynamicsNotification && (
                   <div
-                    className={`rounded-lg border p-3 ${
-                      dynamicsNotification.type === 'success'
-                        ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800'
-                        : 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800'
-                    }`}
+                    className={`rounded-lg border p-3 ${dynamicsNotification.type === 'success'
+                      ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800'
+                      : 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800'
+                      }`}
                   >
-                    <p className={`text-sm ${
-                      dynamicsNotification.type === 'success'
-                        ? 'text-green-900 dark:text-green-100'
-                        : 'text-red-900 dark:text-red-100'
-                    }`}>
+                    <p className={`text-sm ${dynamicsNotification.type === 'success'
+                      ? 'text-green-900 dark:text-green-100'
+                      : 'text-red-900 dark:text-red-100'
+                      }`}>
                       {dynamicsNotification.message}
                     </p>
                   </div>
@@ -1590,13 +1580,12 @@ export function Integration({ onNavigateToApiConfig }: IntegrationProps = {}) {
                   {dynamicsSyncLogs.map((log) => (
                     <div
                       key={log.id}
-                      className={`rounded-lg border p-4 ${
-                        log.status === 'success'
-                          ? 'bg-green-50 dark:bg-green-900/10 border-green-200 dark:border-green-800'
-                          : log.status === 'error'
+                      className={`rounded-lg border p-4 ${log.status === 'success'
+                        ? 'bg-green-50 dark:bg-green-900/10 border-green-200 dark:border-green-800'
+                        : log.status === 'error'
                           ? 'bg-red-50 dark:bg-red-900/10 border-red-200 dark:border-red-800'
                           : 'bg-gray-50 dark:bg-gray-700/50 border-gray-200 dark:border-gray-600'
-                      }`}
+                        }`}
                     >
                       <div className="flex items-start justify-between mb-2">
                         <div className="flex items-center gap-2">
@@ -1607,13 +1596,12 @@ export function Integration({ onNavigateToApiConfig }: IntegrationProps = {}) {
                           ) : (
                             <AlertCircle className="w-5 h-5 text-gray-600 dark:text-gray-400" />
                           )}
-                          <span className={`font-medium ${
-                            log.status === 'success'
-                              ? 'text-green-900 dark:text-green-100'
-                              : log.status === 'error'
+                          <span className={`font-medium ${log.status === 'success'
+                            ? 'text-green-900 dark:text-green-100'
+                            : log.status === 'error'
                               ? 'text-red-900 dark:text-red-100'
                               : 'text-gray-900 dark:text-gray-100'
-                          }`}>
+                            }`}>
                             {log.status.charAt(0).toUpperCase() + log.status.slice(1)}
                           </span>
                         </div>

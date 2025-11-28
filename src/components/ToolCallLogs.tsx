@@ -127,36 +127,37 @@ export function ToolCallLogs() {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center gap-2 mb-4">
-        <Activity className="w-6 h-6 text-blue-600 dark:text-blue-400" />
-        <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">CustomerConnect Logs</h2>
+    <div className="max-w-5xl mx-auto space-y-8">
+      <div className="flex items-center gap-3 mb-8">
+        <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
+          <Activity className="w-6 h-6 text-blue-600 dark:text-blue-400" />
+        </div>
+        <div>
+          <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">CustomerConnect Logs</h2>
+          <p className="text-sm text-gray-500 dark:text-gray-400">Monitor all customer lookup requests from the <code className="bg-gray-100 dark:bg-gray-800 px-1 rounded">lookup_customer</code> tool</p>
+        </div>
       </div>
-
-      <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-        Monitor all customer lookup requests from the <code className="bg-gray-100 dark:bg-gray-800 px-1 rounded">lookup_customer</code> tool.
-      </p>
 
       {/* Stats Cards */}
       {stats && (
         <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
-          <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4 text-center">
+          <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4 text-center shadow-sm">
             <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{stats.total}</p>
             <p className="text-xs text-gray-500 dark:text-gray-400">Total Calls</p>
           </div>
-          <div className="bg-green-50 dark:bg-green-900/20 rounded-lg p-4 text-center">
+          <div className="bg-green-50 dark:bg-green-900/20 rounded-xl border border-green-100 dark:border-green-800/50 p-4 text-center shadow-sm">
             <p className="text-2xl font-bold text-green-600 dark:text-green-400">{stats.success}</p>
             <p className="text-xs text-green-700 dark:text-green-400">Found</p>
           </div>
-          <div className="bg-yellow-50 dark:bg-yellow-900/20 rounded-lg p-4 text-center">
+          <div className="bg-yellow-50 dark:bg-yellow-900/20 rounded-xl border border-yellow-100 dark:border-yellow-800/50 p-4 text-center shadow-sm">
             <p className="text-2xl font-bold text-yellow-600 dark:text-yellow-400">{stats.notFound}</p>
             <p className="text-xs text-yellow-700 dark:text-yellow-400">Not Found</p>
           </div>
-          <div className="bg-red-50 dark:bg-red-900/20 rounded-lg p-4 text-center">
+          <div className="bg-red-50 dark:bg-red-900/20 rounded-xl border border-red-100 dark:border-red-800/50 p-4 text-center shadow-sm">
             <p className="text-2xl font-bold text-red-600 dark:text-red-400">{stats.errors}</p>
             <p className="text-xs text-red-700 dark:text-red-400">Errors</p>
           </div>
-          <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-4 text-center">
+          <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl border border-blue-100 dark:border-blue-800/50 p-4 text-center shadow-sm">
             <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">{stats.avgResponseTimeMs}ms</p>
             <p className="text-xs text-blue-700 dark:text-blue-400">Avg Response</p>
           </div>
@@ -164,11 +165,11 @@ export function ToolCallLogs() {
       )}
 
       {/* Filters */}
-      <div className="flex flex-wrap items-center gap-3 mb-4">
+      <div className="flex flex-wrap items-center gap-3 mb-6">
         <select
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value)}
-          className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-sm"
+          className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
         >
           <option value="">All Status</option>
           <option value="success">Success</option>
@@ -184,11 +185,11 @@ export function ToolCallLogs() {
             onChange={(e) => setPhoneSearch(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
             placeholder="Search phone..."
-            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-sm w-40"
+            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-sm w-40 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
           />
           <button
             onClick={handleSearch}
-            className="p-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+            className="p-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-sm"
           >
             <Search className="w-4 h-4" />
           </button>
@@ -197,7 +198,7 @@ export function ToolCallLogs() {
         <button
           onClick={handleRefresh}
           disabled={refreshing}
-          className="flex items-center gap-2 px-3 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 text-sm"
+          className="flex items-center gap-2 px-3 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 text-sm transition-colors shadow-sm disabled:opacity-50"
         >
           <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
           Refresh
@@ -206,7 +207,7 @@ export function ToolCallLogs() {
 
       {/* Logs Table */}
       {logs.length === 0 ? (
-        <div className="text-center py-12 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+        <div className="text-center py-12 bg-gray-50 dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
           <Activity className="w-12 h-12 text-gray-400 mx-auto mb-3" />
           <p className="text-gray-600 dark:text-gray-400">No tool call logs yet</p>
           <p className="text-sm text-gray-500 dark:text-gray-500 mt-1">
@@ -214,83 +215,85 @@ export function ToolCallLogs() {
           </p>
         </div>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-gray-200 dark:border-gray-700">
-                <th className="text-left py-3 px-4 font-medium text-gray-600 dark:text-gray-400">Time</th>
-                <th className="text-left py-3 px-4 font-medium text-gray-600 dark:text-gray-400">Phone</th>
-                <th className="text-left py-3 px-4 font-medium text-gray-600 dark:text-gray-400">Status</th>
-                <th className="text-left py-3 px-4 font-medium text-gray-600 dark:text-gray-400">Customer</th>
-                <th className="text-left py-3 px-4 font-medium text-gray-600 dark:text-gray-400">Appointment</th>
-                <th className="text-left py-3 px-4 font-medium text-gray-600 dark:text-gray-400">Response</th>
-              </tr>
-            </thead>
-            <tbody>
-              {logs.map((log) => (
-                <tr key={log.id} className="border-b border-gray-100 dark:border-gray-700/50 hover:bg-gray-50 dark:hover:bg-gray-700/30">
-                  <td className="py-3 px-4">
-                    <div className="flex items-center gap-1 text-gray-600 dark:text-gray-400">
-                      <Clock className="w-3 h-3" />
-                      <span className="text-xs">{formatTimestamp(log.created_at)}</span>
-                    </div>
-                  </td>
-                  <td className="py-3 px-4">
-                    <div className="flex items-center gap-1 text-gray-900 dark:text-gray-100 font-mono">
-                      <Phone className="w-3 h-3 text-gray-400" />
-                      {log.phone_number || '-'}
-                    </div>
-                  </td>
-                  <td className="py-3 px-4">
-                    {getStatusBadge(log.status)}
-                  </td>
-                  <td className="py-3 px-4">
-                    {log.customer_name ? (
-                      <div className="flex items-center gap-1 text-gray-900 dark:text-gray-100">
-                        <User className="w-3 h-3 text-gray-400" />
-                        <span>{log.customer_name}</span>
-                        {log.household && (
-                          <span className="text-xs text-gray-500 dark:text-gray-400 ml-1">
-                            ({log.household})
-                          </span>
-                        )}
-                      </div>
-                    ) : (
-                      <span className="text-gray-400">-</span>
-                    )}
-                  </td>
-                  <td className="py-3 px-4">
-                    {log.appointment_date ? (
-                      <div className="flex items-center gap-1 text-gray-900 dark:text-gray-100">
-                        <Calendar className="w-3 h-3 text-gray-400" />
-                        <span>{log.appointment_date}</span>
-                        {log.appointment_time && (
-                          <span className="text-gray-500 dark:text-gray-400">
-                            @ {log.appointment_time}
-                          </span>
-                        )}
-                      </div>
-                    ) : (
-                      <span className="text-gray-400">-</span>
-                    )}
-                  </td>
-                  <td className="py-3 px-4">
-                    {log.response_time_ms ? (
-                      <span className="text-gray-600 dark:text-gray-400 font-mono text-xs">
-                        {log.response_time_ms}ms
-                      </span>
-                    ) : log.error_message ? (
-                      <span className="text-red-600 dark:text-red-400 text-xs" title={log.error_message}>
-                        {log.error_message.substring(0, 30)}...
-                      </span>
-                    ) : (
-                      <span className="text-gray-400">-</span>
-                    )}
-                  </td>
+        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 dark:bg-gray-700/50">
+                <tr>
+                  <th className="text-left py-3 px-4 font-medium text-gray-600 dark:text-gray-400">Time</th>
+                  <th className="text-left py-3 px-4 font-medium text-gray-600 dark:text-gray-400">Phone</th>
+                  <th className="text-left py-3 px-4 font-medium text-gray-600 dark:text-gray-400">Status</th>
+                  <th className="text-left py-3 px-4 font-medium text-gray-600 dark:text-gray-400">Customer</th>
+                  <th className="text-left py-3 px-4 font-medium text-gray-600 dark:text-gray-400">Appointment</th>
+                  <th className="text-left py-3 px-4 font-medium text-gray-600 dark:text-gray-400">Response</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                {logs.map((log) => (
+                  <tr key={log.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors">
+                    <td className="py-3 px-4">
+                      <div className="flex items-center gap-1 text-gray-600 dark:text-gray-400">
+                        <Clock className="w-3 h-3" />
+                        <span className="text-xs">{formatTimestamp(log.created_at)}</span>
+                      </div>
+                    </td>
+                    <td className="py-3 px-4">
+                      <div className="flex items-center gap-1 text-gray-900 dark:text-gray-100 font-mono">
+                        <Phone className="w-3 h-3 text-gray-400" />
+                        {log.phone_number || '-'}
+                      </div>
+                    </td>
+                    <td className="py-3 px-4">
+                      {getStatusBadge(log.status)}
+                    </td>
+                    <td className="py-3 px-4">
+                      {log.customer_name ? (
+                        <div className="flex items-center gap-1 text-gray-900 dark:text-gray-100">
+                          <User className="w-3 h-3 text-gray-400" />
+                          <span>{log.customer_name}</span>
+                          {log.household && (
+                            <span className="text-xs text-gray-500 dark:text-gray-400 ml-1">
+                              ({log.household})
+                            </span>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-gray-400">-</span>
+                      )}
+                    </td>
+                    <td className="py-3 px-4">
+                      {log.appointment_date ? (
+                        <div className="flex items-center gap-1 text-gray-900 dark:text-gray-100">
+                          <Calendar className="w-3 h-3 text-gray-400" />
+                          <span>{log.appointment_date}</span>
+                          {log.appointment_time && (
+                            <span className="text-gray-500 dark:text-gray-400">
+                              @ {log.appointment_time}
+                            </span>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-gray-400">-</span>
+                      )}
+                    </td>
+                    <td className="py-3 px-4">
+                      {log.response_time_ms ? (
+                        <span className="text-gray-600 dark:text-gray-400 font-mono text-xs">
+                          {log.response_time_ms}ms
+                        </span>
+                      ) : log.error_message ? (
+                        <span className="text-red-600 dark:text-red-400 text-xs" title={log.error_message}>
+                          {log.error_message.substring(0, 30)}...
+                        </span>
+                      ) : (
+                        <span className="text-gray-400">-</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
     </div>

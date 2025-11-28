@@ -210,15 +210,24 @@ export function TeamMembers() {
   const currentWorkspace = workspaces[0];
 
   return (
-    <div className="space-y-6">
+    <div className="max-w-5xl mx-auto space-y-8">
+      <div className="flex items-center gap-3 mb-8">
+        <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
+          <Users className="w-6 h-6 text-blue-600 dark:text-blue-400" />
+        </div>
+        <div>
+          <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Team Members</h2>
+          <p className="text-sm text-gray-500 dark:text-gray-400">Manage your team members and permissions</p>
+        </div>
+      </div>
 
       {/* Main Card */}
       <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
         {/* General Section */}
         <div className="p-6 border-b border-gray-200 dark:border-gray-700">
-          <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-1">
-            General
-          </h2>
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-1">
+            General Information
+          </h3>
           <p className="text-sm text-gray-600 dark:text-gray-400 mb-6">
             View your team's information and members
           </p>
@@ -234,11 +243,10 @@ export function TeamMembers() {
                 value={selectedWorkspace?.name || ''}
                 readOnly={!canManageTeam}
                 disabled={!canManageTeam}
-                className={`w-full px-4 py-3 border rounded-xl bg-gray-50 dark:bg-gray-700/50 text-gray-900 dark:text-gray-100 ${
-                  canManageTeam
+                className={`w-full px-4 py-3 border rounded-xl bg-gray-50 dark:bg-gray-700/50 text-gray-900 dark:text-gray-100 ${canManageTeam
                     ? 'border-gray-300 dark:border-gray-600 focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700'
                     : 'border-gray-200 dark:border-gray-700 cursor-not-allowed'
-                }`}
+                  }`}
                 placeholder="Enter team name"
               />
               {!canManageTeam && (

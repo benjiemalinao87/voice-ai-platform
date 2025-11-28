@@ -161,17 +161,17 @@ export function SchedulingTriggers() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="max-w-5xl mx-auto space-y-8">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100 flex items-center gap-2">
+      <div className="flex items-center justify-between mb-8">
+        <div className="flex items-center gap-3">
+          <div className="p-2 bg-purple-100 dark:bg-purple-900/30 rounded-lg">
             <Zap className="w-6 h-6 text-purple-600 dark:text-purple-400" />
-            Scheduling Triggers
-          </h2>
-          <p className="text-gray-600 dark:text-gray-400 mt-1">
-            Automatically send appointment data to your webhook when customers book appointments
-          </p>
+          </div>
+          <div>
+            <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Scheduling Triggers</h2>
+            <p className="text-sm text-gray-500 dark:text-gray-400">Automatically send appointment data to your webhook when customers book appointments</p>
+          </div>
         </div>
         <button
           onClick={() => {
@@ -179,7 +179,7 @@ export function SchedulingTriggers() {
             setFormData({ name: '', destination_url: '', send_enhanced_data: true });
             setShowCreateModal(true);
           }}
-          className="flex items-center gap-2 px-4 py-2 bg-purple-600 dark:bg-purple-500 text-white rounded-lg hover:bg-purple-700 dark:hover:bg-purple-600 transition-colors"
+          className="flex items-center gap-2 px-4 py-2 bg-purple-600 dark:bg-purple-500 text-white rounded-lg hover:bg-purple-700 dark:hover:bg-purple-600 transition-colors shadow-sm hover:shadow-md"
         >
           <Plus className="w-4 h-4" />
           Create Trigger
@@ -187,14 +187,14 @@ export function SchedulingTriggers() {
       </div>
 
       {/* Info Box */}
-      <div className="bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-lg p-4">
+      <div className="bg-purple-50 dark:bg-purple-900/20 rounded-xl border border-purple-100 dark:border-purple-800/50 p-4">
         <div className="flex items-start gap-3">
-          <Calendar className="w-5 h-5 text-purple-600 dark:text-purple-400 flex-shrink-0 mt-0.5" />
-          <div>
-            <h3 className="text-sm font-semibold text-purple-900 dark:text-purple-100 mb-1">
-              How It Works
-            </h3>
-            <p className="text-xs text-purple-700 dark:text-purple-300">
+          <div className="p-1 bg-purple-100 dark:bg-purple-800 rounded-full h-fit">
+            <Calendar className="w-4 h-4 text-purple-600 dark:text-purple-300" />
+          </div>
+          <div className="text-sm text-purple-900 dark:text-purple-100">
+            <p className="font-medium mb-1">How It Works</p>
+            <p className="text-purple-700 dark:text-purple-300">
               When a caller successfully books an appointment (detected by AI), we automatically send their information
               (name, email, phone, appointment details, call recording, and optional enhanced data) to your webhook URL in real-time.
             </p>
@@ -203,7 +203,7 @@ export function SchedulingTriggers() {
       </div>
 
       {/* Triggers List */}
-      <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
         <div className="p-6 border-b border-gray-200 dark:border-gray-700">
           <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
             Active Triggers ({triggers.length})
@@ -232,11 +232,10 @@ export function SchedulingTriggers() {
                       </h4>
                       <button
                         onClick={() => handleToggleActive(trigger)}
-                        className={`flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-full transition-colors ${
-                          trigger.is_active
-                            ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400'
-                            : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400'
-                        }`}
+                        className={`flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-full transition-colors ${trigger.is_active
+                          ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400'
+                          : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400'
+                          }`}
                       >
                         <Power className="w-3 h-3" />
                         {trigger.is_active ? 'Active' : 'Inactive'}
@@ -281,7 +280,7 @@ export function SchedulingTriggers() {
       </div>
 
       {/* Recent Logs */}
-      <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
         <div className="p-6 border-b border-gray-200 dark:border-gray-700">
           <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
             Recent Webhook Deliveries ({logs.length})

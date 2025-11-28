@@ -126,41 +126,40 @@ export function WebhookConfig() {
   }
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-3">
-            <Webhook className="w-8 h-8 text-blue-600 dark:text-blue-400" />
-            <div>
-              <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">CHAU Voice AI Webhook Integration</h2>
-              <p className="text-gray-600 dark:text-gray-400">
-                Receive real-time call data from CHAU Voice AI when calls end
-              </p>
-            </div>
+    <div className="max-w-5xl mx-auto space-y-8">
+      <div className="flex items-center justify-between mb-8">
+        <div className="flex items-center gap-3">
+          <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
+            <Webhook className="w-6 h-6 text-blue-600 dark:text-blue-400" />
           </div>
-          <button
-            onClick={() => setShowAddModal(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-          >
-            <Plus className="w-4 h-4" />
-            Generate Webhook
-          </button>
+          <div>
+            <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">CHAU Voice AI Webhook Integration</h2>
+            <p className="text-sm text-gray-500 dark:text-gray-400">Receive real-time call data from CHAU Voice AI when calls end</p>
+          </div>
         </div>
+        <button
+          onClick={() => setShowAddModal(true)}
+          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-sm hover:shadow-md"
+        >
+          <Plus className="w-4 h-4" />
+          Generate Webhook
+        </button>
+      </div>
 
-        <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
-          <div className="flex items-start gap-3">
-            <AlertCircle className="w-5 h-5 text-blue-600 dark:text-blue-400 flex-shrink-0 mt-0.5" />
-            <div className="text-sm text-blue-900 dark:text-blue-100">
-              <p className="font-medium mb-1">How to Use</p>
-              <ol className="text-blue-700 dark:text-blue-300 list-decimal list-inside space-y-1">
-                <li>Click "Generate Webhook" to create a new webhook endpoint</li>
-                <li>Copy the webhook URL</li>
-                <li>Go to Voice AI Dashboard → Assistant → Server URL</li>
-                <li>Paste the webhook URL and save</li>
-                <li>CHAU Voice AI will send call data to this endpoint when calls end</li>
-              </ol>
-            </div>
+      <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl border border-blue-100 dark:border-blue-800/50 p-4">
+        <div className="flex items-start gap-3">
+          <div className="p-1 bg-blue-100 dark:bg-blue-800 rounded-full h-fit">
+            <AlertCircle className="w-4 h-4 text-blue-600 dark:text-blue-300" />
+          </div>
+          <div className="text-sm text-blue-900 dark:text-blue-100">
+            <p className="font-medium mb-1">How to Use</p>
+            <ol className="text-blue-700 dark:text-blue-300 list-decimal list-inside space-y-1">
+              <li>Click "Generate Webhook" to create a new webhook endpoint</li>
+              <li>Copy the webhook URL</li>
+              <li>Go to Voice AI Dashboard → Assistant → Server URL</li>
+              <li>Paste the webhook URL and save</li>
+              <li>CHAU Voice AI will send call data to this endpoint when calls end</li>
+            </ol>
           </div>
         </div>
       </div>
@@ -170,7 +169,7 @@ export function WebhookConfig() {
         {webhooks.map((webhook) => (
           <div
             key={webhook.id}
-            className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6 hover:shadow-lg transition-shadow"
+            className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-6 shadow-sm hover:shadow-md transition-all duration-200"
           >
             <div className="flex items-start justify-between mb-4">
               <div className="flex-1">
@@ -178,11 +177,10 @@ export function WebhookConfig() {
                   <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
                     {webhook.name}
                   </h3>
-                  <span className={`px-2 py-1 text-xs font-medium rounded-full ${
-                    webhook.is_active
+                  <span className={`px-2 py-1 text-xs font-medium rounded-full ${webhook.is_active
                       ? 'bg-green-100 dark:bg-green-900/20 text-green-700 dark:text-green-400'
                       : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-400'
-                  }`}>
+                    }`}>
                     {webhook.is_active ? 'Active' : 'Inactive'}
                   </span>
                   {webhook.call_count !== undefined && (
@@ -237,7 +235,7 @@ export function WebhookConfig() {
         ))}
 
         {webhooks.length === 0 && (
-          <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-12 text-center">
+          <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-12 text-center shadow-sm">
             <Webhook className="w-16 h-16 text-gray-400 mx-auto mb-4" />
             <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-2">
               No Webhooks Generated
@@ -256,7 +254,7 @@ export function WebhookConfig() {
       </div>
 
       {/* Received Webhook Calls */}
-      <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-6 shadow-sm">
         <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4 flex items-center gap-2">
           <Phone className="w-5 h-5 text-gray-400" />
           Recent Webhook Calls

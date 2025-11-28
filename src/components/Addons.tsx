@@ -128,15 +128,16 @@ export function Addons() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="max-w-5xl mx-auto space-y-8">
       {/* Header */}
-      <div>
-        <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-2">
-          Addons
-        </h2>
-        <p className="text-sm text-gray-600 dark:text-gray-400">
-          Enhance your Voice AI dashboard with powerful addons. These are paid features available on a request basis.
-        </p>
+      <div className="flex items-center gap-3 mb-8">
+        <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
+          <Zap className="w-6 h-6 text-blue-600 dark:text-blue-400" />
+        </div>
+        <div>
+          <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Addons</h2>
+          <p className="text-sm text-gray-500 dark:text-gray-400">Enhance your Voice AI dashboard with powerful addons</p>
+        </div>
       </div>
 
       {/* Addons Grid */}
@@ -144,7 +145,7 @@ export function Addons() {
         {addons.map((addon) => (
           <div
             key={addon.id}
-            className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6 hover:shadow-lg transition-shadow"
+            className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-6 shadow-sm hover:shadow-md transition-all duration-200"
           >
             {/* Header */}
             <div className="flex items-start justify-between mb-4">
@@ -173,16 +174,14 @@ export function Addons() {
               <button
                 onClick={() => toggleAddon(addon.type, addon.isEnabled)}
                 disabled={toggling === addon.type}
-                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800 ${
-                  addon.isEnabled
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800 ${addon.isEnabled
                     ? 'bg-blue-600 dark:bg-blue-500'
                     : 'bg-gray-200 dark:bg-gray-700'
-                } ${toggling === addon.type ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  } ${toggling === addon.type ? 'opacity-50 cursor-not-allowed' : ''}`}
               >
                 <span
-                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                    addon.isEnabled ? 'translate-x-6' : 'translate-x-1'
-                  }`}
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${addon.isEnabled ? 'translate-x-6' : 'translate-x-1'
+                    }`}
                 />
               </button>
             </div>
@@ -210,11 +209,10 @@ export function Addons() {
             {/* Status */}
             <div className={`mt-4 pt-4 border-t border-gray-200 dark:border-gray-700`}>
               <div className="flex items-center justify-between mb-2">
-                <span className={`text-sm font-medium ${
-                  addon.isEnabled
+                <span className={`text-sm font-medium ${addon.isEnabled
                     ? 'text-green-600 dark:text-green-400'
                     : 'text-gray-500 dark:text-gray-400'
-                }`}>
+                  }`}>
                   {addon.isEnabled ? 'Active' : 'Inactive'}
                 </span>
                 {addon.isEnabled && addon.type !== 'embedding' && (
@@ -239,14 +237,14 @@ export function Addons() {
       </div>
 
       {/* Info Box */}
-      <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+      <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl border border-blue-100 dark:border-blue-800/50 p-4">
         <div className="flex gap-3">
-          <Zap className="w-5 h-5 text-blue-600 dark:text-blue-400 flex-shrink-0 mt-0.5" />
-          <div>
-            <h4 className="text-sm font-semibold text-blue-900 dark:text-blue-200 mb-1">
-              How Addons Work
-            </h4>
-            <p className="text-sm text-blue-800 dark:text-blue-300">
+          <div className="p-1 bg-blue-100 dark:bg-blue-800 rounded-full h-fit">
+            <Zap className="w-4 h-4 text-blue-600 dark:text-blue-300" />
+          </div>
+          <div className="text-sm text-blue-900 dark:text-blue-100">
+            <p className="font-medium mb-1">How Addons Work</p>
+            <p className="text-blue-700 dark:text-blue-300">
               Addons are automatically triggered when a call ends and data is received. They process information in the background and results are stored with your call records. Billing is based on actual usage.
             </p>
           </div>
