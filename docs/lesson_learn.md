@@ -4071,3 +4071,61 @@ Manual "Add Context" required human intervention - supervisors had to listen to 
 3. Call assistant, provide phone number
 4. Verify AI receives and uses customer context
 
+---
+
+## Security Fix: Tool Call Logs Data Isolation (November 29, 2025)
+
+### The Problem
+The `/api/tool-call-logs` endpoint was returning ALL users' logs without any filtering - a critical data isolation breach.
+
+### Root Cause
+1. Authentication was commented out for testing and never restored
+2. The SQL query had `WHERE 1=1` instead of filtering by `user_id`
+3. Stats query also had no user filter - showing global stats
+4. `getEffectiveUserId()` was never called for workspace context
+
+### What Was Wrong
+```javascript
+// BAD - No auth, no user filtering
+if (url.pathname === '/api/tool-call-logs' && request.method === 'GET') {
+  let query = `
+    SELECT ... FROM tool_call_logs
+    WHERE 1=1  // ← Returns ALL users' data!
+  `;
+```
+
+### The Fix
+```javascript
+// GOOD - Auth + user/workspace filtering
+if (url.pathname === '/api/tool-call-logs' && request.method === 'GET') {
+  const userId = await getUserFromToken(request, env);
+  if (!userId) {
+    return jsonResponse({ error: 'Unauthorized' }, 401);
+  }
+  
+  // Get effective user ID for workspace context
+  const { effectiveUserId } = await getEffectiveUserId(env, userId);
+  
+  let query = `
+    SELECT ... FROM tool_call_logs
+    WHERE user_id = ?  // ← Only this user's data
+  `;
+  const params = [effectiveUserId];
+```
+
+### Pattern to Follow for ALL Endpoints
+Every API endpoint that returns user-specific data MUST:
+1. ✅ Authenticate: `const userId = await getUserFromToken(request, env);`
+2. ✅ Check auth: `if (!userId) return jsonResponse({ error: 'Unauthorized' }, 401);`
+3. ✅ Get workspace context: `const { effectiveUserId } = await getEffectiveUserId(env, userId);`
+4. ✅ Filter by user: `WHERE user_id = ?` with `effectiveUserId` bound
+
+### Lesson Learned
+- NEVER leave auth commented out, even "temporarily"
+- Always audit new endpoints against existing patterns
+- Use `grep "WHERE user_id" workers/index.ts` to check isolation
+- When copying SQL queries, always add user_id filter FIRST
+
+### Files Modified
+- `workers/index.ts` - Fixed `/api/tool-call-logs` endpoint
+

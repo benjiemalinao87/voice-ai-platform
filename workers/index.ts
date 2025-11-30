@@ -3986,13 +3986,22 @@ export default {
       }
 
       // Get tool call logs (CustomerConnect lookups)
-      // NOTE: Auth removed for testing - remove this comment and restore auth in production
+      // SECURITY: Properly authenticated and filtered by user/workspace
       if (url.pathname === '/api/tool-call-logs' && request.method === 'GET') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        // Get effective user ID for workspace context (ensures data isolation)
+        const { effectiveUserId } = await getEffectiveUserId(env, userId);
+
         // Parse query params
         const limit = parseInt(url.searchParams.get('limit') || '50');
         const status = url.searchParams.get('status'); // filter by status
         const phone = url.searchParams.get('phone'); // filter by phone
 
+        // IMPORTANT: Always filter by user_id for data isolation
         let query = `
           SELECT
             id, user_id, workspace_id, vapi_call_id, tool_name, phone_number,
@@ -4000,9 +4009,9 @@ export default {
             customer_name, appointment_date, appointment_time, household,
             error_message, created_at
           FROM tool_call_logs
-          WHERE 1=1
+          WHERE user_id = ?
         `;
-        const params: any[] = [];
+        const params: any[] = [effectiveUserId];
 
         if (status) {
           query += ' AND status = ?';
@@ -4020,7 +4029,7 @@ export default {
         const stmt = env.DB.prepare(query);
         const { results } = await stmt.bind(...params).all();
 
-        // Get stats
+        // Get stats - also filtered by user_id for isolation
         const statsQuery = await env.DB.prepare(`
           SELECT
             COUNT(*) as total,
@@ -4030,7 +4039,8 @@ export default {
             SUM(CASE WHEN status = 'not_configured' THEN 1 ELSE 0 END) as not_configured_count,
             AVG(response_time_ms) as avg_response_time
           FROM tool_call_logs
-        `).first() as any;
+          WHERE user_id = ?
+        `).bind(effectiveUserId).first() as any;
 
         return jsonResponse({
           logs: results,

@@ -34,12 +34,12 @@ function getVoiceDisplayName(agent: Agent): string {
     // If voice_id exists but not in our list, use it as-is
     return agent.voice_id;
   }
-  
-  // If voice_name is "vapi" (provider name), don't show it
+
+  // If voice_name is a provider identifier, don't show it
   if (agent.voice_name && agent.voice_name.toLowerCase() !== 'vapi') {
     return agent.voice_name;
   }
-  
+
   return '';
 }
 
@@ -104,27 +104,24 @@ export function VoiceAgentsList({ agents, onSelectAgent, onCreateAgent, onDelete
           >
             <div className="flex items-start justify-between mb-4">
               <div className="flex items-center gap-3">
-                <div className={`p-2 rounded-lg ${
-                  agent.is_active
+                <div className={`p-2 rounded-lg ${agent.is_active
                     ? 'bg-blue-100 dark:bg-blue-900/20'
                     : 'bg-gray-100 dark:bg-gray-700'
-                }`}>
-                  <Bot className={`w-5 h-5 ${
-                    agent.is_active
+                  }`}>
+                  <Bot className={`w-5 h-5 ${agent.is_active
                       ? 'text-blue-600 dark:text-blue-400'
                       : 'text-gray-400 dark:text-gray-500'
-                  }`} />
+                    }`} />
                 </div>
                 <div>
                   <h3 className="font-semibold text-gray-900 dark:text-gray-100 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
                     {agent.name}
                   </h3>
                   <div className="flex items-center gap-2 mt-1">
-                    <div className={`flex items-center gap-1 ${
-                      agent.is_active
+                    <div className={`flex items-center gap-1 ${agent.is_active
                         ? 'text-green-600 dark:text-green-400'
                         : 'text-gray-400 dark:text-gray-500'
-                    }`}>
+                      }`}>
                       <Power className={`w-3 h-3 ${agent.is_active ? 'fill-current' : ''}`} />
                       <span className="text-xs font-medium">
                         {agent.is_active ? 'Active' : 'Inactive'}

@@ -11,7 +11,8 @@ import {
   PhoneForwarded,
   Users,
   UserSearch,
-  Copy
+  Copy,
+  ChevronDown
 } from 'lucide-react';
 import { agentApi } from '../lib/api';
 import { VoiceTest } from './VoiceTest';
@@ -24,69 +25,69 @@ interface AgentConfigProps {
 }
 
 const VOICE_OPTIONS = [
-  { 
-    id: 'Paige', 
-    name: 'Paige', 
+  {
+    id: 'Paige',
+    name: 'Paige',
     description: '26 year old white female - Deeper tone, Calming, Professional',
     tags: ['Professional', 'Calming', 'Deeper tone']
   },
-  { 
-    id: 'Rohan', 
-    name: 'Rohan', 
+  {
+    id: 'Rohan',
+    name: 'Rohan',
     description: '24 years old male - Indian american, Bright, Optimistic, Cheerful, Energetic',
     tags: ['Optimistic', 'Cheerful', 'Energetic']
   },
-  { 
-    id: 'Hana', 
-    name: 'Hana', 
+  {
+    id: 'Hana',
+    name: 'Hana',
     description: '22 year old female - Asian, Soft, Soothing, Gentle',
     tags: ['Soft', 'Soothing', 'Gentle']
   },
-  { 
-    id: 'Elliot', 
-    name: 'Elliot', 
+  {
+    id: 'Elliot',
+    name: 'Elliot',
     description: '25 years old male - Canadian, Soothing, Friendly, Professional',
     tags: ['Soothing', 'Friendly', 'Professional']
   },
-  { 
-    id: 'Cole', 
-    name: 'Cole', 
+  {
+    id: 'Cole',
+    name: 'Cole',
     description: '22 year old white male - Deeper tone, Calming, Professional',
     tags: ['Professional', 'Calming', 'Deeper tone']
   },
-  { 
-    id: 'Harry', 
-    name: 'Harry', 
+  {
+    id: 'Harry',
+    name: 'Harry',
     description: '24 year old white male - Clear, Energetic, Professional',
     tags: ['Clear', 'Energetic', 'Professional']
   },
-  { 
-    id: 'Spencer', 
-    name: 'Spencer', 
+  {
+    id: 'Spencer',
+    name: 'Spencer',
     description: '26 year old female - Energetic, Quirky, Lighthearted, Cheeky, Amused',
     tags: ['Energetic', 'Quirky', 'Lighthearted', 'Cheeky']
   },
-  { 
-    id: 'Kylie', 
-    name: 'Kylie', 
+  {
+    id: 'Kylie',
+    name: 'Kylie',
     description: 'Age 23, Female - American',
     tags: ['Female', 'American']
   },
-  { 
-    id: 'Lily', 
-    name: 'Lily', 
+  {
+    id: 'Lily',
+    name: 'Lily',
     description: 'Female voice',
     tags: ['Female']
   },
-  { 
-    id: 'Neha', 
-    name: 'Neha', 
+  {
+    id: 'Neha',
+    name: 'Neha',
     description: 'Female voice',
     tags: ['Female']
   },
-  { 
-    id: 'Savannah', 
-    name: 'Savannah', 
+  {
+    id: 'Savannah',
+    name: 'Savannah',
     description: '25 years old female - American',
     tags: ['Female', 'American']
   },
@@ -102,6 +103,7 @@ export function AgentConfig({ agentId }: AgentConfigProps) {
   const [saving, setSaving] = useState(false);
   const [editMode, setEditMode] = useState<string | null>(null);
   const [formData, setFormData] = useState<Partial<Agent>>({});
+  const [isCustomerLookupExpanded, setIsCustomerLookupExpanded] = useState(false);
 
   useEffect(() => {
     loadAgent();
@@ -189,11 +191,10 @@ export function AgentConfig({ agentId }: AgentConfigProps) {
           <div className="flex items-center gap-3">
             <button
               onClick={toggleActive}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors ${
-                agent.is_active
-                  ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 hover:bg-green-200 dark:hover:bg-green-900/50'
-                  : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
-              }`}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors ${agent.is_active
+                ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 hover:bg-green-200 dark:hover:bg-green-900/50'
+                : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+                }`}
             >
               <Power className="w-4 h-4" />
               {agent.is_active ? 'Active' : 'Inactive'}
@@ -487,7 +488,7 @@ export function AgentConfig({ agentId }: AgentConfigProps) {
                   Warm Transfer
                 </h4>
                 <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
-                  Enable AI-initiated warm transfers to connect customers with human agents. The AI will dial the agent first, 
+                  Enable AI-initiated warm transfers to connect customers with human agents. The AI will dial the agent first,
                   wait for them to answer, then connect the customer.
                 </p>
                 <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3">
@@ -505,7 +506,7 @@ export function AgentConfig({ agentId }: AgentConfigProps) {
                 <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Example System Prompt Addition</h4>
                 <div className="bg-gray-100 dark:bg-gray-800 rounded-lg p-3">
                   <code className="text-xs text-gray-700 dark:text-gray-300 whitespace-pre-wrap">
-{`If the customer asks to speak with a human agent or representative:
+                    {`If the customer asks to speak with a human agent or representative:
 1. Acknowledge their request politely
 2. Say "Let me connect you with one of our team members"
 3. Use the transferCall function with the configured agent number`}
@@ -517,31 +518,37 @@ export function AgentConfig({ agentId }: AgentConfigProps) {
 
           {/* CustomerConnect Tool Section */}
           <div className="border-b border-gray-200 dark:border-gray-700 pb-6">
-            <div className="flex items-center gap-2 mb-4">
+            <button
+              onClick={() => setIsCustomerLookupExpanded(!isCustomerLookupExpanded)}
+              className="flex items-center gap-2 mb-4 w-full text-left hover:opacity-70 transition-opacity"
+            >
               <UserSearch className="w-5 h-5 text-gray-400 dark:text-gray-500" />
-              <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Customer Lookup Tool</h3>
-            </div>
-            <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-4 space-y-4">
-              <div>
-                <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
-                  Enable automatic customer lookup during calls. When the AI collects a phone number, it can fetch customer data 
-                  from CustomerConnect to provide personalized context (existing appointments, household members, etc.).
-                </p>
-                <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3 mb-4">
-                  <p className="text-xs text-blue-700 dark:text-blue-300">
-                    <strong>Setup Required:</strong> Configure your CustomerConnect credentials in{' '}
-                    <span className="font-mono bg-blue-100 dark:bg-blue-800 px-1 rounded">Settings → API Configuration</span>
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 flex-1">Customer Lookup Tool</h3>
+              <ChevronDown className={`w-5 h-5 text-gray-400 dark:text-gray-500 transition-transform ${isCustomerLookupExpanded ? 'transform rotate-180' : ''
+                }`} />
+            </button>
+            {isCustomerLookupExpanded && (
+              <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-4 space-y-4">
+                <div>
+                  <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
+                    Enable automatic customer lookup during calls. When the AI collects a phone number, it can fetch customer data
+                    from CustomerConnect to provide personalized context (existing appointments, household members, etc.).
                   </p>
+                  <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3 mb-4">
+                    <p className="text-xs text-blue-700 dark:text-blue-300">
+                      <strong>Setup Required:</strong> Configure your CustomerConnect credentials in{' '}
+                      <span className="font-mono bg-blue-100 dark:bg-blue-800 px-1 rounded">Settings → API Configuration</span>
+                    </p>
+                  </div>
                 </div>
-              </div>
-              <div>
-                <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Tool Configuration</h4>
-                <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
-                  Add this tool to your VAPI assistant via the VAPI Dashboard or API:
-                </p>
-                <div className="relative">
-                  <pre className="bg-gray-100 dark:bg-gray-800 rounded-lg p-3 text-xs text-gray-700 dark:text-gray-300 overflow-x-auto">
-{`{
+                <div>
+                  <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Tool Configuration</h4>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
+                    Add this tool to your CHAU Voice Engine assistant via the API:
+                  </p>
+                  <div className="relative">
+                    <pre className="bg-gray-100 dark:bg-gray-800 rounded-lg p-3 text-xs text-gray-700 dark:text-gray-300 overflow-x-auto">
+                      {`{
   "type": "function",
   "function": {
     "name": "lookup_customer",
@@ -561,10 +568,10 @@ export function AgentConfig({ agentId }: AgentConfigProps) {
     "url": "${window.location.origin}/webhook/{YOUR_WEBHOOK_ID}"
   }
 }`}
-                  </pre>
-                  <button
-                    onClick={() => {
-                      const toolConfig = `{
+                    </pre>
+                    <button
+                      onClick={() => {
+                        const toolConfig = `{
   "type": "function",
   "function": {
     "name": "lookup_customer",
@@ -584,39 +591,40 @@ export function AgentConfig({ agentId }: AgentConfigProps) {
     "url": "${window.location.origin}/webhook/{YOUR_WEBHOOK_ID}"
   }
 }`;
-                      navigator.clipboard.writeText(toolConfig);
-                      alert('Tool configuration copied to clipboard!');
-                    }}
-                    className="absolute top-2 right-2 p-1.5 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 rounded text-gray-600 dark:text-gray-300"
-                    title="Copy to clipboard"
-                  >
-                    <Copy className="w-4 h-4" />
-                  </button>
+                        navigator.clipboard.writeText(toolConfig);
+                        alert('Tool configuration copied to clipboard!');
+                      }}
+                      className="absolute top-2 right-2 p-1.5 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 rounded text-gray-600 dark:text-gray-300"
+                      title="Copy to clipboard"
+                    >
+                      <Copy className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+                <div>
+                  <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">System Prompt Addition</h4>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
+                    Add this instruction to your assistant's system prompt:
+                  </p>
+                  <div className="bg-gray-100 dark:bg-gray-800 rounded-lg p-3">
+                    <code className="text-xs text-gray-700 dark:text-gray-300 whitespace-pre-wrap">
+                      {`After collecting the customer's phone number, call the lookup_customer tool to check for existing appointments and customer information. Use this context to provide personalized assistance.`}
+                    </code>
+                  </div>
+                </div>
+                <div>
+                  <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">What the AI Receives</h4>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
+                    When a customer is found, the tool returns context like:
+                  </p>
+                  <div className="bg-green-50 dark:bg-green-900/20 rounded-lg p-3">
+                    <code className="text-xs text-green-700 dark:text-green-300 whitespace-pre-wrap">
+                      {`Customer found: Benjie Malinao. Existing appointment: 12-15-2025 at 3:30PM. Household/Decision maker: Test Household. Please acknowledge this information naturally in the conversation.`}
+                    </code>
+                  </div>
                 </div>
               </div>
-              <div>
-                <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">System Prompt Addition</h4>
-                <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
-                  Add this instruction to your assistant's system prompt:
-                </p>
-                <div className="bg-gray-100 dark:bg-gray-800 rounded-lg p-3">
-                  <code className="text-xs text-gray-700 dark:text-gray-300 whitespace-pre-wrap">
-{`After collecting the customer's phone number, call the lookup_customer tool to check for existing appointments and customer information. Use this context to provide personalized assistance.`}
-                  </code>
-                </div>
-              </div>
-              <div>
-                <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">What the AI Receives</h4>
-                <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
-                  When a customer is found, the tool returns context like:
-                </p>
-                <div className="bg-green-50 dark:bg-green-900/20 rounded-lg p-3">
-                  <code className="text-xs text-green-700 dark:text-green-300 whitespace-pre-wrap">
-{`Customer found: Benjie Malinao. Existing appointment: 12-15-2025 at 3:30PM. Household/Decision maker: Test Household. Please acknowledge this information naturally in the conversation.`}
-                  </code>
-                </div>
-              </div>
-            </div>
+            )}
           </div>
 
           <div>

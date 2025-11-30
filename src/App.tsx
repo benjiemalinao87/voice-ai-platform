@@ -15,13 +15,14 @@ import { CreateAgentModal } from './components/CreateAgentModal';
 import { WhatsNew } from './components/WhatsNew';
 import { AppointmentsByAI } from './components/AppointmentsByAI';
 import { EmbeddingModal } from './components/EmbeddingModal';
+import { StandaloneDashboard } from './components/StandaloneDashboard';
 import { useAuth } from './contexts/AuthContext';
 import { useVapi } from './contexts/VapiContext';
 import { agentApi } from './lib/api';
 import { d1Client } from './lib/d1';
 import type { Agent } from './types';
 
-type View = 'dashboard' | 'config' | 'recordings' | 'settings' | 'flow' | 'intent' | 'livechat' | 'board' | 'appointments';
+type View = 'dashboard' | 'config' | 'recordings' | 'settings' | 'flow' | 'intent' | 'livechat' | 'board' | 'appointments' | 'standalone_dashboard';
 
 function App() {
   const { isAuthenticated, isLoading } = useAuth();
@@ -111,15 +112,15 @@ function App() {
     if (isAuthenticated) {
       // Check if this is a transition from unauthenticated to authenticated
       const wasUnauthenticated = !prevAuthenticatedRef.current;
-      
+
       if (!hasHandledInitialAuth.current) {
         // First time handling authentication
         hasHandledInitialAuth.current = true;
-        
+
         if (hadTokenOnMount.current) {
           // Page refresh scenario - restore saved view if exists
           const savedView = localStorage.getItem('currentView');
-          if (savedView && ['dashboard', 'config', 'recordings', 'settings', 'intent', 'livechat', 'board', 'appointments'].includes(savedView) && currentView !== savedView) {
+          if (savedView && ['dashboard', 'config', 'recordings', 'settings', 'intent', 'livechat', 'board', 'appointments', 'standalone_dashboard'].includes(savedView) && currentView !== savedView) {
             setCurrentView(savedView as View);
           }
         } else {
@@ -234,7 +235,7 @@ function App() {
     return (
       <div className="h-screen bg-gray-50 dark:bg-gray-900">
         <FlowBuilder />
-        
+
         {/* Floating Dark Mode Toggle */}
         <button
           onClick={toggleDarkMode}
@@ -269,29 +270,39 @@ function App() {
 
             <div className="flex items-center gap-4">
               <div className="flex items-center gap-2 bg-gray-100 dark:bg-gray-700 rounded-lg p-1">
-                    <button
-                      onClick={() => setCurrentView('dashboard')}
-                      className={`flex items-center gap-2 px-4 py-2 rounded-md font-medium transition-colors ${
-                        currentView === 'dashboard'
-                          ? 'bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 shadow-sm'
-                          : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100'
-                      }`}
-                    >
-                      <BarChart3 className="w-4 h-4" />
-                      Dashboard
-                    </button>
-                    <button
-                      onClick={() => setCurrentView('appointments')}
-                      className={`flex items-center gap-2 px-4 py-2 rounded-md font-medium transition-colors ${
-                        currentView === 'appointments'
-                          ? 'bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 shadow-sm'
-                          : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100'
-                      }`}
-                    >
-                      <CalendarCheck className="w-4 h-4" />
-                      Appointment by AI
-                    </button>
-                    {/* <button
+                <button
+                  onClick={() => setCurrentView('dashboard')}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-md font-medium transition-colors ${currentView === 'dashboard'
+                      ? 'bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 shadow-sm'
+                      : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100'
+                    }`}
+                >
+                  <BarChart3 className="w-4 h-4" />
+                  Dashboard
+                </button>
+                {/* New Dashboard - hidden while in development
+                <button
+                  onClick={() => setCurrentView('standalone_dashboard')}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-md font-medium transition-colors ${currentView === 'standalone_dashboard'
+                      ? 'bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 shadow-sm'
+                      : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100'
+                    }`}
+                >
+                  <BarChart3 className="w-4 h-4" />
+                  New Dashboard
+                </button>
+                */}
+                <button
+                  onClick={() => setCurrentView('appointments')}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-md font-medium transition-colors ${currentView === 'appointments'
+                      ? 'bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 shadow-sm'
+                      : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100'
+                    }`}
+                >
+                  <CalendarCheck className="w-4 h-4" />
+                  Appointment by AI
+                </button>
+                {/* <button
                       onClick={() => setCurrentView('board')}
                       className={`flex items-center gap-2 px-4 py-2 rounded-md font-medium transition-colors ${
                         currentView === 'board'
@@ -302,29 +313,27 @@ function App() {
                       <Columns className="w-4 h-4" />
                       Pipeline
                     </button> */}
-                    <button
-                      onClick={() => setCurrentView('recordings')}
-                      className={`flex items-center gap-2 px-4 py-2 rounded-md font-medium transition-colors ${
-                        currentView === 'recordings'
-                          ? 'bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 shadow-sm'
-                          : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100'
-                      }`}
-                    >
-                      <Mic className="w-4 h-4" />
-                      Recordings
-                    </button>
-                    <button
-                      onClick={() => setCurrentView('intent')}
-                      className={`flex items-center gap-2 px-4 py-2 rounded-md font-medium transition-colors ${
-                        currentView === 'intent'
-                          ? 'bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 shadow-sm'
-                          : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100'
-                      }`}
-                    >
-                      <Brain className="w-4 h-4" />
-                      Intent Analysis
-                    </button>
-                    {/* <button
+                <button
+                  onClick={() => setCurrentView('recordings')}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-md font-medium transition-colors ${currentView === 'recordings'
+                      ? 'bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 shadow-sm'
+                      : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100'
+                    }`}
+                >
+                  <Mic className="w-4 h-4" />
+                  Recordings
+                </button>
+                <button
+                  onClick={() => setCurrentView('intent')}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-md font-medium transition-colors ${currentView === 'intent'
+                      ? 'bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 shadow-sm'
+                      : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100'
+                    }`}
+                >
+                  <Brain className="w-4 h-4" />
+                  Intent Analysis
+                </button>
+                {/* <button
                       onClick={() => setCurrentView('livechat')}
                       className={`flex items-center gap-2 px-4 py-2 rounded-md font-medium transition-colors ${
                         currentView === 'livechat'
@@ -335,41 +344,39 @@ function App() {
                       <MessageCircle className="w-4 h-4" />
                       Live Chat
                     </button> */}
-                    <button
-                      onClick={() => {
-                        setCurrentView('config');
-                        // Always clear selected agent when clicking Voice Agents tab to show the list
-                        setSelectedAgentId(undefined);
-                      }}
-                      className={`flex items-center gap-2 px-4 py-2 rounded-md font-medium transition-colors ${
-                        currentView === 'config'
-                          ? 'bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 shadow-sm'
-                          : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100'
-                      }`}
-                    >
-                      <Bot className="w-4 h-4" />
-                      Voice Agents
-                    </button>
-                    <button
-                      onClick={() => setCurrentView('settings')}
-                      className={`flex items-center gap-2 px-4 py-2 rounded-md font-medium transition-colors ${
-                        currentView === 'settings'
-                          ? 'bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 shadow-sm'
-                          : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100'
-                      }`}
-                    >
-                      <SettingsIcon className="w-4 h-4" />
-                      Settings
-                    </button>
-                    {embeddingSettings.isEnabled && embeddingSettings.buttonName && embeddingSettings.url && (
-                      <button
-                        onClick={() => setShowEmbeddingModal(true)}
-                        className="flex items-center gap-2 px-4 py-2 rounded-md font-medium transition-colors bg-blue-600 hover:bg-blue-700 text-white shadow-sm"
-                      >
-                        <Globe className="w-4 h-4" />
-                        {embeddingSettings.buttonName}
-                      </button>
-                    )}
+                <button
+                  onClick={() => {
+                    setCurrentView('config');
+                    // Always clear selected agent when clicking Voice Agents tab to show the list
+                    setSelectedAgentId(undefined);
+                  }}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-md font-medium transition-colors ${currentView === 'config'
+                      ? 'bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 shadow-sm'
+                      : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100'
+                    }`}
+                >
+                  <Bot className="w-4 h-4" />
+                  Voice Agents
+                </button>
+                <button
+                  onClick={() => setCurrentView('settings')}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-md font-medium transition-colors ${currentView === 'settings'
+                      ? 'bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 shadow-sm'
+                      : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100'
+                    }`}
+                >
+                  <SettingsIcon className="w-4 h-4" />
+                  Settings
+                </button>
+                {embeddingSettings.isEnabled && embeddingSettings.buttonName && embeddingSettings.url && (
+                  <button
+                    onClick={() => setShowEmbeddingModal(true)}
+                    className="flex items-center gap-2 px-4 py-2 rounded-md font-medium transition-colors bg-blue-600 hover:bg-blue-700 text-white shadow-sm"
+                  >
+                    <Globe className="w-4 h-4" />
+                    {embeddingSettings.buttonName}
+                  </button>
+                )}
               </div>
             </div>
           </div>
@@ -379,112 +386,124 @@ function App() {
       {/* Scrollable Content Area */}
       <main className="flex-1 overflow-y-auto">
         <div className={`${wideView ? 'w-full' : 'max-w-7xl'} mx-auto px-4 sm:px-6 lg:px-8 py-8 transition-all duration-300`}>
-        {currentView === 'dashboard' && (
-          <div className="space-y-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Performance Metrics</h2>
-                <p className="text-gray-600 dark:text-gray-400 mt-1">
-                  Viewing metrics for all agents
-                </p>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <Calendar className="w-5 h-5 text-gray-400 dark:text-gray-500" />
-                <select
-                  defaultValue="14"
-                  onChange={(e) => {
-                    const days = parseInt(e.target.value);
-                    setDateRange({
-                      from: new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString(),
-                      to: new Date().toISOString()
-                    });
-                  }}
-                  className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
-                >
-                  <option value="7">Last 7 days</option>
-                  <option value="14">Last 14 days</option>
-                </select>
-              </div>
-            </div>
-
-            <LiveCallFeed />
-
-            <PerformanceDashboard
-              selectedAgentId={undefined}
-              dateRange={dateRange}
-            />
-          </div>
-        )}
-
-        {currentView === 'appointments' && (
-          <AppointmentsByAI />
-        )}
-
-        {currentView === 'recordings' && (
-          <Recordings />
-        )}
-
-        {currentView === 'intent' && (
-          <div className="space-y-6">
-            <IntentDashboard />
-          </div>
-        )}
-
-        {currentView === 'livechat' && (
-          <LiveChat />
-        )}
-
-        {currentView === 'board' && (
-          <BoardView />
-        )}
-
-        {currentView === 'config' && selectedAgentId && selectedAgent && (
-          <div className="space-y-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="flex items-center gap-3 mb-2">
-                  <button
-                    onClick={() => setSelectedAgentId(undefined)}
-                    className="text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 transition-colors"
-                  >
-                    ← Back to Agents
-                  </button>
+          {currentView === 'dashboard' && (
+            <div className="space-y-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Performance Metrics</h2>
+                  <p className="text-gray-600 dark:text-gray-400 mt-1">
+                    Viewing metrics for all agents
+                  </p>
                 </div>
-                <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Agent Configuration</h2>
+
+                <div className="flex items-center gap-2">
+                  <Calendar className="w-5 h-5 text-gray-400 dark:text-gray-500" />
+                  <select
+                    defaultValue="14"
+                    onChange={(e) => {
+                      const days = parseInt(e.target.value);
+                      setDateRange({
+                        from: new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString(),
+                        to: new Date().toISOString()
+                      });
+                    }}
+                    className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+                  >
+                    <option value="7">Last 7 days</option>
+                    <option value="14">Last 14 days</option>
+                  </select>
+                </div>
+              </div>
+
+              <LiveCallFeed />
+
+              <PerformanceDashboard
+                selectedAgentId={undefined}
+                dateRange={dateRange}
+              />
+            </div>
+          )}
+
+          {currentView === 'appointments' && (
+            <AppointmentsByAI />
+          )}
+
+          {currentView === 'recordings' && (
+            <Recordings />
+          )}
+
+          {currentView === 'intent' && (
+            <div className="space-y-6">
+              <IntentDashboard />
+            </div>
+          )}
+
+          {currentView === 'livechat' && (
+            <LiveChat />
+          )}
+
+          {currentView === 'board' && (
+            <BoardView />
+          )}
+
+          {currentView === 'config' && selectedAgentId && selectedAgent && (
+            <div className="space-y-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="flex items-center gap-3 mb-2">
+                    <button
+                      onClick={() => setSelectedAgentId(undefined)}
+                      className="text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 transition-colors"
+                    >
+                      ← Back to Agents
+                    </button>
+                  </div>
+                  <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Agent Configuration</h2>
+                  <p className="text-gray-600 dark:text-gray-400 mt-1">
+                    Configure voice, behavior, and prompts for {selectedAgent.name}
+                  </p>
+                </div>
+              </div>
+
+              <AgentConfig agentId={selectedAgentId} />
+            </div>
+          )}
+
+          {currentView === 'config' && (!selectedAgentId || selectedAgentId === '') && (
+            <VoiceAgentsList
+              agents={agents}
+              onSelectAgent={(agentId) => setSelectedAgentId(agentId)}
+              onCreateAgent={() => setShowCreateAgentModal(true)}
+              onDeleteAgent={handleDeleteAgent}
+            />
+          )}
+
+          {currentView === 'settings' && (
+            <div className="space-y-6">
+              <div>
+                <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Settings</h2>
                 <p className="text-gray-600 dark:text-gray-400 mt-1">
-                  Configure voice, behavior, and prompts for {selectedAgent.name}
+                  Configure your API credentials and preferences
                 </p>
               </div>
+
+              <Settings wideView={wideView} onWideViewChange={setWideView} />
             </div>
-
-            <AgentConfig agentId={selectedAgentId} />
-          </div>
-        )}
-
-        {currentView === 'config' && (!selectedAgentId || selectedAgentId === '') && (
-          <VoiceAgentsList
-            agents={agents}
-            onSelectAgent={(agentId) => setSelectedAgentId(agentId)}
-            onCreateAgent={() => setShowCreateAgentModal(true)}
-            onDeleteAgent={handleDeleteAgent}
-          />
-        )}
-
-        {currentView === 'settings' && (
-          <div className="space-y-6">
-            <div>
-              <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Settings</h2>
-              <p className="text-gray-600 dark:text-gray-400 mt-1">
-                Configure your API credentials and preferences
-              </p>
-            </div>
-
-            <Settings wideView={wideView} onWideViewChange={setWideView} />
-          </div>
-        )}
+          )}
         </div>
       </main>
+
+      {currentView === 'standalone_dashboard' && (
+        <div className="fixed inset-0 z-50 bg-black overflow-y-auto">
+          <button
+            onClick={() => setCurrentView('dashboard')}
+            className="fixed top-4 right-4 z-50 bg-white/10 hover:bg-white/20 text-white px-4 py-2 rounded-full backdrop-blur-md transition-colors"
+          >
+            Exit Demo
+          </button>
+          <StandaloneDashboard />
+        </div>
+      )}
 
       {/* Floating Dark Mode Toggle */}
       <button
