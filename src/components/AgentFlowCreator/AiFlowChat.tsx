@@ -214,7 +214,7 @@ export function AiFlowChat({ isOpen, onClose, onFlowGenerated }: AiFlowChatProps
   if (!isOpen) return null;
 
   return (
-    <div className="fixed top-0 right-0 w-96 h-screen bg-white dark:bg-gray-800 border-l border-gray-200 dark:border-gray-700 flex flex-col shadow-2xl animate-in slide-in-from-right duration-300 z-50">
+    <div className="fixed top-0 left-0 w-96 h-screen bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex flex-col shadow-2xl animate-in slide-in-from-left duration-300 z-50">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-700 bg-gradient-to-r from-purple-600 to-indigo-600">
         <div className="flex items-center gap-2 text-white">
