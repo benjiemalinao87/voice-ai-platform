@@ -552,21 +552,27 @@ function FlowCanvasInner({
       
       return {
         ...edge,
-        // Show "+" for empty labels, or the actual label with styling
-        label: hasLabel ? (
-          <div className="px-2 py-1 bg-purple-100 dark:bg-purple-900/50 text-purple-700 dark:text-purple-300 rounded-md text-xs font-medium border border-purple-200 dark:border-purple-700 shadow-sm cursor-pointer hover:bg-purple-200 dark:hover:bg-purple-800/50 transition-colors">
-            {String(edge.label)}
-          </div>
-        ) : (
-          <div className="w-6 h-6 bg-gray-200 dark:bg-gray-700 rounded-full flex items-center justify-center text-gray-500 dark:text-gray-400 cursor-pointer hover:bg-purple-200 dark:hover:bg-purple-700 hover:text-purple-600 dark:hover:text-purple-300 transition-colors border-2 border-dashed border-gray-300 dark:border-gray-600 hover:border-purple-400 shadow-sm" title="Click to add routing label">
-            <span className="text-sm font-bold">+</span>
-          </div>
-        ),
-        labelStyle: { pointerEvents: 'all' as const },
+        // Show "⊕" for empty labels, or the actual label
+        label: hasLabel ? String(edge.label) : '＋',
+        labelStyle: { 
+          fontSize: hasLabel ? 11 : 16,
+          fontWeight: hasLabel ? 500 : 700,
+          fill: hasLabel ? '#7c3aed' : '#9ca3af',
+          cursor: 'pointer',
+        },
+        labelBgStyle: { 
+          fill: hasLabel ? '#ede9fe' : '#f3f4f6',
+          fillOpacity: 0.95,
+          rx: hasLabel ? 6 : 12, // Rounded corners (more round for + button)
+          ry: hasLabel ? 6 : 12,
+        },
+        labelBgPadding: hasLabel ? [6, 10] as [number, number] : [8, 8] as [number, number],
+        labelShowBg: true,
         style: {
           ...edge.style,
-          strokeDasharray: hasLabel ? undefined : '5,5', // Dashed for unlabeled
-          stroke: hasLabel ? '#8b5cf6' : '#6b7280', // Purple for labeled, gray for unlabeled
+          strokeDasharray: hasLabel ? undefined : '5,5',
+          stroke: hasLabel ? '#8b5cf6' : '#6b7280',
+          strokeWidth: hasLabel ? 2 : 1.5,
         },
       };
     });
