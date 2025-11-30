@@ -306,14 +306,29 @@ export function AgentFlowCreator({ onBack, onSuccess, editAgentId }: AgentFlowCr
             // SMART BRANCH DETECTION: If on branch node and we have a detected intent, route accordingly
             if (currentNode?.type === 'branch' && traversal.detectedIntent) {
               const branchEdges = canvas.getEdges().filter(e => e.source === traversal.currentNodeId);
+              const intentLower = traversal.detectedIntent.toLowerCase();
               
               console.log('🔀 On branch node, using detected intent:', traversal.detectedIntent);
               
-              // Find edge that matches the detected intent
-              const matchingEdge = branchEdges.find(edge => {
+              // Find edge that matches (exact, then partial)
+              let matchingEdge = branchEdges.find(edge => {
                 const edgeLabel = String(edge.label || '').toLowerCase();
-                return edgeLabel === traversal.detectedIntent?.toLowerCase();
+                if (edgeLabel && edgeLabel === intentLower) return true;
+                const targetNode = allNodes.find(n => n.id === edge.target);
+                const nodeLabel = String(targetNode?.data?.label || '').toLowerCase();
+                return nodeLabel === intentLower;
               });
+              
+              // Partial match fallback
+              if (!matchingEdge) {
+                matchingEdge = branchEdges.find(edge => {
+                  const edgeLabel = String(edge.label || '').toLowerCase();
+                  if (edgeLabel && (edgeLabel.includes(intentLower) || intentLower.includes(edgeLabel))) return true;
+                  const targetNode = allNodes.find(n => n.id === edge.target);
+                  const nodeLabel = String(targetNode?.data?.label || '').toLowerCase();
+                  return nodeLabel.includes(intentLower) || intentLower.includes(nodeLabel);
+                });
+              }
               
               if (matchingEdge) {
                 console.log('🎯 Intent matched branch:', traversal.detectedIntent, '→', matchingEdge.target);
@@ -353,20 +368,30 @@ export function AgentFlowCreator({ onBack, onSuccess, editAgentId }: AgentFlowCr
               
               // If next node is a branch, classify intent using LLM
               if (branchNode?.type === 'branch') {
-                // Get available intents from branch edges
+                // Get available intents from branch edges (fall back to target node labels)
                 const branchEdges = canvas.getEdges().filter(e => e.source === branchNodeId);
                 const availableIntents = branchEdges
-                  .map(e => String(e.label || ''))
+                  .map(e => {
+                    // First try edge label, then fall back to target node's label
+                    if (e.label && String(e.label).trim()) {
+                      return String(e.label);
+                    }
+                    // Fall back to target node's label
+                    const targetNode = allNodes.find(n => n.id === e.target);
+                    return targetNode?.data?.label || '';
+                  })
                   .filter(Boolean);
+                
+                console.log('🎯 Branch edges found:', branchEdges.length, '- Available intents:', availableIntents);
                 
                 console.log('🧠 Classifying intent. Available options:', availableIntents);
                 setIsClassifyingIntent(true);
                 
                 // Complete listen node first
                 canvas.completeNode(branchNodeId);
-                traversal.currentNodeId = branchNodeId;
-                canvas.highlightNode(branchNodeId);
-                setCurrentNodeIndex(prev => prev + 1);
+              traversal.currentNodeId = branchNodeId;
+              canvas.highlightNode(branchNodeId);
+              setCurrentNodeIndex(prev => prev + 1);
                 
                 // Run LLM classification and immediately route when done
                 classifyIntent(transcript, availableIntents)
@@ -378,10 +403,33 @@ export function AgentFlowCreator({ onBack, onSuccess, editAgentId }: AgentFlowCr
                       
                       // IMMEDIATELY route to the matching branch target
                       const branchEdges = canvas.getEdges().filter(e => e.source === branchNodeId);
-                      const matchingEdge = branchEdges.find(edge => {
+                      const allNodesForMatch = canvas.getNodes();
+                      
+                      const intentLower = result.intent?.toLowerCase() || '';
+                      
+                      // Find edge by matching intent to edge label OR target node label
+                      // Try exact match first, then partial match
+                      let matchingEdge = branchEdges.find(edge => {
                         const edgeLabel = String(edge.label || '').toLowerCase();
-                        return edgeLabel === result.intent?.toLowerCase();
+                        if (edgeLabel && edgeLabel === intentLower) return true;
+                        const targetNode = allNodesForMatch.find(n => n.id === edge.target);
+                        const nodeLabel = String(targetNode?.data?.label || '').toLowerCase();
+                        return nodeLabel === intentLower;
                       });
+                      
+                      // If no exact match, try partial match (intent contained in label or vice versa)
+                      if (!matchingEdge && intentLower) {
+                        matchingEdge = branchEdges.find(edge => {
+                          const edgeLabel = String(edge.label || '').toLowerCase();
+                          if (edgeLabel && (edgeLabel.includes(intentLower) || intentLower.includes(edgeLabel))) return true;
+                          const targetNode = allNodesForMatch.find(n => n.id === edge.target);
+                          const nodeLabel = String(targetNode?.data?.label || '').toLowerCase();
+                          return nodeLabel.includes(intentLower) || intentLower.includes(nodeLabel);
+                        });
+                        if (matchingEdge) {
+                          console.log('🔄 Using partial match for intent');
+                        }
+                      }
                       
                       if (matchingEdge) {
                         console.log('🎯 Routing to branch target:', matchingEdge.target);
@@ -418,8 +466,16 @@ export function AgentFlowCreator({ onBack, onSuccess, editAgentId }: AgentFlowCr
           if (currentNode?.type === 'branch') {
             const currentBranchId = traversal.currentNodeId!;
             const branchEdges = canvas.getEdges().filter(e => e.source === currentBranchId);
+            
+            // Get available intents (edge labels OR target node labels)
             const availableIntents = branchEdges
-              .map(e => String(e.label || ''))
+              .map(e => {
+                if (e.label && String(e.label).trim()) {
+                  return String(e.label);
+                }
+                const targetNode = allNodes.find(n => n.id === e.target);
+                return targetNode?.data?.label || '';
+              })
               .filter(Boolean);
             
             console.log('🔄 Re-classifying intent on branch node. Options:', availableIntents);
@@ -430,12 +486,27 @@ export function AgentFlowCreator({ onBack, onSuccess, editAgentId }: AgentFlowCr
                 console.log('🎯 Re-classification result:', result);
                 if (result.intent) {
                   traversal.detectedIntent = result.intent;
+                  const intentLower = result.intent.toLowerCase();
                   
-                  // IMMEDIATELY route to matching branch target
-                  const matchingEdge = branchEdges.find(edge => {
+                  // IMMEDIATELY route to matching branch target (exact match, then partial match)
+                  let matchingEdge = branchEdges.find(edge => {
                     const edgeLabel = String(edge.label || '').toLowerCase();
-                    return edgeLabel === result.intent?.toLowerCase();
+                    if (edgeLabel && edgeLabel === intentLower) return true;
+                    const targetNode = allNodes.find(n => n.id === edge.target);
+                    const nodeLabel = String(targetNode?.data?.label || '').toLowerCase();
+                    return nodeLabel === intentLower;
                   });
+                  
+                  // Partial match fallback
+                  if (!matchingEdge) {
+                    matchingEdge = branchEdges.find(edge => {
+                      const edgeLabel = String(edge.label || '').toLowerCase();
+                      if (edgeLabel && (edgeLabel.includes(intentLower) || intentLower.includes(edgeLabel))) return true;
+                      const targetNode = allNodes.find(n => n.id === edge.target);
+                      const nodeLabel = String(targetNode?.data?.label || '').toLowerCase();
+                      return nodeLabel.includes(intentLower) || intentLower.includes(nodeLabel);
+                    });
+                  }
                   
                   if (matchingEdge) {
                     console.log('🎯 Routing to branch target:', matchingEdge.target);

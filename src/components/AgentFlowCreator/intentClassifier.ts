@@ -35,15 +35,17 @@ export async function classifyIntent(
 Available intents: [${intentList}]
 
 Rules:
-1. Return ONLY one of the available intents if there's a clear match
+1. Return EXACTLY one of the available intents (copy it exactly as written) if there's a match
 2. If no intent matches, return "NONE"
-3. Be flexible with variations, synonyms, and casual speech
-4. Consider partial matches and context clues
-5. Response must be valid JSON only
+3. Be flexible with variations, synonyms, and casual speech patterns
+4. Match partial mentions: "margarita" should match "Margarita Pizza", "pepperoni" matches "Pepperoni Pizza"
+5. Handle casual confirmations: "yeah that one", "the first one", "number two" based on conversation context
+6. Response must be valid JSON only - the intent field must be an EXACT copy from the available intents list
 
 Examples:
-- User says "I want the pepperoni" → Intent: "Pepperoni Pizza" (if available)
-- User says "yeah, margarita sounds good" → Intent: "Margarita" (if available)
+- User says "I want the pepperoni" → Intent: "Pepperoni Pizza" (matches available intent exactly)
+- User says "yeah, margarita sounds good" → Intent: "Margarita Pizza" (if that's available)
+- User says "I'll take the kebab" → Intent: "Kebab Pizza" (if that's available)
 - User says "um, what was the second option?" → Intent: "NONE" (asking for clarification)`;
 
   const userMessage = `Classify this user response: "${userTranscript}"
