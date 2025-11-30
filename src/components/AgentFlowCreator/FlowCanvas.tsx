@@ -383,7 +383,9 @@ function FlowCanvasInner({
   };
 
   // Add node at specific position (no auto-connect) - for context menu
-  const addNodeAtPosition = (type: string, x: number, y: number) => {
+  const addNodeAtPosition = useCallback((type: string, x: number, y: number) => {
+    console.log('🎯 Adding node via context menu (NO auto-connect):', { type, x, y });
+    
     const nodeData: FlowNodeData = {
       label: type === 'message' ? 'New Message' :
              type === 'action' ? 'New Action' : 'New Node',
@@ -392,23 +394,31 @@ function FlowCanvasInner({
       onEdit: undefined
     };
 
-    const newNodeId = `${type}-${nodeIdCounter}`;
-    const newNode: Node<FlowNodeData> = {
-      id: newNodeId,
-      type,
-      position: { x, y },
-      data: nodeData,
-    };
+    // Use functional update to get latest counter value
+    setNodeIdCounter((prevCounter) => {
+      const newNodeId = `${type}-ctx-${prevCounter}`;
+      const newNode: Node<FlowNodeData> = {
+        id: newNodeId,
+        type,
+        position: { x, y },
+        data: nodeData,
+      };
 
-    setNodes((nds) => {
-      const updated = [...nds, newNode];
-      onNodesChangeCallback(updated);
-      return updated;
+      console.log('🎯 Created node:', newNodeId, 'at position:', { x, y });
+      
+      // Add node WITHOUT creating any edges
+      setNodes((nds) => {
+        const updated = [...nds, newNode];
+        console.log('🎯 Nodes after add:', updated.length, '(no edges created)');
+        onNodesChangeCallback(updated);
+        return updated;
+      });
+      
+      return prevCounter + 1;
     });
     
-    setNodeIdCounter(nodeIdCounter + 1);
     setContextMenu(null); // Close menu after adding
-  };
+  }, [onNodesChangeCallback, setNodes]);
 
   // Handle right-click on canvas
   const onPaneContextMenu = useCallback((event: React.MouseEvent) => {
