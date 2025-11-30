@@ -171,6 +171,11 @@ export function AgentFlowCreator({ onBack, onSuccess, editAgentId }: AgentFlowCr
   const [currentNodeIndex, setCurrentNodeIndex] = useState(0);
   const [callTranscript, setCallTranscript] = useState<string[]>([]);
   const [isClassifyingIntent, setIsClassifyingIntent] = useState(false);
+  const [speechIndicator, setSpeechIndicator] = useState<{
+    text: string;
+    type: 'user' | 'ai' | 'intent';
+    visible: boolean;
+  } | null>(null);
   const flowTraversalRef = useRef<{
     currentNodeId: string | null;
     visitedNodes: Set<string>;
@@ -500,6 +505,13 @@ export function AgentFlowCreator({ onBack, onSuccess, editAgentId }: AgentFlowCr
           console.log('👤 User message, current node type:', currentNode?.type);
           traversal.lastUserTranscript = transcript;
           
+          // Show what the user said
+          setSpeechIndicator({
+            text: `🎤 "${transcript}"`,
+            type: 'user',
+            visible: true
+          });
+          
           // If on a listen node, complete it and classify intent
           if (currentNode?.type === 'listen') {
             console.log('👂 User spoke on listen node, classifying intent...');
@@ -547,6 +559,13 @@ export function AgentFlowCreator({ onBack, onSuccess, editAgentId }: AgentFlowCr
                     if (result.intent) {
                       traversal.detectedIntent = result.intent;
                       console.log('✅ Detected intent:', result.intent, '(confidence:', result.confidence, ')');
+                      
+                      // Show detected intent
+                      setSpeechIndicator({
+                        text: `✨ Detected: "${result.intent}"`,
+                        type: 'intent',
+                        visible: true
+                      });
                       
                       // IMMEDIATELY route to the matching branch target
                       const branchEdges = canvas.getEdges().filter(e => e.source === branchNodeId);
@@ -613,6 +632,18 @@ export function AgentFlowCreator({ onBack, onSuccess, editAgentId }: AgentFlowCr
                         canvas.highlightNode(matchingEdge.target);
                         
                         console.log('✨ Node highlighted:', matchingEdge.target);
+                        
+                        // Show routing indicator
+                        setSpeechIndicator({
+                          text: `🎯 → ${targetNode?.data?.label || matchingEdge.target}`,
+                          type: 'intent',
+                          visible: true
+                        });
+                        
+                        // Auto-hide after 3 seconds
+                        setTimeout(() => {
+                          setSpeechIndicator(null);
+                        }, 3000);
                         
                         traversal.detectedIntent = null;
                         setCurrentNodeIndex(prev => prev + 1);
@@ -735,6 +766,9 @@ export function AgentFlowCreator({ onBack, onSuccess, editAgentId }: AgentFlowCr
         traversal.isTraversing = false;
         traversal.currentNodeId = null;
         
+        // Clear speech indicator
+        setSpeechIndicator(null);
+        
         setTimeout(() => {
           setIsCallActive(false);
         }, 2000);
@@ -747,6 +781,7 @@ export function AgentFlowCreator({ onBack, onSuccess, editAgentId }: AgentFlowCr
         traversal.isTraversing = false;
         traversal.currentNodeId = null;
         setIsCallActive(false);
+        setSpeechIndicator(null);
         break;
       }
     }
@@ -1178,6 +1213,29 @@ export function AgentFlowCreator({ onBack, onSuccess, editAgentId }: AgentFlowCr
                 <Activity className="w-4 h-4" />
                 <span className="text-sm font-medium">Live Call - Flow Visualization Active</span>
                 <div className="w-2 h-2 bg-white rounded-full animate-ping" />
+              </div>
+            )}
+            
+            {/* Speech/Intent Indicator */}
+            {speechIndicator?.visible && (
+              <div 
+                className={`absolute top-16 left-1/2 transform -translate-x-1/2 z-20 px-5 py-3 rounded-xl shadow-xl flex items-center gap-3 animate-in slide-in-from-top-2 duration-300 ${
+                  speechIndicator.type === 'user' 
+                    ? 'bg-blue-600 text-white' 
+                    : speechIndicator.type === 'intent'
+                    ? 'bg-purple-600 text-white'
+                    : 'bg-gray-800 text-white'
+                }`}
+              >
+                <span className="text-base font-medium max-w-md truncate">
+                  {speechIndicator.text}
+                </span>
+                {isClassifyingIntent && (
+                  <div className="flex items-center gap-2 text-sm opacity-80">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Analyzing...
+                  </div>
+                )}
               </div>
             )}
             
