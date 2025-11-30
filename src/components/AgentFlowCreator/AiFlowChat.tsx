@@ -13,8 +13,76 @@ import {
   CheckCircle, 
   AlertCircle,
   Wand2,
-  MessageSquare
+  MessageSquare,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react';
+
+// Template categories with examples
+const TEMPLATE_CATEGORIES = [
+  {
+    name: 'General',
+    icon: '🎯',
+    templates: [
+      'Pizza ordering with 3 options',
+      'Appointment booking agent',
+      'Customer support with transfer',
+      'FAQ bot with 5 common questions',
+    ]
+  },
+  {
+    name: 'Home Services',
+    icon: '🏠',
+    templates: [
+      'HVAC service scheduling with emergency option',
+      'Plumbing quote request with issue types',
+      'Roofing inspection booking agent',
+      'Window installation consultation',
+      'Landscaping estimate scheduler',
+    ]
+  },
+  {
+    name: 'Home Improvement',
+    icon: '🔨',
+    templates: [
+      'Kitchen remodel consultation booking',
+      'Bathroom renovation quote agent',
+      'Flooring installation scheduler',
+      'Painting estimate with room options',
+      'General contractor callback request',
+    ]
+  },
+  {
+    name: 'Solar & Energy',
+    icon: '☀️',
+    templates: [
+      'Solar panel consultation booking',
+      'Energy audit scheduling agent',
+      'EV charger installation inquiry',
+      'Home battery consultation',
+    ]
+  },
+  {
+    name: 'Healthcare',
+    icon: '🏥',
+    templates: [
+      'Medical appointment scheduling',
+      'Prescription refill request',
+      'Insurance verification agent',
+      'Patient callback scheduler',
+    ]
+  },
+  {
+    name: 'Real Estate',
+    icon: '🏡',
+    templates: [
+      'Property showing scheduler',
+      'Home valuation request agent',
+      'Rental inquiry with property types',
+      'Open house RSVP booking',
+    ]
+  },
+];
 import { generateFlowFromPrompt, autoLayoutNodes, type GeneratedFlow } from './aiFlowGenerator';
 import type { FlowNodeData } from './flowToPrompt';
 
@@ -37,13 +105,28 @@ export function AiFlowChat({ isOpen, onClose, onFlowGenerated }: AiFlowChatProps
     {
       id: 'welcome',
       role: 'assistant',
-      content: 'Hi! I\'m your AI Flow Assistant. Describe the voice agent you want to create, and I\'ll generate the flow for you.\n\nExample: "Create a pizza ordering agent with 3 pizza options and a transfer option for complaints"'
+      content: 'Hi! I\'m your AI Flow Assistant. Describe the voice agent you want to create, and I\'ll generate the flow for you.\n\nBrowse templates below or type your own description!'
     }
   ]);
   const [input, setInput] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
+  const [currentCategoryIndex, setCurrentCategoryIndex] = useState(0);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  
+  const currentCategory = TEMPLATE_CATEGORIES[currentCategoryIndex];
+  
+  const nextCategory = () => {
+    setCurrentCategoryIndex((prev) => 
+      prev === TEMPLATE_CATEGORIES.length - 1 ? 0 : prev + 1
+    );
+  };
+  
+  const prevCategory = () => {
+    setCurrentCategoryIndex((prev) => 
+      prev === 0 ? TEMPLATE_CATEGORIES.length - 1 : prev - 1
+    );
+  };
 
   // Auto-scroll to bottom when messages change
   useEffect(() => {
@@ -190,21 +273,58 @@ export function AiFlowChat({ isOpen, onClose, onFlowGenerated }: AiFlowChatProps
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Quick Examples */}
-      <div className="px-4 py-2 border-t border-gray-100 dark:border-gray-700/50">
-        <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">Quick examples:</p>
-        <div className="flex flex-wrap gap-1.5">
-          {[
-            'Pizza ordering with 3 options',
-            'Appointment booking agent',
-            'Customer support with transfer'
-          ].map((example, i) => (
+      {/* Quick Examples with Pagination */}
+      <div className="px-4 py-3 border-t border-gray-100 dark:border-gray-700/50">
+        {/* Category Navigation */}
+        <div className="flex items-center justify-between mb-2">
+          <button
+            onClick={prevCategory}
+            className="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400 transition-colors"
+          >
+            <ChevronLeft className="w-4 h-4" />
+          </button>
+          <div className="flex items-center gap-1.5">
+            <span className="text-base">{currentCategory.icon}</span>
+            <span className="text-xs font-medium text-gray-700 dark:text-gray-300">
+              {currentCategory.name}
+            </span>
+            <span className="text-xs text-gray-400 dark:text-gray-500">
+              ({currentCategoryIndex + 1}/{TEMPLATE_CATEGORIES.length})
+            </span>
+          </div>
+          <button
+            onClick={nextCategory}
+            className="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400 transition-colors"
+          >
+            <ChevronRight className="w-4 h-4" />
+          </button>
+        </div>
+        
+        {/* Category Dots */}
+        <div className="flex justify-center gap-1 mb-2">
+          {TEMPLATE_CATEGORIES.map((_, i) => (
             <button
               key={i}
-              onClick={() => handleExampleClick(example)}
-              className="text-xs px-2 py-1 bg-gray-100 dark:bg-gray-700 hover:bg-purple-100 dark:hover:bg-purple-900/30 text-gray-600 dark:text-gray-400 hover:text-purple-700 dark:hover:text-purple-300 rounded-full transition-colors"
+              onClick={() => setCurrentCategoryIndex(i)}
+              className={`w-1.5 h-1.5 rounded-full transition-colors ${
+                i === currentCategoryIndex 
+                  ? 'bg-purple-500' 
+                  : 'bg-gray-300 dark:bg-gray-600 hover:bg-gray-400 dark:hover:bg-gray-500'
+              }`}
+            />
+          ))}
+        </div>
+        
+        {/* Templates */}
+        <div className="flex flex-col gap-1.5 max-h-32 overflow-y-auto">
+          {currentCategory.templates.map((template, i) => (
+            <button
+              key={i}
+              onClick={() => handleExampleClick(template)}
+              className="text-xs px-3 py-1.5 bg-gray-100 dark:bg-gray-700 hover:bg-purple-100 dark:hover:bg-purple-900/30 text-gray-600 dark:text-gray-400 hover:text-purple-700 dark:hover:text-purple-300 rounded-lg transition-colors text-left truncate"
+              title={template}
             >
-              {example}
+              {template}
             </button>
           ))}
         </div>
