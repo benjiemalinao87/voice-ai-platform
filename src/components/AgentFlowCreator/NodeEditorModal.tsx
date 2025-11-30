@@ -3,6 +3,8 @@ import type { Node } from 'reactflow';
 import { X, Plus, Trash2, Play, Loader2, ChevronDown, ChevronUp, Globe } from 'lucide-react';
 import type { FlowNodeData, ApiConfig, ApiHeader, ResponseMapping } from './flowToPrompt';
 
+const API_URL = import.meta.env.VITE_D1_API_URL || 'http://localhost:8787';
+
 interface NodeEditorModalProps {
   node: Node<FlowNodeData>;
   onSave: (data: FlowNodeData) => void;
@@ -123,29 +125,40 @@ export function NodeEditorModal({ node, onSave, onClose }: NodeEditorModalProps)
 
     try {
       // Replace {phone} placeholder with test phone
-      let url = apiConfig.endpoint;
+      let targetUrl = apiConfig.endpoint;
       if (apiConfig.testPhone) {
-        url = url.replace('{phone}', encodeURIComponent(apiConfig.testPhone));
+        targetUrl = targetUrl.replace('{phone}', encodeURIComponent(apiConfig.testPhone));
       }
 
       // Build headers object
-      const headers: Record<string, string> = {};
+      const targetHeaders: Record<string, string> = {};
       apiConfig.headers.forEach(h => {
         if (h.key && h.value) {
-          headers[h.key] = h.value;
+          targetHeaders[h.key] = h.value;
         }
       });
 
-      const response = await fetch(url, {
-        method: 'GET',
-        headers
+      // Use proxy to avoid CORS issues
+      const response = await fetch(`${API_URL}/api/proxy`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
+        },
+        body: JSON.stringify({
+          url: targetUrl,
+          method: 'GET',
+          headers: targetHeaders
+        })
       });
 
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      const proxyResult = await response.json();
+
+      if (!response.ok || proxyResult.status >= 400) {
+        throw new Error(proxyResult.error || `HTTP ${proxyResult.status}: ${proxyResult.statusText}`);
       }
 
-      const data = await response.json();
+      const data = proxyResult.data;
       
       // Extract available paths from response
       const paths = extractPaths(data);

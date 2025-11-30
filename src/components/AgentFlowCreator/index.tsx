@@ -10,12 +10,14 @@ import { d1Client } from '../../lib/d1';
 import { agentApi } from '../../lib/api';
 import { type VapiCallEvent } from '../VoiceTest';
 
+const API_URL = import.meta.env.VITE_D1_API_URL || 'http://localhost:8787';
+
 // Helper to get value from object by dot-notation path
 function getValueByPath(obj: any, path: string): any {
   return path.split('.').reduce((current, key) => current?.[key], obj);
 }
 
-// Execute API call for Action node and return formatted context
+// Execute API call for Action node and return formatted context (via proxy to avoid CORS)
 async function executeActionApi(
   apiConfig: ApiConfig,
   customerPhone: string | null
@@ -26,31 +28,42 @@ async function executeActionApi(
     }
 
     // Replace {phone} placeholder with customer phone
-    let url = apiConfig.endpoint;
+    let targetUrl = apiConfig.endpoint;
     if (customerPhone) {
-      url = url.replace('{phone}', encodeURIComponent(customerPhone));
+      targetUrl = targetUrl.replace('{phone}', encodeURIComponent(customerPhone));
     }
 
     // Build headers object
-    const headers: Record<string, string> = {};
+    const targetHeaders: Record<string, string> = {};
     apiConfig.headers.forEach(h => {
       if (h.key && h.value) {
-        headers[h.key] = h.value;
+        targetHeaders[h.key] = h.value;
       }
     });
 
-    console.log('🌐 Executing Action API:', url);
+    console.log('🌐 Executing Action API via proxy:', targetUrl);
     
-    const response = await fetch(url, {
-      method: 'GET',
-      headers
+    // Use proxy to avoid CORS issues
+    const response = await fetch(`${API_URL}/api/proxy`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
+      },
+      body: JSON.stringify({
+        url: targetUrl,
+        method: 'GET',
+        headers: targetHeaders
+      })
     });
 
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    const proxyResult = await response.json();
+
+    if (!response.ok || proxyResult.status >= 400) {
+      throw new Error(proxyResult.error || `HTTP ${proxyResult.status}: ${proxyResult.statusText}`);
     }
 
-    const data = await response.json();
+    const data = proxyResult.data;
     console.log('✅ API Response:', data);
 
     // Extract mapped fields

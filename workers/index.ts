@@ -8803,6 +8803,66 @@ Need help? Contact our support team anytime!
         }
       }
 
+      // API Proxy - allows frontend to make API calls through backend (avoids CORS)
+      if (url.pathname === '/api/proxy' && request.method === 'POST') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        try {
+          const body = await request.json() as {
+            url: string;
+            method?: string;
+            headers?: Record<string, string>;
+            body?: any;
+          };
+
+          if (!body.url) {
+            return jsonResponse({ error: 'URL is required' }, 400);
+          }
+
+          // Make the proxied request
+          const proxyHeaders: Record<string, string> = {
+            ...body.headers
+          };
+
+          const proxyOptions: RequestInit = {
+            method: body.method || 'GET',
+            headers: proxyHeaders,
+          };
+
+          if (body.body && body.method !== 'GET') {
+            proxyOptions.body = JSON.stringify(body.body);
+          }
+
+          console.log('[API Proxy] Forwarding request to:', body.url);
+          
+          const proxyResponse = await fetch(body.url, proxyOptions);
+          
+          // Try to parse as JSON, fall back to text
+          let responseData;
+          const contentType = proxyResponse.headers.get('content-type');
+          if (contentType?.includes('application/json')) {
+            responseData = await proxyResponse.json();
+          } else {
+            responseData = await proxyResponse.text();
+          }
+
+          return jsonResponse({
+            status: proxyResponse.status,
+            statusText: proxyResponse.statusText,
+            data: responseData
+          }, proxyResponse.ok ? 200 : proxyResponse.status);
+        } catch (error: any) {
+          console.error('[API Proxy] Error:', error);
+          return jsonResponse({ 
+            error: error.message || 'Proxy request failed',
+            status: 500
+          }, 500);
+        }
+      }
+
       // Default 404
       return jsonResponse({ error: 'Not found' }, 404);
 
