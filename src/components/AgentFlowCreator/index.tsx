@@ -362,13 +362,38 @@ export function AgentFlowCreator({ onBack, onSuccess, editAgentId }: AgentFlowCr
                 console.log('🧠 Classifying intent. Available options:', availableIntents);
                 setIsClassifyingIntent(true);
                 
-                // Run LLM classification asynchronously
+                // Complete listen node first
+                canvas.completeNode(branchNodeId);
+                traversal.currentNodeId = branchNodeId;
+                canvas.highlightNode(branchNodeId);
+                setCurrentNodeIndex(prev => prev + 1);
+                
+                // Run LLM classification and immediately route when done
                 classifyIntent(transcript, availableIntents)
                   .then(result => {
                     console.log('🎯 Intent classification result:', result);
                     if (result.intent) {
                       traversal.detectedIntent = result.intent;
                       console.log('✅ Detected intent:', result.intent, '(confidence:', result.confidence, ')');
+                      
+                      // IMMEDIATELY route to the matching branch target
+                      const branchEdges = canvas.getEdges().filter(e => e.source === branchNodeId);
+                      const matchingEdge = branchEdges.find(edge => {
+                        const edgeLabel = String(edge.label || '').toLowerCase();
+                        return edgeLabel === result.intent?.toLowerCase();
+                      });
+                      
+                      if (matchingEdge) {
+                        console.log('🎯 Routing to branch target:', matchingEdge.target);
+                        canvas.completeNode(branchNodeId);
+                        traversal.visitedNodes.add(branchNodeId);
+                        traversal.currentNodeId = matchingEdge.target;
+                        canvas.highlightNode(matchingEdge.target);
+                        traversal.detectedIntent = null; // Clear after using
+                        setCurrentNodeIndex(prev => prev + 1);
+                      } else {
+                        console.log('⚠️ No matching edge for intent:', result.intent);
+                      }
                     } else {
                       console.log('❓ No clear intent detected:', result.reasoning);
                     }
@@ -379,18 +404,20 @@ export function AgentFlowCreator({ onBack, onSuccess, editAgentId }: AgentFlowCr
                   .finally(() => {
                     setIsClassifyingIntent(false);
                   });
+              } else {
+                // No branch node follows, just move to next
+                console.log('➡️ Moving to next node:', branchNodeId);
+                traversal.currentNodeId = branchNodeId;
+                canvas.highlightNode(branchNodeId);
+                setCurrentNodeIndex(prev => prev + 1);
               }
-              
-              console.log('➡️ Moving to branch node:', branchNodeId);
-              traversal.currentNodeId = branchNodeId;
-              canvas.highlightNode(branchNodeId);
-              setCurrentNodeIndex(prev => prev + 1);
             }
           }
           
-          // If on a branch node and user speaks again, re-classify
+          // If on a branch node and user speaks again, re-classify and route immediately
           if (currentNode?.type === 'branch') {
-            const branchEdges = canvas.getEdges().filter(e => e.source === traversal.currentNodeId);
+            const currentBranchId = traversal.currentNodeId!;
+            const branchEdges = canvas.getEdges().filter(e => e.source === currentBranchId);
             const availableIntents = branchEdges
               .map(e => String(e.label || ''))
               .filter(Boolean);
@@ -403,6 +430,22 @@ export function AgentFlowCreator({ onBack, onSuccess, editAgentId }: AgentFlowCr
                 console.log('🎯 Re-classification result:', result);
                 if (result.intent) {
                   traversal.detectedIntent = result.intent;
+                  
+                  // IMMEDIATELY route to matching branch target
+                  const matchingEdge = branchEdges.find(edge => {
+                    const edgeLabel = String(edge.label || '').toLowerCase();
+                    return edgeLabel === result.intent?.toLowerCase();
+                  });
+                  
+                  if (matchingEdge) {
+                    console.log('🎯 Routing to branch target:', matchingEdge.target);
+                    canvas.completeNode(currentBranchId);
+                    traversal.visitedNodes.add(currentBranchId);
+                    traversal.currentNodeId = matchingEdge.target;
+                    canvas.highlightNode(matchingEdge.target);
+                    traversal.detectedIntent = null;
+                    setCurrentNodeIndex(prev => prev + 1);
+                  }
                 }
               })
               .catch(err => {
