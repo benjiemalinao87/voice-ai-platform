@@ -1,18 +1,56 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Phone, PhoneOff, Mic, MicOff } from 'lucide-react';
 import Vapi from '@vapi-ai/web';
+
+// Event types exposed to parent components
+export type VapiCallEventType = 
+  | 'call-start'
+  | 'call-end'
+  | 'speech-start'  // AI is speaking
+  | 'speech-end'    // AI finished speaking
+  | 'message'       // Transcript/message update
+  | 'error';
+
+export interface VapiCallEvent {
+  type: VapiCallEventType;
+  timestamp: number;
+  data?: {
+    role?: 'assistant' | 'user';
+    transcript?: string;
+    message?: string;
+    error?: any;
+  };
+}
 
 interface VoiceTestProps {
   assistantId?: string;
   publicKey: string;
+  onCallEvent?: (event: VapiCallEvent) => void;  // Callback to expose VAPI events
 }
 
-export function VoiceTest({ assistantId, publicKey }: VoiceTestProps) {
+export function VoiceTest({ assistantId, publicKey, onCallEvent }: VoiceTestProps) {
   const [vapi, setVapi] = useState<Vapi | null>(null);
   const [isCallActive, setIsCallActive] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [callStatus, setCallStatus] = useState<string>('idle');
   const [volumeLevel, setVolumeLevel] = useState(0);
+  const onCallEventRef = useRef(onCallEvent);
+
+  // Keep callback ref updated
+  useEffect(() => {
+    onCallEventRef.current = onCallEvent;
+  }, [onCallEvent]);
+
+  // Helper to emit events
+  const emitEvent = (type: VapiCallEventType, data?: VapiCallEvent['data']) => {
+    if (onCallEventRef.current) {
+      onCallEventRef.current({
+        type,
+        timestamp: Date.now(),
+        data
+      });
+    }
+  };
 
   useEffect(() => {
     // Initialize Voice AI client
@@ -23,19 +61,39 @@ export function VoiceTest({ assistantId, publicKey }: VoiceTestProps) {
     vapiInstance.on('call-start', () => {
       setIsCallActive(true);
       setCallStatus('connected');
+      emitEvent('call-start');
     });
 
     vapiInstance.on('call-end', () => {
       setIsCallActive(false);
       setCallStatus('ended');
+      emitEvent('call-end');
     });
 
     vapiInstance.on('speech-start', () => {
       setCallStatus('speaking');
+      emitEvent('speech-start', { role: 'assistant' });
     });
 
     vapiInstance.on('speech-end', () => {
       setCallStatus('listening');
+      emitEvent('speech-end', { role: 'assistant' });
+    });
+
+    // Listen for message/transcript events
+    vapiInstance.on('message', (message: any) => {
+      if (message.type === 'transcript') {
+        emitEvent('message', {
+          role: message.role,
+          transcript: message.transcript
+        });
+      } else if (message.type === 'function-call') {
+        // Function call detected - useful for action nodes
+        emitEvent('message', {
+          role: 'assistant',
+          message: `Function: ${message.functionCall?.name || 'unknown'}`
+        });
+      }
     });
 
     vapiInstance.on('volume-level', (level: number) => {
@@ -46,6 +104,7 @@ export function VoiceTest({ assistantId, publicKey }: VoiceTestProps) {
       console.error('CHAU Voice AI Error:', error);
       setCallStatus('error');
       setIsCallActive(false);
+      emitEvent('error', { error });
     });
 
     return () => {

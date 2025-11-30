@@ -14,6 +14,14 @@ export interface Agent {
   updated_at: string;
 }
 
+// Extended agent data for creation with VAPI-specific fields
+export interface AgentCreateData extends Omit<Agent, 'id' | 'created_at' | 'updated_at' | 'api_key'> {
+  forwardingPhoneNumber?: string;
+  voicemailMessage?: string;
+  endCallMessage?: string;
+  structuredDataPrompt?: string;
+}
+
 export interface Call {
   id: string;
   agent_id: string;

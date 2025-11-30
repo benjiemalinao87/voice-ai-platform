@@ -3,27 +3,30 @@ main = "workers/index.ts"
 compatibility_date = "2024-10-16"
 account_id = "208f128290b10d58d5de18909148acc0"
 
-# Custom domain
-routes = [
-  { pattern = "api.voice-config.channelautomation.com", custom_domain = true }
-]
+# Custom domain (commented out for local dev)
+# routes = [
+#   { pattern = "api.voice-config.channelautomation.com", custom_domain = true }
+# ]
 
 # D1 Database binding
 [[d1_databases]]
 binding = "DB"
 database_name = "voice-ai-dashboard"
 database_id = "68edb24b-9705-4b29-b5c5-d702dc78a6fb"
+preview_database_id = "68edb24b-9705-4b29-b5c5-d702dc78a6fb"
 migrations_dir = "workers/migrations"
 
 # KV namespace for caching
 [[kv_namespaces]]
 binding = "CACHE"
 id = "1957b2d9d695460ebba474ba4be11def"
+preview_id = "1957b2d9d695460ebba474ba4be11def"
 
 # R2 bucket for call recordings
 [[r2_buckets]]
 binding = "RECORDINGS"
 bucket_name = "voice-ai-recordings"
+preview_bucket_name = "voice-ai-recordings"
 
 # Environment variables
 [vars]

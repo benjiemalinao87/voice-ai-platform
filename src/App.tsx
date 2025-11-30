@@ -16,11 +16,12 @@ import { WhatsNew } from './components/WhatsNew';
 import { AppointmentsByAI } from './components/AppointmentsByAI';
 import { EmbeddingModal } from './components/EmbeddingModal';
 import { StandaloneDashboard } from './components/StandaloneDashboard';
+import { AgentFlowCreator } from './components/AgentFlowCreator';
 import { useAuth } from './contexts/AuthContext';
 import { useVapi } from './contexts/VapiContext';
 import { agentApi } from './lib/api';
 import { d1Client } from './lib/d1';
-import type { Agent } from './types';
+import type { Agent, AgentCreateData } from './types';
 
 type View = 'dashboard' | 'config' | 'recordings' | 'settings' | 'flow' | 'intent' | 'livechat' | 'board' | 'appointments' | 'standalone_dashboard';
 
@@ -28,8 +29,11 @@ function App() {
   const { isAuthenticated, isLoading } = useAuth();
   const { vapiClient, selectedOrgId, selectedWorkspaceId, setSelectedWorkspaceId } = useVapi();
 
-  // Check URL for flow builder route
+  // Check URL for special routes
   const isFlowBuilder = window.location.pathname === '/flow-builder';
+  const isAgentCreator = window.location.pathname === '/agents/create';
+  const isAgentEditor = window.location.pathname.startsWith('/agents/edit/');
+  const editAgentId = isAgentEditor ? window.location.pathname.split('/agents/edit/')[1] : undefined;
 
   const [currentView, setCurrentView] = useState<View>(() => {
     // Always default to dashboard on initial mount
@@ -173,7 +177,7 @@ function App() {
     }
   };
 
-  const handleCreateAgent = async (agentData: Omit<Agent, 'id' | 'created_at' | 'updated_at' | 'api_key'>, webhookUrl?: string) => {
+  const handleCreateAgent = async (agentData: AgentCreateData, webhookUrl?: string) => {
     if (!vapiClient) {
       throw new Error('API client not initialized');
     }
@@ -236,6 +240,61 @@ function App() {
       <div className="h-screen bg-gray-50 dark:bg-gray-900">
         <FlowBuilder />
 
+        {/* Floating Dark Mode Toggle */}
+        <button
+          onClick={toggleDarkMode}
+          className="fixed bottom-6 right-6 p-3 rounded-full bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 shadow-lg hover:shadow-xl border border-gray-200 dark:border-gray-700 hover:scale-110 transition-all duration-200 z-50"
+          aria-label="Toggle dark mode"
+          type="button"
+        >
+          {darkMode ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
+        </button>
+      </div>
+    );
+  }
+
+  // If agent creator route, render the visual flow creator
+  if (isAgentCreator) {
+    return (
+      <div className={darkMode ? 'dark' : ''}>
+        <AgentFlowCreator
+          onBack={() => {
+            window.location.href = '/';
+          }}
+          onSuccess={() => {
+            // Navigate back - page reload will trigger agents list refresh
+            window.location.href = '/';
+          }}
+        />
+        
+        {/* Floating Dark Mode Toggle */}
+        <button
+          onClick={toggleDarkMode}
+          className="fixed bottom-6 right-6 p-3 rounded-full bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 shadow-lg hover:shadow-xl border border-gray-200 dark:border-gray-700 hover:scale-110 transition-all duration-200 z-50"
+          aria-label="Toggle dark mode"
+          type="button"
+        >
+          {darkMode ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
+        </button>
+      </div>
+    );
+  }
+
+  // If agent editor route, render the visual flow creator in edit mode
+  if (isAgentEditor && editAgentId) {
+    return (
+      <div className={darkMode ? 'dark' : ''}>
+        <AgentFlowCreator
+          editAgentId={editAgentId}
+          onBack={() => {
+            window.location.href = '/';
+          }}
+          onSuccess={() => {
+            // Navigate back - page reload will trigger agents list refresh
+            window.location.href = '/';
+          }}
+        />
+        
         {/* Floating Dark Mode Toggle */}
         <button
           onClick={toggleDarkMode}

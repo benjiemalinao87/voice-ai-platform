@@ -2579,12 +2579,15 @@ export default {
           });
 
           if (!vapiResponse.ok) {
-            const errorText = await vapiResponse.text();
+            let errorText = await vapiResponse.text();
+            // Remove Vapi branding from error messages
+            errorText = errorText.replace(/Vapi free phone numbers/gi, 'free phone numbers');
+            errorText = errorText.replace(/Vapi/gi, 'CHAU Voice Engine');
             return jsonResponse({ error: `CHAU Voice Engine API error: ${vapiResponse.status} - ${errorText}` }, 400);
           }
 
           const vapiData = await vapiResponse.json() as any;
-          
+
           return jsonResponse({
             id: vapiData.id,
             number: vapiData.number || vapiData.phoneNumber,
@@ -2592,7 +2595,11 @@ export default {
           });
         } catch (error: any) {
           console.error('Error importing Twilio number:', error);
-          return jsonResponse({ error: `Failed to import Twilio number: ${error.message}` }, 500);
+          // Remove Vapi branding from error messages
+          let errorMessage = error.message || 'Unknown error';
+          errorMessage = errorMessage.replace(/Vapi free phone numbers/gi, 'free phone numbers');
+          errorMessage = errorMessage.replace(/Vapi/gi, 'CHAU Voice Engine');
+          return jsonResponse({ error: `Failed to import Twilio number: ${errorMessage}` }, 500);
         }
       }
 
@@ -2690,11 +2697,16 @@ export default {
             } catch {
               // If not JSON, use error text as is
             }
+
+            // Remove Vapi branding from error messages
+            errorText = errorText.replace(/Vapi free phone numbers/gi, 'free phone numbers');
+            errorText = errorText.replace(/Vapi/gi, 'CHAU Voice Engine');
+
             return jsonResponse({ error: errorText }, 400);
           }
 
           const vapiData = await vapiResponse.json() as any;
-          
+
           return jsonResponse({
             id: vapiData.id,
             number: vapiData.number || vapiData.phoneNumber,
@@ -2702,7 +2714,11 @@ export default {
           });
         } catch (error: any) {
           console.error('Error creating CHAU Voice Engine phone number:', error);
-          return jsonResponse({ error: `Failed to create phone number: ${error.message}` }, 500);
+          // Remove Vapi branding from error messages
+          let errorMessage = error.message || 'Unknown error';
+          errorMessage = errorMessage.replace(/Vapi free phone numbers/gi, 'free phone numbers');
+          errorMessage = errorMessage.replace(/Vapi/gi, 'CHAU Voice Engine');
+          return jsonResponse({ error: `Failed to create phone number: ${errorMessage}` }, 500);
         }
       }
 
@@ -2793,7 +2809,10 @@ export default {
           });
 
           if (!vapiResponse.ok) {
-            const errorText = await vapiResponse.text();
+            let errorText = await vapiResponse.text();
+            // Remove Vapi branding from error messages
+            errorText = errorText.replace(/Vapi free phone numbers/gi, 'free phone numbers');
+            errorText = errorText.replace(/Vapi/gi, 'CHAU Voice Engine');
             return jsonResponse({ error: `CHAU Voice Engine API error: ${vapiResponse.status} - ${errorText}` }, 400);
           }
 
@@ -2809,7 +2828,11 @@ export default {
           });
         } catch (error: any) {
           console.error('Error updating phone number assistant:', error);
-          return jsonResponse({ error: `Failed to update phone number: ${error.message}` }, 500);
+          // Remove Vapi branding from error messages
+          let errorMessage = error.message || 'Unknown error';
+          errorMessage = errorMessage.replace(/Vapi free phone numbers/gi, 'free phone numbers');
+          errorMessage = errorMessage.replace(/Vapi/gi, 'CHAU Voice Engine');
+          return jsonResponse({ error: `Failed to update phone number: ${errorMessage}` }, 500);
         }
       }
 
@@ -2910,7 +2933,10 @@ export default {
           });
 
           if (!vapiResponse.ok) {
-            const errorText = await vapiResponse.text();
+            let errorText = await vapiResponse.text();
+            // Remove Vapi branding from error messages
+            errorText = errorText.replace(/Vapi free phone numbers/gi, 'free phone numbers');
+            errorText = errorText.replace(/Vapi/gi, 'CHAU Voice Engine');
             return jsonResponse({ error: `CHAU Voice Engine API error: ${vapiResponse.status} - ${errorText}` }, 400);
           }
 
@@ -2933,7 +2959,11 @@ export default {
           return jsonResponse({ assistants, cached: false });
         } catch (error: any) {
           console.error('Error fetching assistants:', error);
-          return jsonResponse({ error: `Failed to fetch assistants: ${error.message}` }, 500);
+          // Remove Vapi branding from error messages
+          let errorMessage = error.message || 'Unknown error';
+          errorMessage = errorMessage.replace(/Vapi free phone numbers/gi, 'free phone numbers');
+          errorMessage = errorMessage.replace(/Vapi/gi, 'CHAU Voice Engine');
+          return jsonResponse({ error: `Failed to fetch assistants: ${errorMessage}` }, 500);
         }
       }
 
@@ -3013,7 +3043,10 @@ export default {
           });
 
           if (!vapiResponse.ok) {
-            const errorText = await vapiResponse.text();
+            let errorText = await vapiResponse.text();
+            // Remove Vapi branding from error messages
+            errorText = errorText.replace(/Vapi free phone numbers/gi, 'free phone numbers');
+            errorText = errorText.replace(/Vapi/gi, 'CHAU Voice Engine');
             return jsonResponse({ error: `CHAU Voice Engine API error: ${vapiResponse.status} - ${errorText}` }, 400);
           }
 
@@ -3034,7 +3067,11 @@ export default {
           return jsonResponse({ assistant, cached: false });
         } catch (error: any) {
           console.error('Error fetching assistant:', error);
-          return jsonResponse({ error: `Failed to fetch assistant: ${error.message}` }, 500);
+          // Remove Vapi branding from error messages
+          let errorMessage = error.message || 'Unknown error';
+          errorMessage = errorMessage.replace(/Vapi free phone numbers/gi, 'free phone numbers');
+          errorMessage = errorMessage.replace(/Vapi/gi, 'CHAU Voice Engine');
+          return jsonResponse({ error: `Failed to fetch assistant: ${errorMessage}` }, 500);
         }
       }
 
@@ -3120,7 +3157,10 @@ export default {
           });
 
           if (!vapiResponse.ok) {
-            const errorText = await vapiResponse.text();
+            let errorText = await vapiResponse.text();
+            // Remove Vapi branding from error messages
+            errorText = errorText.replace(/Vapi free phone numbers/gi, 'free phone numbers');
+            errorText = errorText.replace(/Vapi/gi, 'CHAU Voice Engine');
             return jsonResponse({ error: `CHAU Voice Engine API error: ${vapiResponse.status} - ${errorText}` }, 400);
           }
 
@@ -3141,7 +3181,11 @@ export default {
           return jsonResponse({ assistant: updatedAssistant });
         } catch (error: any) {
           console.error('Error updating assistant:', error);
-          return jsonResponse({ error: `Failed to update assistant: ${error.message}` }, 500);
+          // Remove Vapi branding from error messages
+          let errorMessage = error.message || 'Unknown error';
+          errorMessage = errorMessage.replace(/Vapi free phone numbers/gi, 'free phone numbers');
+          errorMessage = errorMessage.replace(/Vapi/gi, 'CHAU Voice Engine');
+          return jsonResponse({ error: `Failed to update assistant: ${errorMessage}` }, 500);
         }
       }
 
@@ -3237,7 +3281,11 @@ export default {
           return jsonResponse({ assistant: newAssistant });
         } catch (error: any) {
           console.error('Error creating assistant:', error);
-          return jsonResponse({ error: `Failed to create assistant: ${error.message}` }, 500);
+          // Remove Vapi branding from error messages
+          let errorMessage = error.message || 'Unknown error';
+          errorMessage = errorMessage.replace(/Vapi free phone numbers/gi, 'free phone numbers');
+          errorMessage = errorMessage.replace(/Vapi/gi, 'CHAU Voice Engine');
+          return jsonResponse({ error: `Failed to create assistant: ${errorMessage}` }, 500);
         }
       }
 
@@ -3304,7 +3352,10 @@ export default {
           });
 
           if (!vapiResponse.ok) {
-            const errorText = await vapiResponse.text();
+            let errorText = await vapiResponse.text();
+            // Remove Vapi branding from error messages
+            errorText = errorText.replace(/Vapi free phone numbers/gi, 'free phone numbers');
+            errorText = errorText.replace(/Vapi/gi, 'CHAU Voice Engine');
             return jsonResponse({ error: `CHAU Voice Engine API error: ${vapiResponse.status} - ${errorText}` }, 400);
           }
 
@@ -3316,7 +3367,194 @@ export default {
           return jsonResponse({ success: true });
         } catch (error: any) {
           console.error('Error deleting assistant:', error);
-          return jsonResponse({ error: `Failed to delete assistant: ${error.message}` }, 500);
+          // Remove Vapi branding from error messages
+          let errorMessage = error.message || 'Unknown error';
+          errorMessage = errorMessage.replace(/Vapi free phone numbers/gi, 'free phone numbers');
+          errorMessage = errorMessage.replace(/Vapi/gi, 'CHAU Voice Engine');
+          return jsonResponse({ error: `Failed to delete assistant: ${errorMessage}` }, 500);
+        }
+      }
+
+      // ============================================
+      // AGENT FLOWS ENDPOINTS (Protected)
+      // ============================================
+
+      // Save agent flow (CREATE)
+      if (url.pathname === '/api/agent-flows' && request.method === 'POST') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        try {
+          const { vapiAssistantId, flowData, configData } = await request.json() as any;
+
+          if (!vapiAssistantId) {
+            return jsonResponse({ error: 'VAPI assistant ID is required' }, 400);
+          }
+
+          if (!flowData || !configData) {
+            return jsonResponse({ error: 'Flow data and config data are required' }, 400);
+          }
+
+          const id = crypto.randomUUID();
+          const timestamp = now();
+
+          await env.DB.prepare(
+            'INSERT INTO agent_flows (id, vapi_assistant_id, user_id, flow_data, config_data, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+          ).bind(
+            id,
+            vapiAssistantId,
+            userId,
+            JSON.stringify(flowData),
+            JSON.stringify(configData),
+            timestamp,
+            timestamp
+          ).run();
+
+          return jsonResponse({ 
+            success: true, 
+            id,
+            vapiAssistantId 
+          });
+        } catch (error: any) {
+          console.error('Error saving agent flow:', error);
+          return jsonResponse({ error: `Failed to save agent flow: ${error.message}` }, 500);
+        }
+      }
+
+      // Get agent flow by VAPI assistant ID
+      if (url.pathname.startsWith('/api/agent-flows/') && request.method === 'GET') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        const vapiAssistantId = url.pathname.split('/').pop();
+        if (!vapiAssistantId) {
+          return jsonResponse({ error: 'VAPI assistant ID is required' }, 400);
+        }
+
+        try {
+          const flow = await env.DB.prepare(
+            'SELECT id, vapi_assistant_id, flow_data, config_data, created_at, updated_at FROM agent_flows WHERE vapi_assistant_id = ? AND user_id = ?'
+          ).bind(vapiAssistantId, userId).first() as any;
+
+          if (!flow) {
+            return jsonResponse({ error: 'Flow not found', exists: false }, 404);
+          }
+
+          return jsonResponse({
+            exists: true,
+            id: flow.id,
+            vapiAssistantId: flow.vapi_assistant_id,
+            flowData: JSON.parse(flow.flow_data),
+            configData: JSON.parse(flow.config_data),
+            createdAt: flow.created_at,
+            updatedAt: flow.updated_at
+          });
+        } catch (error: any) {
+          console.error('Error getting agent flow:', error);
+          return jsonResponse({ error: `Failed to get agent flow: ${error.message}` }, 500);
+        }
+      }
+
+      // Update agent flow
+      if (url.pathname.startsWith('/api/agent-flows/') && request.method === 'PUT') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        const vapiAssistantId = url.pathname.split('/').pop();
+        if (!vapiAssistantId) {
+          return jsonResponse({ error: 'VAPI assistant ID is required' }, 400);
+        }
+
+        try {
+          const { flowData, configData } = await request.json() as any;
+
+          if (!flowData || !configData) {
+            return jsonResponse({ error: 'Flow data and config data are required' }, 400);
+          }
+
+          const timestamp = now();
+
+          const result = await env.DB.prepare(
+            'UPDATE agent_flows SET flow_data = ?, config_data = ?, updated_at = ? WHERE vapi_assistant_id = ? AND user_id = ?'
+          ).bind(
+            JSON.stringify(flowData),
+            JSON.stringify(configData),
+            timestamp,
+            vapiAssistantId,
+            userId
+          ).run();
+
+          if (result.meta.changes === 0) {
+            return jsonResponse({ error: 'Flow not found or not authorized' }, 404);
+          }
+
+          return jsonResponse({ success: true, vapiAssistantId });
+        } catch (error: any) {
+          console.error('Error updating agent flow:', error);
+          return jsonResponse({ error: `Failed to update agent flow: ${error.message}` }, 500);
+        }
+      }
+
+      // Delete agent flow
+      if (url.pathname.startsWith('/api/agent-flows/') && request.method === 'DELETE') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        const vapiAssistantId = url.pathname.split('/').pop();
+        if (!vapiAssistantId) {
+          return jsonResponse({ error: 'VAPI assistant ID is required' }, 400);
+        }
+
+        try {
+          await env.DB.prepare(
+            'DELETE FROM agent_flows WHERE vapi_assistant_id = ? AND user_id = ?'
+          ).bind(vapiAssistantId, userId).run();
+
+          return jsonResponse({ success: true });
+        } catch (error: any) {
+          console.error('Error deleting agent flow:', error);
+          return jsonResponse({ error: `Failed to delete agent flow: ${error.message}` }, 500);
+        }
+      }
+
+      // Check if agent has flow data (lightweight check)
+      if (url.pathname === '/api/agent-flows/check' && request.method === 'POST') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        try {
+          const { assistantIds } = await request.json() as any;
+
+          if (!Array.isArray(assistantIds)) {
+            return jsonResponse({ error: 'assistantIds must be an array' }, 400);
+          }
+
+          const placeholders = assistantIds.map(() => '?').join(',');
+          const { results } = await env.DB.prepare(
+            `SELECT vapi_assistant_id FROM agent_flows WHERE vapi_assistant_id IN (${placeholders}) AND user_id = ?`
+          ).bind(...assistantIds, userId).all();
+
+          const flowIds = new Set((results || []).map((r: any) => r.vapi_assistant_id));
+          const hasFlow: Record<string, boolean> = {};
+          
+          assistantIds.forEach((id: string) => {
+            hasFlow[id] = flowIds.has(id);
+          });
+
+          return jsonResponse({ hasFlow });
+        } catch (error: any) {
+          console.error('Error checking agent flows:', error);
+          return jsonResponse({ error: `Failed to check agent flows: ${error.message}` }, 500);
         }
       }
 

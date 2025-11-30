@@ -4129,3 +4129,50 @@ Every API endpoint that returns user-specific data MUST:
 ### Files Modified
 - `workers/index.ts` - Fixed `/api/tool-call-logs` endpoint
 
+---
+
+## LLM-Based Intent Detection for Flow Builder
+
+**Date:** November 30, 2025
+
+**Problem:**
+1. AI was not waiting for user input at Listen nodes - continued speaking without user response
+2. Intent detection used hardcoded keywords (appointment, support, info) - custom intents like "Margarita", "Kebab" were not detected
+3. Flow visualization advanced based on speech events, not actual user choices
+
+**Root Causes:**
+1. The "Listen" node only added text to the prompt but had no actual waiting mechanism
+2. Branch routing used simple keyword matching that only supported 3 hardcoded intents
+3. The silenceTimeout was not prominently explained to users
+
+**Solution Implemented:**
+
+1. **LLM Intent Classifier** (`src/components/AgentFlowCreator/intentClassifier.ts`):
+   - Created new utility using OpenAI gpt-4o-mini for intent classification
+   - Takes user transcript + available intents from flow edges
+   - Returns matched intent with confidence score
+   - Includes fallback keyword matching when API is unavailable
+
+2. **Updated Branch Detection** (`src/components/AgentFlowCreator/index.tsx`):
+   - Replaced hardcoded keyword matching with LLM classification
+   - When user speaks on listen node, extracts available intents from branch edges dynamically
+   - Calls `classifyIntent()` asynchronously with user's transcript
+   - Routes to matched branch based on LLM classification
+
+3. **Stronger Wait Instructions** (`src/components/AgentFlowCreator/flowToPrompt.ts`):
+   - Changed from `[LISTEN] Wait for user response` to explicit `[WAIT FOR USER RESPONSE]`
+   - Added critical rules: STOP speaking, do NOT assume, do NOT fill silence
+   - Added acknowledgment requirement after user responds
+
+4. **Silence Timeout Documentation** (`AgentConfigPanel.tsx`):
+   - Added helpful description explaining silence timeout purpose
+   - Default is 20 seconds (was already good, just added explanation)
+
+**What NOT to do:**
+- Don't use hardcoded keyword matching for intent detection - it doesn't scale
+- Don't assume the AI will wait just because you said "wait" in the prompt - be explicit
+- Don't rely on AI response analysis for routing - use user's actual response instead
+
+**Key Insight:**
+Intent classification should happen on USER messages, not AI responses. The user's actual spoken words are what determine the intent, not how the AI responds to them.
+
