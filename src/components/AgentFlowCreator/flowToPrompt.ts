@@ -192,10 +192,11 @@ export function validateFlow(nodes: Node<FlowNodeData>[], edges: Edge[]): {
     errors.push('Flow can only have one Start node');
   }
 
-  // Check for end node
+  // Check for terminal nodes (end or transfer)
   const endNodes = nodes.filter(n => n.type === 'end');
-  if (endNodes.length === 0) {
-    errors.push('Flow must have at least one End node');
+  const transferNodes = nodes.filter(n => n.type === 'transfer');
+  if (endNodes.length === 0 && transferNodes.length === 0) {
+    errors.push('Flow must have at least one End or Transfer node');
   }
 
   // Check for disconnected nodes (except start which has no incoming)
@@ -206,10 +207,12 @@ export function validateFlow(nodes: Node<FlowNodeData>[], edges: Edge[]): {
     }
   });
 
-  // Check that all non-end nodes have outgoing connections
+  // Check that all non-terminal nodes have outgoing connections
+  // Terminal nodes: 'end' and 'transfer' don't need outgoing connections
   const nodesWithOutgoing = new Set(edges.map(e => e.source));
   nodes.forEach(node => {
-    if (node.type !== 'end' && !nodesWithOutgoing.has(node.id)) {
+    const isTerminalNode = node.type === 'end' || node.type === 'transfer';
+    if (!isTerminalNode && !nodesWithOutgoing.has(node.id)) {
       errors.push(`Node "${node.data.label}" has no outgoing connection`);
     }
   });
