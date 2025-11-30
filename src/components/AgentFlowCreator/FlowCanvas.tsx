@@ -11,6 +11,7 @@ import ReactFlow, {
   BackgroundVariant,
   Panel,
   ReactFlowProvider,
+  useReactFlow,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import dagre from 'dagre';
@@ -193,7 +194,9 @@ function FlowCanvasInner({
   const [editingEdge, setEditingEdge] = useState<Edge | null>(null);
   const [isTesting, setIsTesting] = useState(false);
   const [lastSelectedNodeId, setLastSelectedNodeId] = useState<string | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; flowX: number; flowY: number } | null>(null);
   const shouldContinueRef = useRef(true);
+  const { screenToFlowPosition } = useReactFlow();
   const isInitialMount = useRef(true);
   const isSyncingFromProps = useRef(false);
   const prevInitNodesRef = useRef<Node<FlowNodeData>[] | undefined>(initNodes);
@@ -378,6 +381,57 @@ function FlowCanvasInner({
     setLastSelectedNodeId(newNodeId);
     setNodeIdCounter(nodeIdCounter + 1);
   };
+
+  // Add node at specific position (no auto-connect) - for context menu
+  const addNodeAtPosition = (type: string, x: number, y: number) => {
+    const nodeData: FlowNodeData = {
+      label: type === 'message' ? 'New Message' :
+             type === 'action' ? 'New Action' : 'New Node',
+      content: type === 'message' ? 'Enter your message here...' :
+              type === 'action' ? 'Define your action...' : undefined,
+      onEdit: undefined
+    };
+
+    const newNodeId = `${type}-${nodeIdCounter}`;
+    const newNode: Node<FlowNodeData> = {
+      id: newNodeId,
+      type,
+      position: { x, y },
+      data: nodeData,
+    };
+
+    setNodes((nds) => {
+      const updated = [...nds, newNode];
+      onNodesChangeCallback(updated);
+      return updated;
+    });
+    
+    setNodeIdCounter(nodeIdCounter + 1);
+    setContextMenu(null); // Close menu after adding
+  };
+
+  // Handle right-click on canvas
+  const onPaneContextMenu = useCallback((event: React.MouseEvent) => {
+    event.preventDefault();
+    
+    // Get flow coordinates from screen position
+    const flowPosition = screenToFlowPosition({
+      x: event.clientX,
+      y: event.clientY,
+    });
+    
+    setContextMenu({
+      x: event.clientX,
+      y: event.clientY,
+      flowX: flowPosition.x,
+      flowY: flowPosition.y,
+    });
+  }, [screenToFlowPosition]);
+
+  // Close context menu when clicking elsewhere
+  const onPaneClick = useCallback(() => {
+    setContextMenu(null);
+  }, []);
 
   const clearCanvas = () => {
     if (window.confirm('Are you sure you want to clear all nodes?')) {
@@ -870,7 +924,7 @@ function FlowCanvasInner({
       </div>
 
       {/* React Flow Canvas */}
-      <div className="flex-1">
+      <div className="flex-1 relative">
         <ReactFlow
           nodes={nodesWithCallbacks}
           edges={edgesWithLabels}
@@ -879,6 +933,8 @@ function FlowCanvasInner({
           onConnect={onConnect}
           onNodeClick={onNodeClick}
           onEdgeClick={onEdgeClick}
+          onPaneContextMenu={onPaneContextMenu}
+          onPaneClick={onPaneClick}
           nodeTypes={nodeTypes}
           fitView
           className="bg-gray-50 dark:bg-gray-900"
@@ -891,9 +947,35 @@ function FlowCanvasInner({
           />
           <Controls className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg" />
           <Panel position="bottom-right" className="text-xs text-gray-500 dark:text-gray-400 bg-white dark:bg-gray-800 px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 mb-2 mr-2">
-            💡 Click node to edit • Hover for delete/disconnect • Click <span className="inline-flex items-center justify-center w-4 h-4 bg-gray-200 dark:bg-gray-700 rounded-full text-[10px] font-bold mx-0.5">+</span> on edge to add routing label
+            💡 Click node to edit • Hover for delete/disconnect • Right-click canvas to add node
           </Panel>
         </ReactFlow>
+
+        {/* Context Menu */}
+        {contextMenu && (
+          <div
+            className="fixed bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 py-1 z-50 min-w-[140px] animate-in fade-in zoom-in-95 duration-100"
+            style={{ left: contextMenu.x, top: contextMenu.y }}
+          >
+            <div className="px-3 py-1.5 text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wide">
+              Add Node
+            </div>
+            <button
+              onClick={() => addNodeAtPosition('message', contextMenu.flowX, contextMenu.flowY)}
+              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors"
+            >
+              <MessageSquare className="w-4 h-4 text-blue-500" />
+              Message
+            </button>
+            <button
+              onClick={() => addNodeAtPosition('action', contextMenu.flowX, contextMenu.flowY)}
+              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-orange-50 dark:hover:bg-orange-900/30 transition-colors"
+            >
+              <Zap className="w-4 h-4 text-orange-500" />
+              Action
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Node Editor Modal */}
