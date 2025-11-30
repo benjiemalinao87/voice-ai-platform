@@ -1294,14 +1294,19 @@ export function AgentFlowCreator({ onBack, onSuccess, editAgentId }: AgentFlowCr
             </div>
           )}
 
-          {/* Right Panel - AI Flow Chat */}
-          <AiFlowChat
-            isOpen={showAiChat}
-            onClose={() => setShowAiChat(false)}
-            onFlowGenerated={handleAiFlowGenerated}
-          />
       </div>
       )}
+
+      {/* AI Flow Chat - Rendered at root level so it works from template selection too */}
+      <AiFlowChat
+        isOpen={showAiChat}
+        onClose={() => setShowAiChat(false)}
+        onFlowGenerated={(newNodes, newEdges) => {
+          handleAiFlowGenerated(newNodes, newEdges);
+          // Skip template selection when AI generates a flow
+          setShowTemplateSelection(false);
+        }}
+      />
 
       {/* Success Notification Banner - Only show for new creations, not edits */}
       {createdAssistantId && !isEditMode && (
