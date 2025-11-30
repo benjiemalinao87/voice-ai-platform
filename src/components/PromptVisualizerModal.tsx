@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, memo } from 'react';
-import { X, Loader2, Sparkles, AlertCircle, RefreshCw, Phone, PhoneOff, MessageSquare, HelpCircle, Zap, GitBranch } from 'lucide-react';
+import { X, Loader2, Sparkles, AlertCircle, RefreshCw, Phone, PhoneOff, MessageSquare, HelpCircle, Zap, GitBranch, ArrowDownUp, ArrowLeftRight } from 'lucide-react';
 import ReactFlow, { 
   Background, 
   Controls, 
@@ -30,9 +30,17 @@ interface PromptVisualizerModalProps {
 // CUSTOM NODE COMPONENTS
 // ============================================
 
+// Animation wrapper style
+const getNodeAnimationStyle = (delay: number = 0) => ({
+  animation: `nodeAppear 0.5s ease-out ${delay}s both`,
+});
+
 // Start Node - Green circle
 const StartNode = memo(({ data, isConnectable }: NodeProps) => (
-  <div className="px-4 py-3 rounded-full bg-gradient-to-br from-green-500 to-emerald-600 text-white shadow-lg border-2 border-green-400 min-w-[120px] text-center">
+  <div 
+    className="px-4 py-3 rounded-full bg-gradient-to-br from-green-500 to-emerald-600 text-white shadow-lg border-2 border-green-400 min-w-[120px] text-center"
+    style={getNodeAnimationStyle(data.animationDelay)}
+  >
     <div className="flex items-center justify-center gap-2">
       <Phone className="w-4 h-4" />
       <span className="font-semibold text-sm">{data.label}</span>
@@ -46,7 +54,10 @@ StartNode.displayName = 'StartNode';
 const EndNode = memo(({ data, isConnectable }: NodeProps) => {
   const isSuccess = data.outcome === 'success';
   return (
-    <div className={`px-4 py-3 rounded-full ${isSuccess ? 'bg-gradient-to-br from-green-500 to-emerald-600 border-green-400' : 'bg-gradient-to-br from-red-500 to-rose-600 border-red-400'} text-white shadow-lg border-2 min-w-[120px] text-center`}>
+    <div 
+      className={`px-4 py-3 rounded-full ${isSuccess ? 'bg-gradient-to-br from-green-500 to-emerald-600 border-green-400' : 'bg-gradient-to-br from-red-500 to-rose-600 border-red-400'} text-white shadow-lg border-2 min-w-[120px] text-center`}
+      style={getNodeAnimationStyle(data.animationDelay)}
+    >
       <Handle type="target" position={Position.Top} isConnectable={isConnectable} className={isSuccess ? '!bg-green-400' : '!bg-red-400'} />
       <div className="flex items-center justify-center gap-2">
         <PhoneOff className="w-4 h-4" />
@@ -59,7 +70,10 @@ EndNode.displayName = 'EndNode';
 
 // Message Node - Blue box for AI speech
 const MessageNode = memo(({ data, isConnectable }: NodeProps) => (
-  <div className="px-4 py-3 rounded-lg bg-gradient-to-br from-blue-500 to-blue-600 text-white shadow-lg border-2 border-blue-400 min-w-[180px] max-w-[280px]">
+  <div 
+    className="px-4 py-3 rounded-lg bg-gradient-to-br from-blue-500 to-blue-600 text-white shadow-lg border-2 border-blue-400 min-w-[180px] max-w-[280px]"
+    style={getNodeAnimationStyle(data.animationDelay)}
+  >
     <Handle type="target" position={Position.Top} isConnectable={isConnectable} className="!bg-blue-400" />
     <div className="flex items-start gap-2">
       <MessageSquare className="w-4 h-4 mt-0.5 flex-shrink-0" />
@@ -75,7 +89,7 @@ MessageNode.displayName = 'MessageNode';
 
 // Question/Decision Node - Yellow diamond shape (made with rotation)
 const QuestionNode = memo(({ data, isConnectable }: NodeProps) => (
-  <div className="relative">
+  <div className="relative" style={getNodeAnimationStyle(data.animationDelay)}>
     <Handle type="target" position={Position.Top} isConnectable={isConnectable} className="!bg-amber-400 !-top-1" />
     <div className="px-5 py-4 bg-gradient-to-br from-amber-400 to-yellow-500 text-gray-900 shadow-lg border-2 border-amber-300 min-w-[200px] max-w-[300px] rounded-lg" style={{ clipPath: 'polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%)' }}>
     </div>
@@ -95,7 +109,10 @@ QuestionNode.displayName = 'QuestionNode';
 
 // Decision Node - Yellow/amber with prominent question display
 const DecisionNode = memo(({ data, isConnectable }: NodeProps) => (
-  <div className="px-4 py-3 rounded-xl bg-gradient-to-br from-amber-400 via-yellow-400 to-amber-500 text-gray-900 shadow-xl border-2 border-amber-300/70 min-w-[200px] max-w-[300px] relative">
+  <div 
+    className="px-4 py-3 rounded-xl bg-gradient-to-br from-amber-400 via-yellow-400 to-amber-500 text-gray-900 shadow-xl border-2 border-amber-300/70 min-w-[200px] max-w-[300px] relative"
+    style={getNodeAnimationStyle(data.animationDelay)}
+  >
     <Handle type="target" position={Position.Top} isConnectable={isConnectable} className="!bg-amber-600 !w-3 !h-3" />
     
     {/* Decision indicator diamond */}
@@ -119,7 +136,10 @@ DecisionNode.displayName = 'DecisionNode';
 
 // Action Node - Purple box
 const ActionNode = memo(({ data, isConnectable }: NodeProps) => (
-  <div className="px-4 py-3 rounded-lg bg-gradient-to-br from-purple-500 to-violet-600 text-white shadow-lg border-2 border-purple-400 min-w-[160px] max-w-[260px]">
+  <div 
+    className="px-4 py-3 rounded-lg bg-gradient-to-br from-purple-500 to-violet-600 text-white shadow-lg border-2 border-purple-400 min-w-[160px] max-w-[260px]"
+    style={getNodeAnimationStyle(data.animationDelay)}
+  >
     <Handle type="target" position={Position.Top} isConnectable={isConnectable} className="!bg-purple-400" />
     <div className="flex items-start gap-2">
       <Zap className="w-4 h-4 mt-0.5 flex-shrink-0" />
@@ -135,7 +155,10 @@ ActionNode.displayName = 'ActionNode';
 
 // Condition Node - Orange box for if/else
 const ConditionNode = memo(({ data, isConnectable }: NodeProps) => (
-  <div className="px-4 py-3 rounded-lg bg-gradient-to-br from-orange-500 to-amber-600 text-white shadow-lg border-2 border-orange-400 min-w-[160px] max-w-[260px]">
+  <div 
+    className="px-4 py-3 rounded-lg bg-gradient-to-br from-orange-500 to-amber-600 text-white shadow-lg border-2 border-orange-400 min-w-[160px] max-w-[260px]"
+    style={getNodeAnimationStyle(data.animationDelay)}
+  >
     <Handle type="target" position={Position.Top} isConnectable={isConnectable} className="!bg-orange-400" />
     <div className="flex items-start gap-2">
       <GitBranch className="w-4 h-4 mt-0.5 flex-shrink-0" />
@@ -305,23 +328,77 @@ function saveToCache(agentId: string, promptHash: string, flowData: any): void {
   }
 }
 
-// Layout using Dagre - TB (top-bottom) with wide horizontal spread for decision branches
-function getLayoutedElements(nodes: Node[], edges: Edge[]) {
+// Calculate node depths for staggered animation (BFS from start node)
+function calculateNodeDepths(nodes: Node[], edges: Edge[]): Map<string, number> {
+  const depths = new Map<string, number>();
+  const adjacencyList = new Map<string, string[]>();
+  
+  // Build adjacency list
+  edges.forEach(edge => {
+    if (!adjacencyList.has(edge.source)) {
+      adjacencyList.set(edge.source, []);
+    }
+    adjacencyList.get(edge.source)!.push(edge.target);
+  });
+  
+  // Find start node
+  const startNode = nodes.find(n => n.type === 'start');
+  if (!startNode) {
+    // Fallback: assign depths based on index
+    nodes.forEach((n, i) => depths.set(n.id, i));
+    return depths;
+  }
+  
+  // BFS to calculate depths
+  const queue: { id: string; depth: number }[] = [{ id: startNode.id, depth: 0 }];
+  const visited = new Set<string>();
+  
+  while (queue.length > 0) {
+    const { id, depth } = queue.shift()!;
+    if (visited.has(id)) continue;
+    visited.add(id);
+    depths.set(id, depth);
+    
+    const children = adjacencyList.get(id) || [];
+    children.forEach(childId => {
+      if (!visited.has(childId)) {
+        queue.push({ id: childId, depth: depth + 1 });
+      }
+    });
+  }
+  
+  // Handle any unvisited nodes
+  nodes.forEach(n => {
+    if (!depths.has(n.id)) {
+      depths.set(n.id, nodes.length);
+    }
+  });
+  
+  return depths;
+}
+
+// Layout direction type
+type LayoutDirection = 'TB' | 'LR';
+
+// Layout using Dagre - supports TB (top-bottom) and LR (left-right)
+function getLayoutedElements(nodes: Node[], edges: Edge[], direction: LayoutDirection = 'TB') {
   const dagreGraph = new dagre.graphlib.Graph();
   dagreGraph.setDefaultEdgeLabel(() => ({}));
   
   // Calculate complexity to adjust spacing
   const decisionCount = nodes.filter(n => n.type === 'decision').length;
-  const nodeCount = nodes.length;
   const baseHorizontalSpace = Math.max(120, Math.min(200, 1000 / Math.max(decisionCount, 3)));
   
+  // Adjust spacing based on direction
+  const isHorizontal = direction === 'LR';
+  
   dagreGraph.setGraph({ 
-    rankdir: 'TB', 
-    nodesep: baseHorizontalSpace,  // Wide horizontal spacing for branches
-    ranksep: 120, // Vertical spacing between levels
+    rankdir: direction, 
+    nodesep: isHorizontal ? 60 : baseHorizontalSpace,
+    ranksep: isHorizontal ? 200 : 120,
     marginx: 80,
     marginy: 60,
-    ranker: 'network-simplex', // Better for decision trees
+    ranker: 'network-simplex',
   });
 
   // Set node dimensions based on type
@@ -355,6 +432,9 @@ function getLayoutedElements(nodes: Node[], edges: Edge[]) {
 
   dagre.layout(dagreGraph);
 
+  // Calculate node depths for animation
+  const nodeDepths = calculateNodeDepths(nodes, edges);
+
   const layoutedNodes = nodes.map((node) => {
     const nodeWithPosition = dagreGraph.node(node.id);
     let width = 200;
@@ -362,14 +442,20 @@ function getLayoutedElements(nodes: Node[], edges: Edge[]) {
     else if (node.type === 'end') width = 160;
     else if (node.type === 'decision' || node.type === 'message') width = 220;
     
+    const depth = nodeDepths.get(node.id) || 0;
+    
     return {
       ...node,
       position: {
         x: nodeWithPosition.x - width / 2,
         y: nodeWithPosition.y - 35,
       },
-      targetPosition: Position.Top,
-      sourcePosition: Position.Bottom,
+      targetPosition: isHorizontal ? Position.Left : Position.Top,
+      sourcePosition: isHorizontal ? Position.Right : Position.Bottom,
+      data: {
+        ...node.data,
+        animationDelay: depth * 0.1, // 100ms stagger per depth level
+      },
     };
   });
 
@@ -402,7 +488,7 @@ function getEdgeColor(label: string | undefined, isDarkMode: boolean): { stroke:
 }
 
 // Convert AI output to React Flow format
-function convertToReactFlow(flowData: any, isDarkMode: boolean): { nodes: Node[], edges: Edge[] } {
+function convertToReactFlow(flowData: any, isDarkMode: boolean, layoutDirection: LayoutDirection = 'TB'): { nodes: Node[], edges: Edge[] } {
   const nodes: Node[] = flowData.nodes.map((node: any) => ({
     id: node.id,
     type: node.type === 'question' ? 'decision' : node.type, // Use decision for questions
@@ -427,7 +513,7 @@ function convertToReactFlow(flowData: any, isDarkMode: boolean): { nodes: Node[]
       target: edge.target,
       label: edge.label,
       type: 'smoothstep',
-      animated: false,
+      animated: true,  // Flowing animation on edges
       style: { 
         stroke: edgeColors.stroke, 
         strokeWidth: hasLabel ? 2.5 : 2,
@@ -455,7 +541,7 @@ function convertToReactFlow(flowData: any, isDarkMode: boolean): { nodes: Node[]
     };
   });
 
-  return getLayoutedElements(nodes, edges);
+  return getLayoutedElements(nodes, edges, layoutDirection);
 }
 
 // ============================================
@@ -691,18 +777,48 @@ export function PromptVisualizerModal({ systemPrompt, agentId, agentName, onClos
 // FLOW GRAPH COMPONENT (uses ReactFlow hooks)
 // ============================================
 
+// CSS for node animation (injected once)
+const animationStyles = `
+@keyframes nodeAppear {
+  0% {
+    opacity: 0;
+    transform: scale(0.8) translateY(-10px);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+`;
+
 function FlowGraph({ flowData, isDarkMode }: { flowData: any, isDarkMode: boolean }) {
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
+  const [layoutDirection, setLayoutDirection] = useState<LayoutDirection>('TB');
   const { fitView } = useReactFlow();
 
+  // Inject animation styles once
   useEffect(() => {
-    const { nodes: layoutedNodes, edges: layoutedEdges } = convertToReactFlow(flowData, isDarkMode);
+    const styleId = 'flow-node-animations';
+    if (!document.getElementById(styleId)) {
+      const style = document.createElement('style');
+      style.id = styleId;
+      style.textContent = animationStyles;
+      document.head.appendChild(style);
+    }
+  }, []);
+
+  useEffect(() => {
+    const { nodes: layoutedNodes, edges: layoutedEdges } = convertToReactFlow(flowData, isDarkMode, layoutDirection);
     setNodes(layoutedNodes);
     setEdges(layoutedEdges);
     
     setTimeout(() => fitView({ padding: 0.2 }), 100);
-  }, [flowData, isDarkMode, setNodes, setEdges, fitView]);
+  }, [flowData, isDarkMode, layoutDirection, setNodes, setEdges, fitView]);
+
+  const toggleLayout = () => {
+    setLayoutDirection(prev => prev === 'TB' ? 'LR' : 'TB');
+  };
 
   return (
     <ReactFlow
@@ -720,6 +836,32 @@ function FlowGraph({ flowData, isDarkMode }: { flowData: any, isDarkMode: boolea
     >
       <Background color={isDarkMode ? '#374151' : '#e5e7eb'} gap={20} size={1} />
       <Controls className={`${isDarkMode ? 'bg-gray-800 border-gray-700 [&>button]:bg-gray-800 [&>button]:border-gray-700 [&>button]:text-white [&>button:hover]:bg-gray-700' : ''}`} />
+      
+      {/* Layout Toggle Button */}
+      <Panel position="top-right" className="mr-2 mt-2">
+        <button
+          onClick={toggleLayout}
+          className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium transition-all ${
+            isDarkMode 
+              ? 'bg-gray-800 hover:bg-gray-700 text-gray-300 border border-gray-700' 
+              : 'bg-white hover:bg-gray-100 text-gray-600 border border-gray-200 shadow-sm'
+          }`}
+          title={layoutDirection === 'TB' ? 'Switch to horizontal layout' : 'Switch to vertical layout'}
+        >
+          {layoutDirection === 'TB' ? (
+            <>
+              <ArrowLeftRight className="w-4 h-4" />
+              <span>Horizontal</span>
+            </>
+          ) : (
+            <>
+              <ArrowDownUp className="w-4 h-4" />
+              <span>Vertical</span>
+            </>
+          )}
+        </button>
+      </Panel>
+      
       <Panel position="bottom-center" className={`px-4 py-2 rounded-full text-xs font-medium ${isDarkMode ? 'bg-gray-800 text-gray-400 border border-gray-700' : 'bg-white text-gray-500 border border-gray-200 shadow-sm'}`}>
         User Journey Flow • {nodes.length} steps
       </Panel>
