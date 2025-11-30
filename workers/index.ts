@@ -612,6 +612,66 @@ async function getEffectiveUserId(env: Env, userId: string): Promise<{ effective
   return { effectiveUserId: userId, isWorkspaceContext: false };
 }
 
+// Helper: Find user and workspace by CustomerConnect workspace_id
+// This is used to associate tool logs with the correct user who has CHAU Text Engine configured
+async function findUserByCustomerConnectWorkspace(env: Env, customerconnectWorkspaceId: string): Promise<{
+  userId: string;
+  workspaceId: string;
+} | null> {
+  // Find workspace_settings that has this customerconnect_workspace_id
+  const wsSettings = await env.DB.prepare(
+    'SELECT workspace_id FROM workspace_settings WHERE customerconnect_workspace_id = ?'
+  ).bind(customerconnectWorkspaceId).first() as any;
+  
+  if (wsSettings?.workspace_id) {
+    // Find the owner of this workspace
+    const workspace = await env.DB.prepare(
+      'SELECT owner_user_id FROM workspaces WHERE id = ?'
+    ).bind(wsSettings.workspace_id).first() as any;
+    
+    if (workspace?.owner_user_id) {
+      return {
+        userId: workspace.owner_user_id,
+        workspaceId: wsSettings.workspace_id
+      };
+    }
+  }
+  
+  return null;
+}
+
+// Helper: Find CustomerConnect credentials from ANY user's workspace (for tool calls)
+// This allows the tool to work even if the webhook owner doesn't have it configured
+async function findAnyCustomerConnectCredentials(env: Env): Promise<{
+  userId: string;
+  workspaceId: string;
+  customerconnect_workspace_id: string;
+  customerconnect_api_key: string;
+} | null> {
+  // Find any workspace that has CustomerConnect configured
+  const wsSettings = await env.DB.prepare(
+    `SELECT ws.workspace_id, ws.customerconnect_workspace_id, ws.customerconnect_api_key, w.owner_user_id
+     FROM workspace_settings ws
+     JOIN workspaces w ON ws.workspace_id = w.id
+     WHERE ws.customerconnect_workspace_id IS NOT NULL 
+       AND ws.customerconnect_workspace_id != ''
+       AND ws.customerconnect_api_key IS NOT NULL
+       AND ws.customerconnect_api_key != ''
+     LIMIT 1`
+  ).first() as any;
+  
+  if (wsSettings) {
+    return {
+      userId: wsSettings.owner_user_id,
+      workspaceId: wsSettings.workspace_id,
+      customerconnect_workspace_id: wsSettings.customerconnect_workspace_id,
+      customerconnect_api_key: wsSettings.customerconnect_api_key
+    };
+  }
+  
+  return null;
+}
+
 // Helper: Get workspace settings for a user (finds their workspace and returns its credentials)
 async function getWorkspaceSettingsForUser(env: Env, userId: string): Promise<{
   private_key?: string;
@@ -8285,30 +8345,49 @@ Need help? Contact our support team anytime!
                 continue;
               }
 
-              // Get CustomerConnect settings for this user
-              const wsSettings = await getWorkspaceSettingsForUser(env, webhook.user_id);
+              // Get CustomerConnect settings - first try webhook owner, then find ANY configured user
+              let wsSettings = await getWorkspaceSettingsForUser(env, webhook.user_id);
+              let customerConnectOwnerId = webhook.user_id;
+              let customerConnectWorkspaceId = wsSettings?.workspace_id;
 
+              // If webhook owner doesn't have CustomerConnect configured, find ANY user who does
               if (!wsSettings?.customerconnect_workspace_id || !wsSettings?.customerconnect_api_key) {
-                console.log('[Tool Call] ERROR: CustomerConnect not configured for user:', webhook.user_id);
-                await logToolCall(env, {
-                  userId: webhook.user_id,
-                  workspaceId: wsSettings?.workspace_id,
-                  vapiCallId,
-                  toolName,
-                  phoneNumber,
-                  status: 'not_configured',
-                  requestTimestamp,
-                  errorMessage: 'CustomerConnect credentials not configured'
-                });
-                results.push({
-                  toolCallId,
-                  result: 'Customer lookup is not configured. Proceeding without customer history.'
-                });
-                continue;
+                console.log('[Tool Call] Webhook owner does not have CustomerConnect, searching for configured user...');
+                const anyCC = await findAnyCustomerConnectCredentials(env);
+                
+                if (anyCC) {
+                  console.log('[Tool Call] Found CustomerConnect configured for user:', anyCC.userId);
+                  // Use the CustomerConnect owner's credentials and ID for logging
+                  wsSettings = {
+                    ...wsSettings,
+                    customerconnect_workspace_id: anyCC.customerconnect_workspace_id,
+                    customerconnect_api_key: anyCC.customerconnect_api_key
+                  };
+                  customerConnectOwnerId = anyCC.userId;
+                  customerConnectWorkspaceId = anyCC.workspaceId;
+                } else {
+                  console.log('[Tool Call] ERROR: No user has CustomerConnect configured');
+                  await logToolCall(env, {
+                    userId: webhook.user_id,
+                    workspaceId: wsSettings?.workspace_id,
+                    vapiCallId,
+                    toolName,
+                    phoneNumber,
+                    status: 'not_configured',
+                    requestTimestamp,
+                    errorMessage: 'CustomerConnect credentials not configured'
+                  });
+                  results.push({
+                    toolCallId,
+                    result: 'Customer lookup is not configured. Proceeding without customer history.'
+                  });
+                  continue;
+                }
               }
 
               console.log('[Tool Call] Calling CustomerConnect API...');
               console.log('[Tool Call] Workspace ID:', wsSettings.customerconnect_workspace_id);
+              console.log('[Tool Call] Logging to user:', customerConnectOwnerId);
 
               // Lookup customer from CustomerConnect API
               const customerData = await lookupCustomerFromCustomerConnect(
@@ -8348,10 +8427,10 @@ Need help? Contact our support team anytime!
                 console.log('[Tool Call] Appointment:', customerData.appointmentDate, customerData.appointmentTime);
                 console.log('[Tool Call] Household:', customerData.household);
 
-                // Log successful lookup
+                // Log successful lookup - use CustomerConnect owner's ID, not webhook owner
                 await logToolCall(env, {
-                  userId: webhook.user_id,
-                  workspaceId: wsSettings.workspace_id,
+                  userId: customerConnectOwnerId,
+                  workspaceId: customerConnectWorkspaceId,
                   vapiCallId,
                   toolName,
                   phoneNumber,
@@ -8373,10 +8452,10 @@ Need help? Contact our support team anytime!
                 console.log('[Tool Call] NOT FOUND: No customer record');
                 console.log('[Tool Call] Response time:', responseTimeMs, 'ms');
 
-                // Log not found
+                // Log not found - use CustomerConnect owner's ID, not webhook owner
                 await logToolCall(env, {
-                  userId: webhook.user_id,
-                  workspaceId: wsSettings.workspace_id,
+                  userId: customerConnectOwnerId,
+                  workspaceId: customerConnectWorkspaceId,
                   vapiCallId,
                   toolName,
                   phoneNumber,

@@ -368,7 +368,7 @@ export function AiFlowChat({ isOpen, onClose, onFlowGenerated }: AiFlowChatProps
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Quick Examples with Pagination */}
+      image.png      {/* Quick Examples with Pagination */}
       <div className="px-4 py-3 border-t border-gray-100 dark:border-gray-700/50">
         {/* Category Navigation */}
         <div className="flex items-center justify-between mb-2">
