@@ -12,11 +12,15 @@ import {
   Users,
   UserSearch,
   Copy,
-  ChevronDown
+  ChevronDown,
+  Eye,
+  Wand2
 } from 'lucide-react';
 import { agentApi } from '../lib/api';
 import { VoiceTest } from './VoiceTest';
 import { KnowledgeBase } from './KnowledgeBase';
+import { PromptVisualizerModal } from './PromptVisualizerModal';
+import { PromptImproverModal } from './PromptImproverModal';
 import { useVapi } from '../contexts/VapiContext';
 import type { Agent } from '../types';
 
@@ -104,6 +108,8 @@ export function AgentConfig({ agentId }: AgentConfigProps) {
   const [editMode, setEditMode] = useState<string | null>(null);
   const [formData, setFormData] = useState<Partial<Agent>>({});
   const [isCustomerLookupExpanded, setIsCustomerLookupExpanded] = useState(false);
+  const [showVisualizer, setShowVisualizer] = useState(false);
+  const [showImprover, setShowImprover] = useState(false);
 
   useEffect(() => {
     loadAgent();
@@ -148,6 +154,28 @@ export function AgentConfig({ agentId }: AgentConfigProps) {
     } catch (error) {
       console.error('Error saving agent:', error);
       alert('Failed to save changes. Please check the console for details.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Save improved prompt directly to database
+  const handleApplyImprovedPrompt = async (improvedPrompt: string) => {
+    if (!agent) return;
+
+    setSaving(true);
+    try {
+      const updates: Partial<Agent> = {
+        system_prompt: improvedPrompt
+      };
+
+      const updated = await agentApi.update(agent.id, updates, vapiClient);
+      setAgent(updated);
+      setFormData(updated);
+      setShowImprover(false);
+    } catch (error) {
+      console.error('Error saving improved prompt:', error);
+      alert('Failed to save improved prompt. Please try again.');
     } finally {
       setSaving(false);
     }
@@ -393,14 +421,26 @@ export function AgentConfig({ agentId }: AgentConfigProps) {
                 <MessageSquare className="w-5 h-5 text-gray-400 dark:text-gray-500" />
                 <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Prompts</h3>
               </div>
-              {editMode !== 'prompts' && (
-                <button
-                  onClick={() => setEditMode('prompts')}
-                  className="text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 text-sm font-medium"
-                >
-                  <Edit3 className="w-4 h-4" />
-                </button>
-              )}
+              <div className="flex items-center gap-2">
+                {agent?.system_prompt && (
+                  <button
+                    onClick={() => setShowVisualizer(true)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-violet-100 dark:bg-violet-900/30 text-violet-700 dark:text-violet-300 hover:bg-violet-200 dark:hover:bg-violet-900/50 rounded-lg text-sm font-medium transition-colors"
+                    title="Visualize prompt flow as mind map"
+                  >
+                    <Eye className="w-4 h-4" />
+                    Visualize Flow
+                  </button>
+                )}
+                {editMode !== 'prompts' && (
+                  <button
+                    onClick={() => setEditMode('prompts')}
+                    className="text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 text-sm font-medium"
+                  >
+                    <Edit3 className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
             </div>
 
             {editMode === 'prompts' ? (
@@ -466,6 +506,18 @@ export function AgentConfig({ agentId }: AgentConfigProps) {
                   <p className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-2">System Prompt</p>
                   <p className="text-sm text-gray-900 dark:text-gray-100 font-mono whitespace-pre-wrap">{agent.system_prompt}</p>
                 </div>
+                
+                {/* Improve Prompt Button */}
+                {agent.system_prompt && (
+                  <button
+                    onClick={() => setShowImprover(true)}
+                    className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-gradient-to-r from-amber-500/10 to-orange-500/10 hover:from-amber-500/20 hover:to-orange-500/20 border border-amber-500/30 hover:border-amber-500/50 text-amber-600 dark:text-amber-400 rounded-lg font-medium transition-all group"
+                  >
+                    <Wand2 className="w-4 h-4 group-hover:rotate-12 transition-transform" />
+                    <span>Improve Prompt</span>
+                    <span className="text-xs px-2 py-0.5 bg-amber-500/20 rounded-full">AI-Powered</span>
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -649,6 +701,25 @@ export function AgentConfig({ agentId }: AgentConfigProps) {
           </div>
         </div>
       </div>
+
+      {/* Prompt Visualizer Modal */}
+      {showVisualizer && agent?.system_prompt && (
+        <PromptVisualizerModal
+          systemPrompt={agent.system_prompt}
+          agentId={agent.id}
+          agentName={agent.name}
+          onClose={() => setShowVisualizer(false)}
+        />
+      )}
+
+      {/* Prompt Improver Modal */}
+      {showImprover && agent?.system_prompt && (
+        <PromptImproverModal
+          currentPrompt={agent.system_prompt}
+          onApply={handleApplyImprovedPrompt}
+          onClose={() => setShowImprover(false)}
+        />
+      )}
     </div>
   );
 }
