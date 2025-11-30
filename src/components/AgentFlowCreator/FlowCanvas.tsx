@@ -545,38 +545,67 @@ function FlowCanvasInner({
     }));
   }, [nodes, deleteNode, disconnectNode, nodeHasConnections]);
 
-  // Transform edges to show visual label cues
+  // Transform edges to show visual label cues (only on branch edges that need labels)
   const edgesWithLabels = useMemo(() => {
     return edges.map(edge => {
       const hasLabel = edge.label && String(edge.label).trim();
+      const sourceNode = nodes.find(n => n.id === edge.source);
+      const isBranchEdge = sourceNode?.type === 'branch';
       
+      // Only show label indicator on branch edges (where routing labels matter)
+      if (isBranchEdge) {
+        return {
+          ...edge,
+          label: hasLabel ? String(edge.label) : '•••',
+          labelStyle: { 
+            fontSize: hasLabel ? 10 : 8,
+            fontWeight: 500,
+            fill: hasLabel ? '#7c3aed' : '#9ca3af',
+            cursor: 'pointer',
+            letterSpacing: hasLabel ? 0 : 2,
+          },
+          labelBgStyle: { 
+            fill: hasLabel ? '#ede9fe' : 'transparent',
+            fillOpacity: hasLabel ? 0.9 : 0,
+            rx: 4,
+            ry: 4,
+          },
+          labelBgPadding: [4, 6] as [number, number],
+          labelShowBg: hasLabel,
+          style: {
+            ...edge.style,
+            strokeDasharray: hasLabel ? undefined : '4,4',
+            stroke: hasLabel ? '#8b5cf6' : '#6b7280',
+            strokeWidth: hasLabel ? 2 : 1,
+          },
+        };
+      }
+      
+      // Regular edges - no label indicator needed
       return {
         ...edge,
-        // Show "⊕" for empty labels, or the actual label
-        label: hasLabel ? String(edge.label) : '＋',
-        labelStyle: { 
-          fontSize: hasLabel ? 11 : 16,
-          fontWeight: hasLabel ? 500 : 700,
-          fill: hasLabel ? '#7c3aed' : '#9ca3af',
-          cursor: 'pointer',
-        },
-        labelBgStyle: { 
-          fill: hasLabel ? '#ede9fe' : '#f3f4f6',
-          fillOpacity: 0.95,
-          rx: hasLabel ? 6 : 12, // Rounded corners (more round for + button)
-          ry: hasLabel ? 6 : 12,
-        },
-        labelBgPadding: hasLabel ? [6, 10] as [number, number] : [8, 8] as [number, number],
-        labelShowBg: true,
+        label: hasLabel ? String(edge.label) : undefined,
+        labelStyle: hasLabel ? { 
+          fontSize: 10,
+          fontWeight: 500,
+          fill: '#6b7280',
+        } : undefined,
+        labelBgStyle: hasLabel ? { 
+          fill: '#f3f4f6',
+          fillOpacity: 0.9,
+          rx: 4,
+          ry: 4,
+        } : undefined,
+        labelBgPadding: [4, 6] as [number, number],
+        labelShowBg: hasLabel,
         style: {
           ...edge.style,
-          strokeDasharray: hasLabel ? undefined : '5,5',
-          stroke: hasLabel ? '#8b5cf6' : '#6b7280',
-          strokeWidth: hasLabel ? 2 : 1.5,
+          stroke: '#6b7280',
+          strokeWidth: 1,
         },
       };
     });
-  }, [edges]);
+  }, [edges, nodes]);
 
   const handleNodeUpdate = (updatedData: FlowNodeData) => {
     if (!editingNode) return;
