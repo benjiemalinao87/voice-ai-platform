@@ -1,10 +1,11 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import type { Node, Edge } from 'reactflow';
-import { ArrowLeft, Save, Eye, EyeOff, AlertCircle, CheckCircle, Phone, Loader2, X, Activity, FileText, Sparkles } from 'lucide-react';
+import { ArrowLeft, Save, Eye, EyeOff, AlertCircle, CheckCircle, Phone, Loader2, X, Activity, FileText, Sparkles, Wand2 } from 'lucide-react';
 import { AgentConfigPanel, defaultAgentConfig, type AgentConfig } from './AgentConfigPanel';
 import { FlowCanvas, type FlowCanvasRef } from './FlowCanvas';
 import { flowToPrompt, validateFlow, getInitialNodes, getInitialEdges, type FlowNodeData, type ApiConfig } from './flowToPrompt';
 import { classifyIntent, extractIntentsFromEdges } from './intentClassifier';
+import { AiFlowChat } from './AiFlowChat';
 import { useVapi } from '../../contexts/VapiContext';
 import { d1Client } from '../../lib/d1';
 import { agentApi } from '../../lib/api';
@@ -164,6 +165,7 @@ export function AgentFlowCreator({ onBack, onSuccess, editAgentId }: AgentFlowCr
   const [isEditMode, setIsEditMode] = useState(false);
   const [showTemplateSelection, setShowTemplateSelection] = useState(!editAgentId); // Show for new agents
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [showAiChat, setShowAiChat] = useState(false);
   
   // Real-time flow visualization state
   const flowCanvasRef = useRef<FlowCanvasRef>(null);
@@ -909,6 +911,18 @@ export function AgentFlowCreator({ onBack, onSuccess, editAgentId }: AgentFlowCr
     setValidationErrors([]);
   }, []);
 
+  // Handle AI-generated flow
+  const handleAiFlowGenerated = useCallback((newNodes: Node<FlowNodeData>[], newEdges: Edge[]) => {
+    console.log('[AI Flow] Generated', newNodes.length, 'nodes and', newEdges.length, 'edges');
+    setNodes(newNodes);
+    setEdges(newEdges);
+    setValidationErrors([]);
+    // Trigger canvas to update
+    if (flowCanvasRef.current) {
+      flowCanvasRef.current.resetAllNodes();
+    }
+  }, []);
+
   const generatedPrompt = flowToPrompt(nodes, edges);
 
   const handleSave = async () => {
@@ -1045,6 +1059,18 @@ export function AgentFlowCreator({ onBack, onSuccess, editAgentId }: AgentFlowCr
         </div>
 
         <div className="flex items-center gap-3">
+          {/* AI Assistant Button */}
+          <button
+            onClick={() => setShowAiChat(!showAiChat)}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
+              showAiChat 
+                ? 'bg-purple-600 text-white hover:bg-purple-700' 
+                : 'bg-gradient-to-r from-purple-500 to-indigo-500 text-white hover:from-purple-600 hover:to-indigo-600'
+            }`}
+          >
+            <Wand2 className="w-4 h-4" />
+            AI Assistant
+          </button>
           <button
             onClick={() => setShowPromptPreview(!showPromptPreview)}
             className="flex items-center gap-2 px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
@@ -1249,7 +1275,7 @@ export function AgentFlowCreator({ onBack, onSuccess, editAgentId }: AgentFlowCr
           </div>
 
           {/* Right Panel - Prompt Preview (Conditional) */}
-          {showPromptPreview && (
+          {showPromptPreview && !showAiChat && (
             <div className="w-96 bg-white dark:bg-gray-800 border-l border-gray-200 dark:border-gray-700 flex flex-col overflow-hidden">
               <div className="p-4 border-b border-gray-200 dark:border-gray-700">
                 <h3 className="font-semibold text-gray-900 dark:text-gray-100 flex items-center gap-2">
@@ -1267,6 +1293,13 @@ export function AgentFlowCreator({ onBack, onSuccess, editAgentId }: AgentFlowCr
               </div>
             </div>
           )}
+
+          {/* Right Panel - AI Flow Chat */}
+          <AiFlowChat
+            isOpen={showAiChat}
+            onClose={() => setShowAiChat(false)}
+            onFlowGenerated={handleAiFlowGenerated}
+          />
       </div>
       )}
 
