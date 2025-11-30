@@ -1,5 +1,25 @@
 import type { Node, Edge } from 'reactflow';
 
+export interface ApiHeader {
+  key: string;
+  value: string;
+}
+
+export interface ResponseMapping {
+  path: string;      // JSON path like "data.customer.name"
+  label: string;     // Display name for the field
+  enabled: boolean;  // Whether to include in context
+}
+
+export interface ApiConfig {
+  endpoint: string;              // e.g., "https://api.example.com/customer/{phone}"
+  method: 'GET';                 // GET only for now
+  headers: ApiHeader[];          // Custom headers
+  testPhone?: string;            // For UI testing
+  responseMapping: ResponseMapping[];  // Which fields to extract
+  lastTestResponse?: any;        // Store last test result for UI display
+}
+
 export interface FlowNodeData {
   label: string;
   content?: string;
@@ -7,6 +27,7 @@ export interface FlowNodeData {
   actionType?: string;
   transferNumber?: string;
   endMessage?: string;
+  apiConfig?: ApiConfig;         // API configuration for action nodes
 }
 
 /**

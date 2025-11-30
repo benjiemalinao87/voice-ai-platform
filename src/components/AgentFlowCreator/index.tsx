@@ -3,12 +3,114 @@ import type { Node, Edge } from 'reactflow';
 import { ArrowLeft, Save, Eye, EyeOff, AlertCircle, CheckCircle, Phone, Loader2, X, Activity, FileText, Sparkles } from 'lucide-react';
 import { AgentConfigPanel, defaultAgentConfig, type AgentConfig } from './AgentConfigPanel';
 import { FlowCanvas, type FlowCanvasRef } from './FlowCanvas';
-import { flowToPrompt, validateFlow, getInitialNodes, getInitialEdges, type FlowNodeData } from './flowToPrompt';
+import { flowToPrompt, validateFlow, getInitialNodes, getInitialEdges, type FlowNodeData, type ApiConfig } from './flowToPrompt';
 import { classifyIntent, extractIntentsFromEdges } from './intentClassifier';
 import { useVapi } from '../../contexts/VapiContext';
 import { d1Client } from '../../lib/d1';
 import { agentApi } from '../../lib/api';
 import { type VapiCallEvent } from '../VoiceTest';
+
+// Helper to get value from object by dot-notation path
+function getValueByPath(obj: any, path: string): any {
+  return path.split('.').reduce((current, key) => current?.[key], obj);
+}
+
+// Execute API call for Action node and return formatted context
+async function executeActionApi(
+  apiConfig: ApiConfig,
+  customerPhone: string | null
+): Promise<{ success: boolean; context: string; error?: string }> {
+  try {
+    if (!apiConfig.endpoint) {
+      return { success: false, context: '', error: 'No API endpoint configured' };
+    }
+
+    // Replace {phone} placeholder with customer phone
+    let url = apiConfig.endpoint;
+    if (customerPhone) {
+      url = url.replace('{phone}', encodeURIComponent(customerPhone));
+    }
+
+    // Build headers object
+    const headers: Record<string, string> = {};
+    apiConfig.headers.forEach(h => {
+      if (h.key && h.value) {
+        headers[h.key] = h.value;
+      }
+    });
+
+    console.log('🌐 Executing Action API:', url);
+    
+    const response = await fetch(url, {
+      method: 'GET',
+      headers
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    console.log('✅ API Response:', data);
+
+    // Extract mapped fields
+    const enabledMappings = apiConfig.responseMapping.filter(m => m.enabled);
+    if (enabledMappings.length === 0) {
+      return { success: true, context: '' };
+    }
+
+    // Build context string
+    const contextLines = enabledMappings.map(mapping => {
+      const value = getValueByPath(data, mapping.path);
+      const displayValue = typeof value === 'object' ? JSON.stringify(value) : String(value ?? 'N/A');
+      return `- ${mapping.label}: ${displayValue}`;
+    });
+
+    const context = `[CONTEXT UPDATE] Customer information retrieved:\n${contextLines.join('\n')}`;
+    console.log('📝 Context to inject:', context);
+
+    return { success: true, context };
+  } catch (error: any) {
+    console.error('❌ Action API error:', error);
+    return { success: false, context: '', error: error.message || 'API request failed' };
+  }
+}
+
+// Inject context into VAPI call using addMessage API (direct to VAPI control URL)
+async function injectContextToCall(
+  controlUrl: string,
+  context: string
+): Promise<boolean> {
+  try {
+    console.log('💉 Injecting context via VAPI control URL');
+    
+    // Call VAPI's control URL directly with add-message command
+    const response = await fetch(controlUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        type: 'add-message',
+        message: {
+          role: 'system',
+          content: context
+        }
+      })
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`VAPI error: ${response.status} - ${errorText}`);
+    }
+
+    console.log('✅ Context injected successfully');
+    return true;
+  } catch (error) {
+    console.error('❌ Failed to inject context:', error);
+    return false;
+  }
+}
 
 interface AgentFlowCreatorProps {
   onBack: () => void;
@@ -62,12 +164,16 @@ export function AgentFlowCreator({ onBack, onSuccess, editAgentId }: AgentFlowCr
     isTraversing: boolean;
     lastUserTranscript: string | null;
     detectedIntent: string | null;
+    customerPhone: string | null;
+    controlUrl: string | null;
   }>({
     currentNodeId: null,
     visitedNodes: new Set(),
     isTraversing: false,
     lastUserTranscript: null,
-    detectedIntent: null
+    detectedIntent: null,
+    customerPhone: null,
+    controlUrl: null
   });
 
   // Load existing flow data when editing (wait for VAPI client to be ready)
@@ -135,6 +241,17 @@ export function AgentFlowCreator({ onBack, onSuccess, editAgentId }: AgentFlowCr
         setIsCallActive(true);
         setCallTranscript([]);
         setCurrentNodeIndex(0);
+        
+        // Extract customer phone and control URL from call data
+        const callData = event.data;
+        if (callData?.customer?.number) {
+          traversal.customerPhone = callData.customer.number;
+          console.log('📱 Customer phone:', traversal.customerPhone);
+        }
+        if (callData?.monitor?.controlUrl) {
+          traversal.controlUrl = callData.monitor.controlUrl;
+          console.log('🎛️ Control URL:', traversal.controlUrl);
+        }
         
         // Find and highlight start node
         const allNodes = canvas.getNodes();
@@ -206,6 +323,22 @@ export function AgentFlowCreator({ onBack, onSuccess, editAgentId }: AgentFlowCr
         
         // If on a message node, advance to next (listen/branch/action/end)
         if (currentNode?.type === 'message' || currentNode?.type === 'action') {
+          // For action nodes with API config, execute the API and inject context
+          if (currentNode?.type === 'action' && currentNode.data.apiConfig?.endpoint) {
+            console.log('🔧 Action node has API config, executing...');
+            
+            // Execute API asynchronously
+            executeActionApi(currentNode.data.apiConfig, traversal.customerPhone)
+              .then(result => {
+                if (result.success && result.context && traversal.controlUrl) {
+                  // Inject context into the call
+                  injectContextToCall(traversal.controlUrl, result.context);
+                } else if (!result.success) {
+                  console.warn('⚠️ Action API failed:', result.error);
+                }
+              });
+          }
+          
           const nextNodeIds = canvas.findNextNodes(traversal.currentNodeId);
           if (nextNodeIds.length > 0) {
             const nextNodeId = nextNodeIds[0];
