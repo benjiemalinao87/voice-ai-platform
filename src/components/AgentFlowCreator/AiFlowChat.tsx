@@ -83,7 +83,7 @@ const TEMPLATE_CATEGORIES = [
     ]
   },
 ];
-import { generateFlowFromPrompt, autoLayoutNodes, type GeneratedFlow } from './aiFlowGenerator';
+import { generateFlowFromPrompt, autoLayoutNodes } from './aiFlowGenerator';
 import type { FlowNodeData } from './flowToPrompt';
 
 interface Message {
@@ -92,7 +92,24 @@ interface Message {
   content: string;
   flowGenerated?: boolean;
   error?: boolean;
+  isProgress?: boolean;
+  progressSteps?: ProgressStep[];
 }
+
+interface ProgressStep {
+  label: string;
+  status: 'pending' | 'active' | 'completed';
+}
+
+// Generation progress steps
+const GENERATION_STEPS: string[] = [
+  'Understanding your request',
+  'Designing flow structure',
+  'Creating nodes',
+  'Connecting edges',
+  'Validating flow',
+  'Applying to canvas',
+];
 
 interface AiFlowChatProps {
   isOpen: boolean;
@@ -154,32 +171,77 @@ export function AiFlowChat({ isOpen, onClose, onFlowGenerated }: AiFlowChatProps
     setInput('');
     setIsGenerating(true);
 
-    // Add thinking message
-    const thinkingId = `thinking-${Date.now()}`;
+    // Add progress message with steps
+    const progressId = `progress-${Date.now()}`;
+    const initialSteps: ProgressStep[] = GENERATION_STEPS.map((label, i) => ({
+      label,
+      status: i === 0 ? 'active' : 'pending'
+    }));
+    
     setMessages(prev => [...prev, {
-      id: thinkingId,
+      id: progressId,
       role: 'system',
-      content: 'Generating your flow...'
+      content: '',
+      isProgress: true,
+      progressSteps: initialSteps
     }]);
+
+    // Animate through steps
+    const animateSteps = async () => {
+      for (let i = 0; i < GENERATION_STEPS.length - 1; i++) {
+        await new Promise(resolve => setTimeout(resolve, 400 + Math.random() * 300));
+        setMessages(prev => prev.map(m => {
+          if (m.id === progressId && m.progressSteps) {
+            const newSteps = m.progressSteps.map((step, idx) => ({
+              ...step,
+              status: idx < i + 1 ? 'completed' : idx === i + 1 ? 'active' : 'pending'
+            } as ProgressStep));
+            return { ...m, progressSteps: newSteps };
+          }
+          return m;
+        }));
+      }
+    };
+
+    // Start animation in parallel with API call
+    const animationPromise = animateSteps();
 
     try {
       const result = await generateFlowFromPrompt(userMessage.content);
+      
+      // Wait for animation to catch up
+      await animationPromise;
 
-      // Remove thinking message
-      setMessages(prev => prev.filter(m => m.id !== thinkingId));
+      // Complete final step
+      setMessages(prev => prev.map(m => {
+        if (m.id === progressId && m.progressSteps) {
+          return {
+            ...m,
+            progressSteps: m.progressSteps.map(step => ({ ...step, status: 'completed' as const }))
+          };
+        }
+        return m;
+      }));
+      
+      await new Promise(resolve => setTimeout(resolve, 300));
+
+      // Remove progress message
+      setMessages(prev => prev.filter(m => m.id !== progressId));
 
       if (result.success && result.flow) {
+        const flow = result.flow; // Store reference for TypeScript
+        
         // Auto-layout the nodes for better visual arrangement
-        const layoutedNodes = autoLayoutNodes(result.flow.nodes, result.flow.edges);
+        const layoutedNodes = autoLayoutNodes(flow.nodes, flow.edges);
         
         // Apply the generated flow
-        onFlowGenerated(layoutedNodes, result.flow.edges);
+        onFlowGenerated(layoutedNodes, flow.edges);
 
         // Add success message
         setMessages(prev => [...prev, {
           id: `assistant-${Date.now()}`,
           role: 'assistant',
-          content: `✨ ${result.flow.summary}\n\nI've created ${result.flow.nodes.length} nodes with ${result.flow.edges.length} connections. You can now edit the flow on the canvas.`,
+          content: `✨ ${flow.summary}\n\nI've created ${flow.nodes.length} nodes with ${flow.edges.length} connections. You can now edit the flow on the canvas.`,
           flowGenerated: true
         }]);
       } else {
@@ -192,8 +254,8 @@ export function AiFlowChat({ isOpen, onClose, onFlowGenerated }: AiFlowChatProps
         }]);
       }
     } catch (error: any) {
-      // Remove thinking message
-      setMessages(prev => prev.filter(m => m.id !== thinkingId));
+      // Remove progress message
+      setMessages(prev => prev.filter(m => m.id !== progressId));
 
       setMessages(prev => [...prev, {
         id: `error-${Date.now()}`,
@@ -223,6 +285,7 @@ export function AiFlowChat({ isOpen, onClose, onFlowGenerated }: AiFlowChatProps
         </div>
         <button
           onClick={onClose}
+          aria-label="Close AI assistant"
           className="p-1.5 rounded-lg hover:bg-white/20 text-white transition-colors"
         >
           <X className="w-5 h-5" />
@@ -237,10 +300,42 @@ export function AiFlowChat({ isOpen, onClose, onFlowGenerated }: AiFlowChatProps
             className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
           >
             {message.role === 'system' ? (
-              <div className="flex items-center gap-2 px-4 py-2 bg-gray-100 dark:bg-gray-700 rounded-lg text-gray-600 dark:text-gray-400 text-sm">
-                <Loader2 className="w-4 h-4 animate-spin" />
-                {message.content}
-              </div>
+              message.isProgress && message.progressSteps ? (
+                <div className="bg-gray-100 dark:bg-gray-700 rounded-xl px-4 py-3 space-y-2 w-full max-w-[90%]">
+                  <div className="flex items-center gap-2 text-xs font-medium text-purple-600 dark:text-purple-400 mb-2">
+                    <Sparkles className="w-3.5 h-3.5" />
+                    Generating Flow
+                  </div>
+                  {message.progressSteps.map((step, idx) => (
+                    <div 
+                      key={idx} 
+                      className={`flex items-center gap-2 text-sm transition-all duration-300 ${
+                        step.status === 'completed' 
+                          ? 'text-green-600 dark:text-green-400' 
+                          : step.status === 'active'
+                          ? 'text-purple-600 dark:text-purple-400'
+                          : 'text-gray-400 dark:text-gray-500'
+                      }`}
+                    >
+                      {step.status === 'completed' ? (
+                        <CheckCircle className="w-4 h-4 flex-shrink-0" />
+                      ) : step.status === 'active' ? (
+                        <Loader2 className="w-4 h-4 animate-spin flex-shrink-0" />
+                      ) : (
+                        <div className="w-4 h-4 rounded-full border-2 border-gray-300 dark:border-gray-600 flex-shrink-0" />
+                      )}
+                      <span className={step.status === 'active' ? 'font-medium' : ''}>
+                        {step.label}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="flex items-center gap-2 px-4 py-2 bg-gray-100 dark:bg-gray-700 rounded-lg text-gray-600 dark:text-gray-400 text-sm">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  {message.content}
+                </div>
+              )
             ) : (
               <div
                 className={`max-w-[85%] rounded-2xl px-4 py-3 ${
@@ -279,6 +374,7 @@ export function AiFlowChat({ isOpen, onClose, onFlowGenerated }: AiFlowChatProps
         <div className="flex items-center justify-between mb-2">
           <button
             onClick={prevCategory}
+            aria-label="Previous category"
             className="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400 transition-colors"
           >
             <ChevronLeft className="w-4 h-4" />
@@ -294,6 +390,7 @@ export function AiFlowChat({ isOpen, onClose, onFlowGenerated }: AiFlowChatProps
           </div>
           <button
             onClick={nextCategory}
+            aria-label="Next category"
             className="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400 transition-colors"
           >
             <ChevronRight className="w-4 h-4" />
@@ -302,10 +399,11 @@ export function AiFlowChat({ isOpen, onClose, onFlowGenerated }: AiFlowChatProps
         
         {/* Category Dots */}
         <div className="flex justify-center gap-1 mb-2">
-          {TEMPLATE_CATEGORIES.map((_, i) => (
+          {TEMPLATE_CATEGORIES.map((cat, i) => (
             <button
               key={i}
               onClick={() => setCurrentCategoryIndex(i)}
+              aria-label={`Go to ${cat.name} category`}
               className={`w-1.5 h-1.5 rounded-full transition-colors ${
                 i === currentCategoryIndex 
                   ? 'bg-purple-500' 
