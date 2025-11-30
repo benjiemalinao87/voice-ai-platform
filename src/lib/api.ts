@@ -240,7 +240,8 @@ export const agentApi = {
         },
         model: {
           provider: 'openai',
-          model: 'gpt-4',
+          model: 'gpt-4o-mini',  // Valid VAPI model - cost-effective and fast
+          temperature: 0.7,
           messages: [{ role: 'system', content: agent.system_prompt }]
         },
         firstMessage: agent.conversation_prompt,
