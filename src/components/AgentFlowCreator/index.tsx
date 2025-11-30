@@ -542,7 +542,8 @@ export function AgentFlowCreator({ onBack, onSuccess, editAgentId }: AgentFlowCr
                 // Run LLM classification and immediately route when done
                 classifyIntent(transcript, availableIntents)
                   .then(result => {
-                    console.log('🎯 Intent classification result:', result);
+                    console.log('🎯 Intent classification result:', JSON.stringify(result, null, 2));
+                    
                     if (result.intent) {
                       traversal.detectedIntent = result.intent;
                       console.log('✅ Detected intent:', result.intent, '(confidence:', result.confidence, ')');
@@ -551,42 +552,76 @@ export function AgentFlowCreator({ onBack, onSuccess, editAgentId }: AgentFlowCr
                       const branchEdges = canvas.getEdges().filter(e => e.source === branchNodeId);
                       const allNodesForMatch = canvas.getNodes();
                       
+                      console.log('🔍 Looking for match in', branchEdges.length, 'edges');
+                      branchEdges.forEach((edge, i) => {
+                        const targetNode = allNodesForMatch.find(n => n.id === edge.target);
+                        console.log(`   Edge ${i + 1}: label="${edge.label || 'none'}" → target="${targetNode?.data?.label || edge.target}"`);
+                      });
+                      
                       const intentLower = result.intent?.toLowerCase() || '';
                       
                       // Find edge by matching intent to edge label OR target node label
-                      // Try exact match first, then partial match
                       let matchingEdge = branchEdges.find(edge => {
                         const edgeLabel = String(edge.label || '').toLowerCase();
-                        if (edgeLabel && edgeLabel === intentLower) return true;
                         const targetNode = allNodesForMatch.find(n => n.id === edge.target);
                         const nodeLabel = String(targetNode?.data?.label || '').toLowerCase();
-                        return nodeLabel === intentLower;
+                        
+                        // Exact match on edge label
+                        if (edgeLabel && edgeLabel === intentLower) {
+                          console.log('   ✓ Exact edge label match:', edgeLabel);
+                          return true;
+                        }
+                        // Exact match on node label
+                        if (nodeLabel === intentLower) {
+                          console.log('   ✓ Exact node label match:', nodeLabel);
+                          return true;
+                        }
+                        return false;
                       });
                       
-                      // If no exact match, try partial match (intent contained in label or vice versa)
+                      // Partial match
                       if (!matchingEdge && intentLower) {
                         matchingEdge = branchEdges.find(edge => {
                           const edgeLabel = String(edge.label || '').toLowerCase();
-                          if (edgeLabel && (edgeLabel.includes(intentLower) || intentLower.includes(edgeLabel))) return true;
                           const targetNode = allNodesForMatch.find(n => n.id === edge.target);
                           const nodeLabel = String(targetNode?.data?.label || '').toLowerCase();
-                          return nodeLabel.includes(intentLower) || intentLower.includes(nodeLabel);
+                          
+                          // Check edge label partial match
+                          if (edgeLabel && (edgeLabel.includes(intentLower) || intentLower.includes(edgeLabel))) {
+                            console.log('   ✓ Partial edge label match:', edgeLabel, '↔', intentLower);
+                            return true;
+                          }
+                          // Check node label partial match
+                          if (nodeLabel.includes(intentLower) || intentLower.includes(nodeLabel)) {
+                            console.log('   ✓ Partial node label match:', nodeLabel, '↔', intentLower);
+                            return true;
+                          }
+                          return false;
                         });
-                        if (matchingEdge) {
-                          console.log('🔄 Using partial match for intent');
-                        }
                       }
                       
                       if (matchingEdge) {
-                        console.log('🎯 Routing to branch target:', matchingEdge.target);
+                        const targetNode = allNodesForMatch.find(n => n.id === matchingEdge!.target);
+                        console.log('🎯 ROUTING to:', matchingEdge.target, `("${targetNode?.data?.label}")`);
+                        
+                        // Complete branch node
                         canvas.completeNode(branchNodeId);
                         traversal.visitedNodes.add(branchNodeId);
+                        
+                        // Highlight the target node
                         traversal.currentNodeId = matchingEdge.target;
                         canvas.highlightNode(matchingEdge.target);
-                        traversal.detectedIntent = null; // Clear after using
+                        
+                        console.log('✨ Node highlighted:', matchingEdge.target);
+                        
+                        traversal.detectedIntent = null;
                         setCurrentNodeIndex(prev => prev + 1);
                       } else {
-                        console.log('⚠️ No matching edge for intent:', result.intent);
+                        console.log('⚠️ NO MATCHING EDGE for intent:', result.intent);
+                        console.log('   Available node labels:', branchEdges.map(e => {
+                          const node = allNodesForMatch.find(n => n.id === e.target);
+                          return node?.data?.label || e.target;
+                        }));
                       }
                     } else {
                       console.log('❓ No clear intent detected:', result.reasoning);
