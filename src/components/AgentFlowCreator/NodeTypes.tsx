@@ -6,7 +6,7 @@ import {
   GitBranch, 
   Check, 
   Mic,
-  Zap,
+  Globe,
   PhoneForwarded,
   X,
   Unlink
@@ -321,7 +321,7 @@ export const ActionNode = ({ data }: { data: NodeData }) => {
         {isCompleted ? (
           <Check className="w-7 h-7 text-white" />
         ) : (
-          <Zap className="w-7 h-7 text-white" />
+          <Globe className="w-7 h-7 text-white" />
         )}
         {isActive && (
           <div className="absolute inset-0 rounded-full bg-orange-400 animate-ping opacity-75"></div>

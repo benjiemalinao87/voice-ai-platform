@@ -21,7 +21,7 @@ import {
   GitBranch, 
   Check, 
   Mic,
-  Zap,
+  Globe,
   PhoneForwarded,
   Trash2,
   Play,
@@ -835,8 +835,8 @@ function FlowCanvasInner({
           onClick={() => addNode('action')}
           className="flex items-center gap-1.5 px-2.5 py-1.5 bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded-lg hover:bg-orange-100 dark:hover:bg-orange-900/30 transition-colors text-xs font-medium text-orange-700 dark:text-orange-400"
         >
-          <Zap className="w-3.5 h-3.5" />
-          Action
+          <Globe className="w-3.5 h-3.5" />
+          API
         </button>
 
         <button 
@@ -981,8 +981,8 @@ function FlowCanvasInner({
               onClick={() => addNodeAtPosition('action', contextMenu.flowX, contextMenu.flowY)}
               className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-orange-50 dark:hover:bg-orange-900/30 transition-colors"
             >
-              <Zap className="w-4 h-4 text-orange-500" />
-              Action
+              <Globe className="w-4 h-4 text-orange-500" />
+              API
             </button>
           </div>
         )}

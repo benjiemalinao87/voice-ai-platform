@@ -221,7 +221,7 @@ export function NodeEditorModal({ node, onSave, onClose }: NodeEditorModalProps)
       case 'message': return 'Message Node';
       case 'listen': return 'Listen Node';
       case 'branch': return 'Branch Node';
-      case 'action': return 'Action Node';
+      case 'action': return 'API Node';
       case 'transfer': return 'Transfer Node';
       case 'end': return 'End Node';
       default: return 'Node';
@@ -328,26 +328,9 @@ export function NodeEditorModal({ node, onSave, onClose }: NodeEditorModalProps)
             </div>
           )}
 
-          {/* Action Type - for action nodes */}
+          {/* API Configuration - for action nodes */}
           {node.type === 'action' && (
             <>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Action Type
-                </label>
-                <select
-                  value={formData.actionType || 'custom'}
-                  onChange={(e) => setFormData({ ...formData, actionType: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
-                >
-                  <option value="custom">Custom Action</option>
-                  <option value="appointment">Book Appointment</option>
-                  <option value="lookup">Data Lookup</option>
-                  <option value="notify">Send Notification</option>
-                  <option value="crm">CRM Update</option>
-                </select>
-              </div>
-
               {/* API Configuration Section */}
               <div className="border-t border-gray-200 dark:border-gray-700 pt-4 mt-4">
                 <button
