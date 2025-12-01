@@ -6044,22 +6044,17 @@ export default {
 
               const dateLower = dateStr.toLowerCase().trim();
               const callDate = new Date(callTimestamp * 1000);
-              console.log('Parsing date:', dateStr, 'Call date:', callDate.toISOString());
 
               // Handle "today"
               if (dateLower === 'today') {
-                const result = callDate.toISOString().split('T')[0];
-                console.log('Parsed "today" as:', result);
-                return result;
+                return callDate.toISOString().split('T')[0];
               }
 
               // Handle "tomorrow"
               if (dateLower === 'tomorrow') {
                 const tomorrow = new Date(callDate);
                 tomorrow.setDate(tomorrow.getDate() + 1);
-                const result = tomorrow.toISOString().split('T')[0];
-                console.log('Parsed "tomorrow" as:', result);
-                return result;
+                return tomorrow.toISOString().split('T')[0];
               }
 
               // Handle "day after tomorrow" or "in 2 days"
@@ -6168,9 +6163,7 @@ export default {
                 if (daysUntil <= 0) daysUntil += 7; // Next week's day
                 const targetDate = new Date(callDate);
                 targetDate.setDate(targetDate.getDate() + daysUntil);
-                const result = targetDate.toISOString().split('T')[0];
-                console.log('Parsed day name "' + dateStr + '" as:', result);
-                return result;
+                return targetDate.toISOString().split('T')[0];
               }
 
               // Try to parse as ISO date or standard date
@@ -6208,7 +6201,6 @@ export default {
               }
 
               // Return original if we can't parse it
-              console.log('Could not parse date, returning original:', dateStr);
               return dateStr;
             };
 
@@ -6315,7 +6307,6 @@ export default {
           // Only include appointments that have a valid appointment_date
           // Exclude entries with "N/A", null, or invalid dates
           if (!apt.appointment_date) {
-            console.log('Filtered out - no appointment_date:', apt.phone_number);
             return false;
           }
           
@@ -6325,7 +6316,6 @@ export default {
             
             // Check if date is valid
             if (isNaN(appointmentDate.getTime())) {
-              console.log('Filtered out - invalid date:', apt.phone_number, apt.appointment_date);
               return false; // Invalid date
             }
             
@@ -6333,25 +6323,19 @@ export default {
             const currentYear = new Date().getFullYear();
             const appointmentYear = appointmentDate.getFullYear();
             
-            console.log('Appointment check:', apt.phone_number, apt.customer_name, apt.appointment_date, 'Year:', appointmentYear, 'Current:', currentYear);
-            
             // Exclude if appointment is from a previous year
             if (appointmentYear < currentYear) {
-              console.log('Filtered out - previous year:', apt.phone_number);
               return false;
             }
-            
-            console.log('Appointment PASSED filter:', apt.phone_number);
           } catch (e) {
             // If date parsing fails, exclude the appointment
-            console.log('Filtered out - parsing error:', apt.phone_number, e);
             return false;
           }
 
           return true;
         });
 
-        console.log(`[Appointments API] Returning ${appointments.length} appointments after filtering`);
+        console.log(`[Appointments API] Returning ${appointments.length} appointments (filtered from ${results.length} records)`);
         return jsonResponse(appointments);
       }
 
