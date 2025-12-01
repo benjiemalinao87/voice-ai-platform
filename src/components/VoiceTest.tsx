@@ -19,6 +19,15 @@ export interface VapiCallEvent {
     transcript?: string;
     message?: string;
     error?: any;
+    // Call data fields (from call-start event)
+    monitor?: {
+      controlUrl?: string;
+      listenUrl?: string;
+    };
+    customer?: {
+      number?: string;
+    };
+    [key: string]: any; // Allow other VAPI fields
   };
 }
 
@@ -58,10 +67,12 @@ export function VoiceTest({ assistantId, publicKey, onCallEvent }: VoiceTestProp
     setVapi(vapiInstance);
 
     // Set up event listeners
-    vapiInstance.on('call-start', () => {
+    vapiInstance.on('call-start', (callData: any) => {
       setIsCallActive(true);
       setCallStatus('connected');
-      emitEvent('call-start');
+      console.log('📞 VAPI call-start data:', callData);
+      // Pass the full call data including monitor.controlUrl for context injection
+      emitEvent('call-start', callData);
     });
 
     vapiInstance.on('call-end', () => {

@@ -2,6 +2,49 @@
 
 ## Completed Features
 
+### Workers Automatic Tracing Enabled (December 2024)
+✅ **Enabled Cloudflare Workers automatic tracing (open beta)**
+
+**What It Does:**
+- Provides detailed metadata and timing information for every operation the Worker performs
+- Helps identify performance bottlenecks and resolve errors
+- Shows how the Worker interacts with D1 database, KV cache, and R2 storage
+
+**Questions It Can Answer:**
+- Which calls are slowing down the application?
+- Which queries to the database take the longest?
+- What happened within a request that resulted in an error?
+
+**Features:**
+- View traces alongside logs in Workers Observability dashboard
+- Export traces to OTLP-compatible destinations (Honeycomb, Sentry, Grafana)
+- Analyze and query across span attributes (operation type, status, duration, errors)
+
+**Files Modified:**
+- `wrangler.toml` - Added `[observability]` and `[observability.tracing]` configuration
+
+**Documentation:**
+- https://developers.cloudflare.com/workers/observability/traces/
+
+---
+
+### Branch Visualization Race Condition Fix (December 2024)
+✅ **Fixed visual flow marking showing wrong branch path during live calls**
+
+**Problem:**
+When user said "Latte", the AI responded correctly but the visual marking incorrectly showed "Espresso" (the first branch option).
+
+**Root Cause:**
+Race condition - `speech-start` event fired before async intent classification completed, blindly advancing to `findNextNodes()[0]` (always the first edge).
+
+**Fix:**
+Added `isClassifyingIntent` flag to prevent premature node advancement while classification is in progress.
+
+**Files Modified:**
+- `src/components/AgentFlowCreator/index.tsx` - Added classification guard logic
+
+---
+
 ### CustomerConnect Auto-Context Injection (November 28, 2025)
 ✅ **Successfully implemented automatic customer context injection via VAPI Tool**
 

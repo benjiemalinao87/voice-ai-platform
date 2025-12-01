@@ -16,21 +16,32 @@ function getValueByPath(obj: any, path: string): any {
   return path.split('.').reduce((current, key) => current?.[key], obj);
 }
 
-// Helper to extract all paths from a JSON object
+// Helper to extract all paths from a JSON object (including array elements)
 function extractPaths(obj: any, prefix: string = ''): { path: string; value: any }[] {
   const paths: { path: string; value: any }[] = [];
   
-  if (obj && typeof obj === 'object' && !Array.isArray(obj)) {
-    for (const key of Object.keys(obj)) {
-      const fullPath = prefix ? `${prefix}.${key}` : key;
-      const value = obj[key];
-      
-      if (value && typeof value === 'object' && !Array.isArray(value)) {
-        // Recurse into nested objects
-        paths.push(...extractPaths(value, fullPath));
-      } else {
-        // Leaf value (including arrays)
-        paths.push({ path: fullPath, value });
+  if (obj && typeof obj === 'object') {
+    if (Array.isArray(obj)) {
+      // For arrays, extract paths from the first element (most APIs return consistent structure)
+      if (obj.length > 0 && typeof obj[0] === 'object') {
+        paths.push(...extractPaths(obj[0], `${prefix}.0`));
+      } else if (obj.length > 0) {
+        // Array of primitives
+        paths.push({ path: `${prefix}.0`, value: obj[0] });
+      }
+    } else {
+      // Regular object
+      for (const key of Object.keys(obj)) {
+        const fullPath = prefix ? `${prefix}.${key}` : key;
+        const value = obj[key];
+        
+        if (value && typeof value === 'object') {
+          // Recurse into nested objects and arrays
+          paths.push(...extractPaths(value, fullPath));
+        } else {
+          // Leaf value
+          paths.push({ path: fullPath, value });
+        }
       }
     }
   }

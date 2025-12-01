@@ -267,13 +267,20 @@ export function AgentFlowCreator({ onBack, onSuccess, editAgentId }: AgentFlowCr
         
         // Extract customer phone and control URL from call data
         const callData = event.data;
+        console.log('📋 Full call data received:', JSON.stringify(callData, null, 2));
+        
         if (callData?.customer?.number) {
           traversal.customerPhone = callData.customer.number;
           console.log('📱 Customer phone:', traversal.customerPhone);
         }
-        if (callData?.monitor?.controlUrl) {
-          traversal.controlUrl = callData.monitor.controlUrl;
+        
+        // Try multiple paths for control URL (VAPI SDK structure may vary)
+        const controlUrl = callData?.monitor?.controlUrl || callData?.controlUrl;
+        if (controlUrl) {
+          traversal.controlUrl = controlUrl;
           console.log('🎛️ Control URL:', traversal.controlUrl);
+        } else {
+          console.warn('⚠️ No control URL in call data - context injection will not work');
         }
         
         // Find and highlight start node
@@ -359,11 +366,15 @@ export function AgentFlowCreator({ onBack, onSuccess, editAgentId }: AgentFlowCr
             // Execute API asynchronously
             executeActionApi(currentNode.data.apiConfig, traversal.customerPhone)
               .then(result => {
+                console.log('🔧 API result:', { success: result.success, hasContext: !!result.context, hasControlUrl: !!traversal.controlUrl });
                 if (result.success && result.context && traversal.controlUrl) {
                   // Inject context into the call
+                  console.log('💉 Injecting context to VAPI...');
                   injectContextToCall(traversal.controlUrl, result.context);
                 } else if (!result.success) {
                   console.warn('⚠️ Action API failed:', result.error);
+                } else if (!traversal.controlUrl) {
+                  console.warn('⚠️ Cannot inject context - no control URL available');
                 }
               });
           }

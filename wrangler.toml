@@ -62,3 +62,21 @@ SALESFORCE_CLIENT_SECRET = "your-salesforce-consumer-secret-here"
 [triggers]
 crons = ["0 */6 * * *"]  # Run every 6 hours
 
+# Observability - Logs and Tracing
+# View logs and traces in Workers Observability dashboard
+# Docs: https://developers.cloudflare.com/workers/observability/traces/
+[observability]
+enabled = false
+head_sampling_rate = 1
+
+[observability.logs]
+enabled = true
+head_sampling_rate = 1
+persist = true
+invocation_logs = true
+
+[observability.traces]
+enabled = true
+head_sampling_rate = 1
+persist = true
+

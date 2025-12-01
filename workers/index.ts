@@ -350,6 +350,179 @@ async function storeKeywords(
   }
 }
 
+// Helper: Inject context from Action nodes when a call starts
+// This is the SERVER-SIDE implementation for production phone calls
+async function injectActionNodeContext(
+  env: Env,
+  assistantId: string,
+  userId: string,
+  vapiCallId: string,
+  customerPhone: string
+): Promise<void> {
+  console.log('[Action Context] ========================================');
+  console.log('[Action Context] Starting context injection');
+  console.log('[Action Context] Assistant ID:', assistantId);
+  console.log('[Action Context] Call ID:', vapiCallId);
+  console.log('[Action Context] Customer phone:', customerPhone);
+
+  try {
+    // 1. Get workspace settings (for VAPI API key)
+    const settings = await getWorkspaceSettingsForUser(env, userId);
+    if (!settings?.private_key) {
+      console.warn('[Action Context] No VAPI API key configured');
+      return;
+    }
+
+    // 2. Look up the agent flow configuration
+    const flowRecord = await env.DB.prepare(
+      'SELECT flow_data, config_data FROM agent_flows WHERE vapi_assistant_id = ? AND user_id = ?'
+    ).bind(assistantId, userId).first() as any;
+
+    if (!flowRecord) {
+      console.log('[Action Context] No flow configuration found for assistant');
+      return;
+    }
+
+    const flowData = JSON.parse(flowRecord.flow_data || '{}');
+    const nodes = flowData.nodes || [];
+
+    // 3. Find action nodes with API configs
+    const actionNodes = nodes.filter((node: any) => 
+      node.type === 'action' && 
+      node.data?.apiConfig?.endpoint
+    );
+
+    if (actionNodes.length === 0) {
+      console.log('[Action Context] No action nodes with API configs found');
+      return;
+    }
+
+    console.log('[Action Context] Found', actionNodes.length, 'action node(s) with API configs');
+
+    // 4. Get call details from VAPI to get controlUrl
+    const getCallResponse = await fetch(`https://api.vapi.ai/call/${vapiCallId}`, {
+      method: 'GET',
+      headers: { 'Authorization': `Bearer ${settings.private_key}` }
+    });
+
+    if (!getCallResponse.ok) {
+      console.error('[Action Context] Failed to get call details:', getCallResponse.status);
+      return;
+    }
+
+    const callDetails = await getCallResponse.json() as any;
+    const controlUrl = callDetails.monitor?.controlUrl;
+
+    if (!controlUrl) {
+      console.warn('[Action Context] No controlUrl in call details');
+      return;
+    }
+
+    console.log('[Action Context] Got controlUrl:', controlUrl);
+
+    // 5. Execute each action API and collect context
+    const contextParts: string[] = [];
+
+    for (const actionNode of actionNodes) {
+      const apiConfig = actionNode.data.apiConfig;
+      console.log('[Action Context] Executing API:', apiConfig.endpoint);
+
+      try {
+        // Replace {phone} placeholder with actual phone number
+        let endpoint = apiConfig.endpoint.replace(/{phone}/g, encodeURIComponent(customerPhone));
+        
+        // Build headers
+        const headers: Record<string, string> = {
+          'Content-Type': 'application/json'
+        };
+        if (apiConfig.headers) {
+          for (const h of apiConfig.headers) {
+            if (h.key && h.value) {
+              headers[h.key] = h.value;
+            }
+          }
+        }
+
+        // Make the API call
+        const apiResponse = await fetch(endpoint, {
+          method: apiConfig.method || 'GET',
+          headers
+        });
+
+        if (!apiResponse.ok) {
+          console.error('[Action Context] API call failed:', apiResponse.status);
+          continue;
+        }
+
+        const data = await apiResponse.json();
+        console.log('[Action Context] API response received');
+
+        // Extract context using response mapping
+        const responseMapping = apiConfig.responseMapping || [];
+        const enabledMappings = responseMapping.filter((m: any) => m.enabled);
+
+        if (enabledMappings.length === 0) {
+          console.log('[Action Context] No enabled response mappings');
+          continue;
+        }
+
+        // Helper to get value by path (e.g., "data.0.appointment_date")
+        const getValueByPath = (obj: any, path: string): any => {
+          const parts = path.split('.');
+          let current = obj;
+          for (const part of parts) {
+            if (current == null) return undefined;
+            current = current[part];
+          }
+          return current;
+        };
+
+        const contextLines = enabledMappings.map((mapping: any) => {
+          const value = getValueByPath(data, mapping.path);
+          const displayValue = typeof value === 'object' ? JSON.stringify(value) : String(value ?? 'N/A');
+          return `- ${mapping.label}: ${displayValue}`;
+        });
+
+        if (contextLines.length > 0) {
+          contextParts.push(...contextLines);
+        }
+      } catch (apiError) {
+        console.error('[Action Context] Error executing API:', apiError);
+      }
+    }
+
+    // 6. Inject context if we have any
+    if (contextParts.length === 0) {
+      console.log('[Action Context] No context to inject');
+      return;
+    }
+
+    const context = `[CONTEXT UPDATE] Customer information retrieved:\n${contextParts.join('\n')}`;
+    console.log('[Action Context] Injecting context:', context);
+
+    const injectResponse = await fetch(controlUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        type: 'add-message',
+        message: {
+          role: 'system',
+          content: context
+        }
+      })
+    });
+
+    if (injectResponse.ok) {
+      console.log('[Action Context] ✅ Context injected successfully!');
+    } else {
+      console.error('[Action Context] Failed to inject context:', injectResponse.status);
+    }
+
+  } catch (error) {
+    console.error('[Action Context] Error:', error);
+  }
+}
+
 // Helper: Lookup caller info using Twilio API
 interface TwilioCallerInfo {
   callerName: string | null;
@@ -8274,6 +8447,16 @@ Need help? Contact our support team anytime!
                   assistantName: call.assistant?.name || 'AI Assistant',
                 })
               );
+            }
+
+            // Auto-inject context from Action nodes when call becomes in-progress
+            if (callStatus === 'in-progress' && customerNumber) {
+              const assistantId = call.assistantId || call.assistant?.id;
+              if (assistantId) {
+                ctx.waitUntil(
+                  injectActionNodeContext(env, assistantId, webhook.user_id, vapiCallId, customerNumber)
+                );
+              }
             }
 
             return jsonResponse({ success: true, message: 'Call status updated' });

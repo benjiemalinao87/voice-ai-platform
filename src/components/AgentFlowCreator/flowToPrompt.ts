@@ -117,7 +117,20 @@ export function flowToPrompt(nodes: Node<FlowNodeData>[], edges: Edge[]): string
 
       case 'action':
         const actionType = node.data.actionType || 'custom';
-        flowSteps.push(`${stepNumber}. [ACTION: ${actionType.toUpperCase()}] ${node.data.content || node.data.label}`);
+        // Check if this action has API config with response mappings
+        if (node.data.apiConfig?.responseMapping?.some((m: ResponseMapping) => m.enabled)) {
+          // Generate instructions to USE the context data (injected by server)
+          const enabledMappings = node.data.apiConfig.responseMapping.filter((m: ResponseMapping) => m.enabled);
+          const contextFields = enabledMappings.map((m: ResponseMapping) => m.label).join(', ');
+          flowSteps.push(`${stepNumber}. [USE CUSTOMER DATA] The system has retrieved customer information.`);
+          flowSteps.push(`   - Available data: ${contextFields}`);
+          flowSteps.push(`   - Use this information when responding to the customer.`);
+          flowSteps.push(`   - If asked about appointments, dates, or times, use the EXACT values from the context.`);
+          flowSteps.push(`   - Do NOT say "Action", "Custom", or read technical labels - just use the data naturally.`);
+        } else {
+          // Regular action without API (e.g., transfer prep, scheduling)
+          flowSteps.push(`${stepNumber}. [ACTION: ${actionType.toUpperCase()}] ${node.data.content || node.data.label}`);
+        }
         stepNumber++;
         break;
 
@@ -166,7 +179,13 @@ export function flowToPrompt(nodes: Node<FlowNodeData>[], edges: Edge[]): string
   sections.push('   - First acknowledge their choice ("Great choice!" or "I understand you want...")');
   sections.push('   - Then proceed to the appropriate next step');
   sections.push('');
-  sections.push('3. GENERAL RULES:');
+  sections.push('3. USING CUSTOMER DATA:');
+  sections.push('   - If you receive a [CONTEXT UPDATE] system message, it contains real customer data');
+  sections.push('   - Use the EXACT values from the context (dates, times, names) when responding');
+  sections.push('   - NEVER say placeholders like "insert date here" - use the actual data');
+  sections.push('   - If asked about appointments and you have context data, provide the specific date and time');
+  sections.push('');
+  sections.push('4. GENERAL RULES:');
   sections.push('   - Follow the flow steps in order');
   sections.push('   - Be natural and conversational');
   sections.push('   - If the user asks something unexpected, acknowledge it and guide them back to the flow');
