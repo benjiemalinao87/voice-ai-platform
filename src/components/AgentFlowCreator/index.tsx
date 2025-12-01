@@ -184,6 +184,7 @@ export function AgentFlowCreator({ onBack, onSuccess, editAgentId }: AgentFlowCr
     isTraversing: boolean;
     lastUserTranscript: string | null;
     detectedIntent: string | null;
+    isClassifyingIntent: boolean;
     customerPhone: string | null;
     controlUrl: string | null;
   }>({
@@ -192,6 +193,7 @@ export function AgentFlowCreator({ onBack, onSuccess, editAgentId }: AgentFlowCr
     isTraversing: false,
     lastUserTranscript: null,
     detectedIntent: null,
+    isClassifyingIntent: false,
     customerPhone: null,
     controlUrl: null
   });
@@ -258,6 +260,7 @@ export function AgentFlowCreator({ onBack, onSuccess, editAgentId }: AgentFlowCr
         canvas.resetAllNodes();
         traversal.visitedNodes.clear();
         traversal.isTraversing = true;
+        traversal.isClassifyingIntent = false;
         setIsCallActive(true);
         setCallTranscript([]);
         setCurrentNodeIndex(0);
@@ -300,6 +303,12 @@ export function AgentFlowCreator({ onBack, onSuccess, editAgentId }: AgentFlowCr
         if (traversal.currentNodeId) {
           const allNodes = canvas.getNodes();
           const currentNode = allNodes.find(n => n.id === traversal.currentNodeId);
+          
+          // Skip advancement if we're waiting for intent classification on a branch node
+          if (traversal.isClassifyingIntent && currentNode?.type === 'branch') {
+            console.log('⏳ Waiting for intent classification, skipping advancement');
+            break;
+          }
           
           // If current node is start or already visited, advance to next node
           if (currentNode?.type === 'start' || traversal.visitedNodes.has(traversal.currentNodeId)) {
@@ -546,6 +555,7 @@ export function AgentFlowCreator({ onBack, onSuccess, editAgentId }: AgentFlowCr
                 
                 console.log('🧠 Classifying intent. Available options:', availableIntents);
                 setIsClassifyingIntent(true);
+                traversal.isClassifyingIntent = true;
                 
                 // Complete listen node first
                 canvas.completeNode(branchNodeId);
@@ -665,6 +675,7 @@ export function AgentFlowCreator({ onBack, onSuccess, editAgentId }: AgentFlowCr
                   })
                   .finally(() => {
                     setIsClassifyingIntent(false);
+                    traversal.isClassifyingIntent = false;
                   });
               } else {
                 // No branch node follows, just move to next
@@ -694,6 +705,7 @@ export function AgentFlowCreator({ onBack, onSuccess, editAgentId }: AgentFlowCr
             
             console.log('🔄 Re-classifying intent on branch node. Options:', availableIntents);
             setIsClassifyingIntent(true);
+            traversal.isClassifyingIntent = true;
             
             classifyIntent(transcript, availableIntents)
               .then(result => {
@@ -738,6 +750,7 @@ export function AgentFlowCreator({ onBack, onSuccess, editAgentId }: AgentFlowCr
               })
               .finally(() => {
                 setIsClassifyingIntent(false);
+                traversal.isClassifyingIntent = false;
               });
           }
         }
@@ -766,6 +779,7 @@ export function AgentFlowCreator({ onBack, onSuccess, editAgentId }: AgentFlowCr
         }
         
         traversal.isTraversing = false;
+        traversal.isClassifyingIntent = false;
         traversal.currentNodeId = null;
         
         // Clear speech indicator

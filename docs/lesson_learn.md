@@ -4176,3 +4176,37 @@ Every API endpoint that returns user-specific data MUST:
 **Key Insight:**
 Intent classification should happen on USER messages, not AI responses. The user's actual spoken words are what determine the intent, not how the AI responds to them.
 
+---
+
+## Branch Visualization Race Condition Fix (Dec 2024)
+
+**Problem:**
+When user says "Latte" during a voice call, the AI responds correctly ("One Latte coming up!"), but the visual flow marking incorrectly shows "Espresso" (the first branch option) as the selected path.
+
+**Root Cause:**
+Race condition between async intent classification and `speech-start` event:
+1. User says "Latte" → intent classification starts asynchronously
+2. Branch node gets marked as visited/completed
+3. AI starts speaking → `speech-start` event fires
+4. `speech-start` handler sees branch is visited, calls `findNextNodes()[0]` 
+5. This ALWAYS returns the first edge (Espresso) regardless of classification result
+6. Espresso gets highlighted before classification completes
+
+**Fix Applied:**
+Added `isClassifyingIntent` flag to `flowTraversalRef`:
+1. Set `traversal.isClassifyingIntent = true` before calling `classifyIntent()`
+2. In `speech-start` handler: skip advancement if `isClassifyingIntent` is true AND current node is branch
+3. Clear flag in `.finally()` blocks after classification completes
+4. Reset flag on `call-start` and `call-end` events
+
+**Files Changed:**
+- `src/components/AgentFlowCreator/index.tsx`
+
+**What NOT to do:**
+- Don't use `findNextNodes()[0]` blindly on branch nodes - edges are in array order, not intent order
+- Don't assume async operations complete before the next event fires
+- Don't mix React state (`setIsClassifyingIntent`) with ref state (`traversal.isClassifyingIntent`) without synchronizing both
+
+**Key Insight:**
+When dealing with async operations that affect UI state, use synchronous ref flags for immediate checks in event handlers. React state updates are batched and may not be visible immediately in subsequent event callbacks.
+
