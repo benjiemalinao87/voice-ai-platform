@@ -2,6 +2,34 @@
 
 ## Completed Features
 
+### Dashboard Loading Performance Optimization (December 1, 2025)
+✅ **Optimized dashboard loading by reducing API calls from 16 to 7**
+
+**Problem:**
+Dashboard was loading slowly due to excessive API calls.
+
+**Root Cause:**
+1. Fetching 1000 webhook calls when only 10 are displayed in the table
+2. N+1 API problem: Making individual `getAssistant()` calls for each unique assistant ID after loading calls
+
+**Fix Applied:**
+1. Reduced webhook-calls limit from 1000 to 200 (80% less data)
+2. Added `assistant_id` to `/api/agent-distribution` endpoint response
+3. Reuse assistant names from agent-distribution data instead of individual API calls
+4. Eliminated 9+ individual assistant API calls entirely
+
+**Performance Impact:**
+- **57% fewer API calls** (7 vs 16)
+- **80% less data** in webhook-calls response
+- **Eliminated N+1 query problem**
+
+**Files Modified:**
+- `src/components/PerformanceDashboard.tsx` - Reduced limit, reuse agent distribution data
+- `src/lib/d1.ts` - Updated type to include `assistant_id`
+- `workers/index.ts` - Added `assistant_id` to agent-distribution SQL query
+
+---
+
 ### Workers Automatic Tracing Enabled (December 2024)
 ✅ **Enabled Cloudflare Workers automatic tracing (open beta)**
 
