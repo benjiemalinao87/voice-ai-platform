@@ -917,6 +917,22 @@ export function AgentFlowCreator({ onBack, onSuccess, editAgentId }: AgentFlowCr
     setNodes(newNodes);
     setEdges(newEdges);
     setValidationErrors([]);
+    
+    // Auto-populate First Message from the Greeting node (first message after start)
+    const startNode = newNodes.find(n => n.type === 'start');
+    if (startNode) {
+      // Find the edge from start node
+      const startEdge = newEdges.find(e => e.source === startNode.id);
+      if (startEdge) {
+        // Find the target node (should be the greeting/first message)
+        const greetingNode = newNodes.find(n => n.id === startEdge.target && n.type === 'message');
+        if (greetingNode?.data?.content) {
+          console.log('[AI Flow] Auto-populating First Message from Greeting node:', greetingNode.data.content);
+          setConfig(prev => ({ ...prev, firstMessage: greetingNode.data.content! }));
+        }
+      }
+    }
+    
     // Trigger canvas to update
     if (flowCanvasRef.current) {
       flowCanvasRef.current.resetAllNodes();
