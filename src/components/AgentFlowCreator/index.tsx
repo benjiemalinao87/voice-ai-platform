@@ -1082,19 +1082,19 @@ export function AgentFlowCreator({ onBack, onSuccess, editAgentId }: AgentFlowCr
   };
 
   return (
-    <div className="h-screen flex flex-col bg-gray-100 dark:bg-gray-900">
+    <div className="h-screen flex flex-col bg-black text-gray-200 font-sans">
       {/* Top Bar */}
-      <div className="flex items-center justify-between px-4 py-3 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 shadow-sm">
+      <div className="flex items-center justify-between px-4 py-3 bg-[#1C1C1E] border-b border-white/5 shadow-sm z-10">
         <div className="flex items-center gap-4">
           <button
             onClick={onBack}
-            className="flex items-center gap-2 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 transition-colors"
+            className="flex items-center gap-2 text-gray-400 hover:text-white transition-colors"
           >
             <ArrowLeft className="w-5 h-5" />
             <span>Back to Agents</span>
           </button>
-          <div className="h-6 w-px bg-gray-300 dark:bg-gray-600" />
-          <h1 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+          <div className="h-6 w-px bg-white/10" />
+          <h1 className="text-lg font-semibold text-white">
             {isEditMode ? 'Edit Voice AI Agent' : 'Create Voice AI Agent'}
           </h1>
         </div>
@@ -1103,10 +1103,10 @@ export function AgentFlowCreator({ onBack, onSuccess, editAgentId }: AgentFlowCr
           {/* AI Assistant Button */}
           <button
             onClick={() => setShowAiChat(!showAiChat)}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
+            className={`flex items-center gap-2 px-4 py-2 rounded-full transition-all duration-300 shadow-lg ${
               showAiChat 
                 ? 'bg-purple-600 text-white hover:bg-purple-700' 
-                : 'bg-gradient-to-r from-purple-500 to-indigo-500 text-white hover:from-purple-600 hover:to-indigo-600'
+                : 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white hover:shadow-purple-500/25 hover:scale-105'
             }`}
           >
             <Wand2 className="w-4 h-4" />
@@ -1114,7 +1114,7 @@ export function AgentFlowCreator({ onBack, onSuccess, editAgentId }: AgentFlowCr
           </button>
           <button
             onClick={() => setShowPromptPreview(!showPromptPreview)}
-            className="flex items-center gap-2 px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+            className="flex items-center gap-2 px-4 py-2 bg-white/5 text-gray-400 border border-white/5 rounded-full hover:bg-white/10 hover:text-white transition-all"
           >
             {showPromptPreview ? (
               <>
@@ -1131,7 +1131,7 @@ export function AgentFlowCreator({ onBack, onSuccess, editAgentId }: AgentFlowCr
           <button
             onClick={handleSave}
             disabled={saving}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            className="flex items-center gap-2 px-6 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-full transition-all shadow-lg hover:shadow-blue-500/25 hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
           >
             {saving ? (
               <>
@@ -1150,15 +1150,15 @@ export function AgentFlowCreator({ onBack, onSuccess, editAgentId }: AgentFlowCr
 
       {/* Error/Validation Messages */}
       {(error || validationErrors.length > 0) && (
-        <div className="px-4 py-3 bg-red-50 dark:bg-red-900/20 border-b border-red-200 dark:border-red-800">
+        <div className="px-4 py-3 bg-red-500/10 border-b border-red-500/20 backdrop-blur-sm">
           <div className="flex items-start gap-3">
-            <AlertCircle className="w-5 h-5 text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" />
+            <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
             <div>
               {error && (
-                <p className="text-sm text-red-700 dark:text-red-300">{error}</p>
+                <p className="text-sm text-red-300">{error}</p>
               )}
               {validationErrors.length > 0 && (
-                <ul className="text-sm text-red-700 dark:text-red-300 list-disc list-inside">
+                <ul className="text-sm text-red-300 list-disc list-inside">
                   {validationErrors.map((err, i) => (
                     <li key={i}>{err}</li>
                   ))}
@@ -1173,21 +1173,25 @@ export function AgentFlowCreator({ onBack, onSuccess, editAgentId }: AgentFlowCr
       {loading && (
         <div className="flex-1 flex items-center justify-center">
           <div className="text-center">
-            <Loader2 className="w-8 h-8 text-blue-600 animate-spin mx-auto mb-4" />
-            <p className="text-gray-600 dark:text-gray-400">Loading flow data...</p>
+            <Loader2 className="w-8 h-8 text-blue-500 animate-spin mx-auto mb-4" />
+            <p className="text-gray-400">Loading flow data...</p>
           </div>
         </div>
       )}
 
       {/* Template Selection Screen - Only for new agents */}
       {showTemplateSelection && !loading && (
-        <div className="flex-1 flex items-center justify-center bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-900 dark:to-gray-800">
-          <div className="max-w-2xl w-full mx-4">
-            <div className="text-center mb-8">
-              <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-2">
+        <div className="flex-1 flex items-center justify-center bg-black relative overflow-hidden">
+          {/* Ambient Background */}
+          <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-blue-500/10 blur-[100px] rounded-full pointer-events-none" />
+          <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-purple-500/10 blur-[100px] rounded-full pointer-events-none" />
+
+          <div className="max-w-2xl w-full mx-4 relative z-10">
+            <div className="text-center mb-10">
+              <h2 className="text-3xl font-bold text-white mb-3 tracking-tight">
                 How would you like to start?
               </h2>
-              <p className="text-gray-600 dark:text-gray-400">
+              <p className="text-gray-400 text-lg">
                 Choose a starting point for your Voice AI agent
               </p>
             </div>
@@ -1200,27 +1204,27 @@ export function AgentFlowCreator({ onBack, onSuccess, editAgentId }: AgentFlowCr
                   setEdges(getInitialEdges());
                   setShowTemplateSelection(false);
                 }}
-                className="group relative bg-white dark:bg-gray-800 rounded-xl border-2 border-gray-200 dark:border-gray-700 p-6 hover:border-blue-500 dark:hover:border-blue-400 hover:shadow-lg transition-all text-left"
+                className="group relative bg-[#1C1C1E] rounded-3xl border border-white/5 p-8 hover:border-blue-500/50 hover:shadow-2xl hover:shadow-blue-500/10 transition-all duration-300 text-left"
               >
                 <div className="absolute top-4 right-4">
-                  <span className="px-2 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 text-xs font-medium rounded-full">
+                  <span className="px-3 py-1 bg-blue-500/10 text-blue-400 border border-blue-500/20 text-xs font-medium rounded-full">
                     Recommended
                   </span>
                 </div>
-                <div className="w-12 h-12 bg-blue-100 dark:bg-blue-900/30 rounded-xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
-                  <FileText className="w-6 h-6 text-blue-600 dark:text-blue-400" />
+                <div className="w-14 h-14 bg-blue-500/10 rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform duration-300 border border-blue-500/20">
+                  <FileText className="w-7 h-7 text-blue-400" />
                 </div>
-                <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-2">
+                <h3 className="text-xl font-semibold text-white mb-3">
                   Use Template
                 </h3>
-                <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                <p className="text-sm text-gray-400 mb-6 leading-relaxed">
                   Start with a pre-built conversational flow including greeting, intent detection, and branching paths.
                 </p>
-                <ul className="text-xs text-gray-500 dark:text-gray-500 space-y-1">
-                  <li>✓ Greeting message</li>
-                  <li>✓ Intent detection (Appointment, Info, Support)</li>
-                  <li>✓ Branching logic</li>
-                  <li>✓ Ready to customize</li>
+                <ul className="text-xs text-gray-500 space-y-2">
+                  <li className="flex items-center gap-2"><CheckCircle className="w-3.5 h-3.5 text-blue-500" /> Greeting message</li>
+                  <li className="flex items-center gap-2"><CheckCircle className="w-3.5 h-3.5 text-blue-500" /> Intent detection</li>
+                  <li className="flex items-center gap-2"><CheckCircle className="w-3.5 h-3.5 text-blue-500" /> Branching logic</li>
+                  <li className="flex items-center gap-2"><CheckCircle className="w-3.5 h-3.5 text-blue-500" /> Ready to customize</li>
                 </ul>
               </button>
 
@@ -1231,27 +1235,27 @@ export function AgentFlowCreator({ onBack, onSuccess, editAgentId }: AgentFlowCr
                   setEdges(getMinimalEdges());
                   setShowTemplateSelection(false);
                 }}
-                className="group bg-white dark:bg-gray-800 rounded-xl border-2 border-gray-200 dark:border-gray-700 p-6 hover:border-purple-500 dark:hover:border-purple-400 hover:shadow-lg transition-all text-left"
+                className="group bg-[#1C1C1E] rounded-3xl border border-white/5 p-8 hover:border-purple-500/50 hover:shadow-2xl hover:shadow-purple-500/10 transition-all duration-300 text-left"
               >
-                <div className="w-12 h-12 bg-purple-100 dark:bg-purple-900/30 rounded-xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
-                  <Sparkles className="w-6 h-6 text-purple-600 dark:text-purple-400" />
+                <div className="w-14 h-14 bg-purple-500/10 rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform duration-300 border border-purple-500/20">
+                  <Sparkles className="w-7 h-7 text-purple-400" />
                 </div>
-                <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-2">
+                <h3 className="text-xl font-semibold text-white mb-3">
                   Start Fresh
                 </h3>
-                <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                <p className="text-sm text-gray-400 mb-6 leading-relaxed">
                   Begin with a blank canvas containing only Start and End nodes. Build your flow from scratch.
                 </p>
-                <ul className="text-xs text-gray-500 dark:text-gray-500 space-y-1">
-                  <li>✓ Clean slate</li>
-                  <li>✓ Complete creative freedom</li>
-                  <li>✓ Add nodes as needed</li>
-                  <li>✓ Full customization</li>
+                <ul className="text-xs text-gray-500 space-y-2">
+                  <li className="flex items-center gap-2"><CheckCircle className="w-3.5 h-3.5 text-purple-500" /> Clean slate</li>
+                  <li className="flex items-center gap-2"><CheckCircle className="w-3.5 h-3.5 text-purple-500" /> Complete creative freedom</li>
+                  <li className="flex items-center gap-2"><CheckCircle className="w-3.5 h-3.5 text-purple-500" /> Add nodes as needed</li>
+                  <li className="flex items-center gap-2"><CheckCircle className="w-3.5 h-3.5 text-purple-500" /> Full customization</li>
                 </ul>
               </button>
             </div>
 
-            <p className="text-center text-xs text-gray-500 dark:text-gray-500 mt-6">
+            <p className="text-center text-xs text-gray-500 mt-8">
               You can always reset or modify your flow later using the toolbar
             </p>
           </div>
@@ -1317,18 +1321,18 @@ export function AgentFlowCreator({ onBack, onSuccess, editAgentId }: AgentFlowCr
 
           {/* Right Panel - Prompt Preview (Conditional) */}
           {showPromptPreview && !showAiChat && (
-            <div className="w-96 bg-white dark:bg-gray-800 border-l border-gray-200 dark:border-gray-700 flex flex-col overflow-hidden">
-              <div className="p-4 border-b border-gray-200 dark:border-gray-700">
-                <h3 className="font-semibold text-gray-900 dark:text-gray-100 flex items-center gap-2">
-                  <CheckCircle className="w-5 h-5 text-green-600 dark:text-green-400" />
+            <div className="w-96 bg-[#1C1C1E] border-l border-white/5 flex flex-col overflow-hidden">
+              <div className="p-4 border-b border-white/5">
+                <h3 className="font-semibold text-white flex items-center gap-2">
+                  <CheckCircle className="w-5 h-5 text-green-500" />
                   Generated System Prompt
                 </h3>
-                <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                <p className="text-sm text-gray-400 mt-1">
                   This prompt will be sent to the AI model
                 </p>
               </div>
-              <div className="flex-1 overflow-y-auto p-4">
-                <pre className="text-xs text-gray-700 dark:text-gray-300 whitespace-pre-wrap font-mono bg-gray-50 dark:bg-gray-900 p-4 rounded-lg border border-gray-200 dark:border-gray-700">
+              <div className="flex-1 overflow-y-auto p-4 scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent">
+                <pre className="text-xs text-gray-300 whitespace-pre-wrap font-mono bg-[#2C2C2E] p-4 rounded-xl border border-white/5 shadow-inner">
                   {generatedPrompt}
                 </pre>
               </div>
@@ -1351,24 +1355,26 @@ export function AgentFlowCreator({ onBack, onSuccess, editAgentId }: AgentFlowCr
 
       {/* Success Notification Banner - Only show for new creations, not edits */}
       {createdAssistantId && !isEditMode && (
-        <div className="fixed bottom-6 left-1/2 transform -translate-x-1/2 z-50 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4 shadow-lg max-w-md animate-in slide-in-from-bottom-5">
-          <div className="flex items-start gap-3">
-            <CheckCircle className="w-5 h-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
+        <div className="fixed bottom-6 left-1/2 transform -translate-x-1/2 z-50 bg-[#1C1C1E] border border-green-500/30 rounded-2xl p-5 shadow-2xl max-w-md animate-in slide-in-from-bottom-5">
+          <div className="flex items-start gap-4">
+            <div className="w-10 h-10 bg-green-500/10 rounded-full flex items-center justify-center flex-shrink-0">
+              <CheckCircle className="w-6 h-6 text-green-500" />
+            </div>
             <div className="flex-1">
-              <h3 className="text-sm font-semibold text-green-900 dark:text-green-100 mb-1">
+              <h3 className="text-sm font-semibold text-white mb-1">
                 Agent Created Successfully!
               </h3>
-              <p className="text-xs text-green-700 dark:text-green-300 mb-3">
-                <strong>{agentName}</strong> is ready. Use Voice Test in the left panel to test it.
+              <p className="text-xs text-gray-400 mb-4 leading-relaxed">
+                <strong className="text-green-400">{agentName}</strong> is ready. Use Voice Test in the left panel to test it.
               </p>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-3">
                 <button
                   onClick={() => {
                     setCreatedAssistantId(null);
                     setAgentName('');
                     onSuccess();
                   }}
-                  className="px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white rounded text-xs font-medium transition-colors"
+                  className="px-4 py-2 bg-green-600 hover:bg-green-500 text-white rounded-full text-xs font-medium transition-all shadow-lg shadow-green-900/20"
                 >
                   View in Agents List
                 </button>
@@ -1381,7 +1387,7 @@ export function AgentFlowCreator({ onBack, onSuccess, editAgentId }: AgentFlowCr
                     setEdges([]);
                     setShowTemplateSelection(true); // Show template selection for new agent
                   }}
-                  className="px-3 py-1.5 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 rounded text-xs font-medium transition-colors"
+                  className="px-4 py-2 bg-white/5 hover:bg-white/10 text-gray-300 hover:text-white rounded-full text-xs font-medium transition-colors border border-white/5"
                 >
                   Create Another
                 </button>
@@ -1392,7 +1398,7 @@ export function AgentFlowCreator({ onBack, onSuccess, editAgentId }: AgentFlowCr
                 setCreatedAssistantId(null);
                 setAgentName('');
               }}
-              className="text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 transition-colors"
+              className="text-gray-500 hover:text-white transition-colors p-1 hover:bg-white/5 rounded-lg"
               aria-label="Close"
             >
               <X className="w-4 h-4" />
