@@ -4807,8 +4807,10 @@ export default {
 
         // Query to get call distribution by assistant
         // Using JSON extraction to get assistant ID from raw_payload, then joining with assistants_cache
+        // Now also returns assistant_id for mapping purposes
         const { results } = await env.DB.prepare(
           `SELECT
+            ac.id as assistant_id,
             json_extract(ac.vapi_data, '$.name') as assistant_name,
             COUNT(*) as call_count
           FROM webhook_calls wc
@@ -4816,7 +4818,7 @@ export default {
           WHERE wc.user_id = ?
             AND wc.raw_payload IS NOT NULL
             AND wc.customer_number IS NOT NULL
-          GROUP BY assistant_name
+          GROUP BY ac.id, assistant_name
           ORDER BY call_count DESC`
         ).bind(effectiveUserId).all();
 

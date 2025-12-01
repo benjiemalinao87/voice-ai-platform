@@ -526,6 +526,7 @@ class D1Client {
 
   // Get call distribution by voice agent
   async getAgentDistribution(): Promise<Array<{
+    assistant_id: string;
     assistant_name: string;
     call_count: number;
   }>> {

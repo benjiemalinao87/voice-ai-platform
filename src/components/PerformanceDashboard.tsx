@@ -161,8 +161,8 @@ export function PerformanceDashboard({ selectedAgentId, dateRange }: Performance
       ] = await Promise.all([
         // 1. Dashboard summary with SQL-optimized metrics (single query, <50ms)
         d1Client.getDashboardSummary(),
-        // 2. Webhook calls for the call volume chart and call list
-        d1Client.getWebhookCalls({ limit: 1000 }),
+        // 2. Webhook calls for the call volume chart and call list (reduced from 1000 to 200 for faster loading)
+        d1Client.getWebhookCalls({ limit: 200 }),
         // 3. Keywords data
         d1Client.getKeywords(),
         // 4. Concurrent calls data
@@ -285,25 +285,24 @@ export function PerformanceDashboard({ selectedAgentId, dateRange }: Performance
         { label: 'Outbound', value: outboundCount, color: '#10b981' }
       ];
 
-      // Fetch assistant names for all unique assistant IDs
-      const uniqueAssistantIds = [...new Set(convertedCalls.map(call => call.agent_id).filter(id => id))];
+      // Build assistant names map from agentDistributionData (already fetched - no extra API calls!)
+      // This eliminates N individual getAssistant() calls that were causing slow loading
       const assistantNamesMap: Record<string, string> = {};
+      
+      // Populate from agent distribution data using assistant_id as key
+      agentDistributionData.forEach((agent) => {
+        if (agent.assistant_id) {
+          assistantNamesMap[agent.assistant_id] = agent.assistant_name || agent.assistant_id;
+        }
+      });
 
-      // Fetch assistant details in parallel
-      await Promise.all(
-        uniqueAssistantIds.map(async (assistantId) => {
-          try {
-            const { assistant } = await d1Client.getAssistant(assistantId);
-            assistantNamesMap[assistantId] = assistant?.name || assistantId;
-          } catch (error: any) {
-            // Silently handle 404s (deleted assistants) - just use the ID
-            if (!error.message?.includes('404')) {
-              console.error(`Error fetching assistant ${assistantId}:`, error);
-            }
-            assistantNamesMap[assistantId] = assistantId.substring(0, 8) + '...'; // Show truncated ID for deleted assistants
-          }
-        })
-      );
+      // For any assistant IDs not found in distribution, show truncated ID
+      const uniqueAssistantIds = [...new Set(convertedCalls.map(call => call.agent_id).filter(id => id))];
+      uniqueAssistantIds.forEach((assistantId) => {
+        if (!assistantNamesMap[assistantId]) {
+          assistantNamesMap[assistantId] = assistantId.substring(0, 8) + '...';
+        }
+      });
 
       setMetrics(metricsData);
       setCalls(convertedCalls);

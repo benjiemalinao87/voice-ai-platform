@@ -4210,3 +4210,55 @@ Added `isClassifyingIntent` flag to `flowTraversalRef`:
 **Key Insight:**
 When dealing with async operations that affect UI state, use synchronous ref flags for immediate checks in event handlers. React state updates are batched and may not be visible immediately in subsequent event callbacks.
 
+---
+
+## Dashboard Loading Performance Optimization (Dec 1, 2025)
+
+**Problem:**
+Dashboard was loading slowly due to excessive API calls.
+
+**Root Cause Analysis:**
+1. **Heavy data fetch**: Fetching 1000 webhook calls when only displaying 10 in the recent calls table
+2. **N+1 API calls problem**: After fetching calls, making N individual `getAssistant()` API calls for each unique assistant ID to get assistant names
+
+**Before:**
+```javascript
+// 7 parallel API calls (good)
+Promise.all([
+  getDashboardSummary(),
+  getWebhookCalls({ limit: 1000 }), // TOO HEAVY
+  getKeywords(),
+  getConcurrentCalls(),
+  getConcurrentCallsTimeSeries(),
+  getCallEndedReasons(),
+  getAgentDistribution()  // Already returns assistant names!
+]);
+
+// THEN N more API calls (bad - N+1 problem)
+await Promise.all(
+  uniqueAssistantIds.map(async (assistantId) => {
+    const { assistant } = await d1Client.getAssistant(assistantId);
+    // ...
+  })
+);
+```
+
+**Fix Applied:**
+1. Reduced webhook calls limit from 1000 to 200 (enough for chart data, much lighter)
+2. Modified `/api/agent-distribution` endpoint to return `assistant_id` alongside `assistant_name`
+3. Reuse assistant names from `agentDistribution` response instead of making additional API calls
+4. Eliminated the N+1 API calls entirely
+
+**Files Changed:**
+- `src/components/PerformanceDashboard.tsx` - Reduced limit, reuse agent distribution data
+- `src/lib/d1.ts` - Updated type to include `assistant_id`
+- `workers/index.ts` - Added `assistant_id` to agent-distribution query
+
+**What NOT to do:**
+- Don't fetch more data than you need (1000 calls when displaying 10)
+- Don't make individual API calls in loops when batch data is already available
+- Don't ignore data you already fetched that could be reused
+
+**Key Insight:**
+Always look for data reuse opportunities. If you're fetching related data in parallel, check if one API response contains data needed by another process. The agent distribution endpoint already did a JOIN to get assistant names - no need to fetch them again individually.
+
