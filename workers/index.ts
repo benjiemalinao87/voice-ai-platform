@@ -1054,10 +1054,48 @@ async function processAddonsForCall(
     // Initialize cache
     const cache = new VoiceAICache(env.CACHE);
 
-    // Get enabled addons for user
-    const enabledAddons = await env.DB.prepare(
-      'SELECT addon_type, settings FROM user_addons WHERE user_id = ? AND is_enabled = 1'
-    ).bind(userId).all();
+    // Get user's workspace
+    const userSettings = await env.DB.prepare(
+      'SELECT selected_workspace_id FROM user_settings WHERE user_id = ?'
+    ).bind(userId).first() as any;
+
+    let workspaceId = userSettings?.selected_workspace_id;
+
+    // Fallback: if no selected workspace, find user's workspace (owned or member)
+    if (!workspaceId) {
+      const ownedWorkspace = await env.DB.prepare(
+        'SELECT id FROM workspaces WHERE owner_user_id = ?'
+      ).bind(userId).first() as any;
+      
+      if (ownedWorkspace) {
+        workspaceId = ownedWorkspace.id;
+      } else {
+        const memberWorkspace = await env.DB.prepare(
+          'SELECT workspace_id FROM workspace_members WHERE user_id = ? AND status = "active" LIMIT 1'
+        ).bind(userId).first() as any;
+        
+        if (memberWorkspace) {
+          workspaceId = memberWorkspace.workspace_id;
+        }
+      }
+    }
+
+    if (!workspaceId) {
+      console.log('[Addons] No workspace found for user, skipping addon processing');
+      return;
+    }
+
+    // Get enabled addons for workspace (fallback to user_addons for backward compatibility)
+    let enabledAddons = await env.DB.prepare(
+      'SELECT addon_type, settings FROM workspace_addons WHERE workspace_id = ? AND is_enabled = 1'
+    ).bind(workspaceId).all();
+
+    // Fallback to user_addons for backward compatibility
+    if (!enabledAddons.results || enabledAddons.results.length === 0) {
+      enabledAddons = await env.DB.prepare(
+        'SELECT addon_type, settings FROM user_addons WHERE user_id = ? AND is_enabled = 1'
+      ).bind(userId).all();
+    }
 
     if (!enabledAddons.results || enabledAddons.results.length === 0) {
       return;
@@ -1931,29 +1969,30 @@ export default {
 
           const userId = workspace.owner_user_id;
 
-          // Check if token entry exists
+          // Check if token entry exists (workspace-level)
           const existing = await env.DB.prepare(
-            'SELECT id FROM hubspot_oauth_tokens WHERE user_id = ? AND workspace_id = ?'
-          ).bind(userId, workspaceId).first();
+            'SELECT id FROM hubspot_oauth_tokens WHERE workspace_id = ? LIMIT 1'
+          ).bind(workspaceId).first();
 
           const timestamp = now();
           const tokenId = generateId();
 
           if (existing) {
-            // Update existing tokens
+            // Update existing tokens (workspace-level)
             await env.DB.prepare(
               `UPDATE hubspot_oauth_tokens
                SET access_token = ?,
                    refresh_token = ?,
                    expires_at = ?,
-                   updated_at = ?
-               WHERE user_id = ? AND workspace_id = ?`
+                   updated_at = ?,
+                   user_id = ?
+               WHERE workspace_id = ?`
             ).bind(
               tokens.access_token,
               tokens.refresh_token,
               tokens.expires_in,
               timestamp,
-              userId,
+              userId, // Update user_id to current owner for audit
               workspaceId
             ).run();
           } else {
@@ -2013,10 +2052,10 @@ export default {
 
         const workspaceId = userSettings.selected_workspace_id;
 
-        // Get HubSpot tokens
+        // Get HubSpot tokens (workspace-level, any user_id)
         const tokens = await env.DB.prepare(
-          'SELECT access_token, refresh_token, expires_at FROM hubspot_oauth_tokens WHERE user_id = ? AND workspace_id = ?'
-        ).bind(userId, workspaceId).first() as any;
+          'SELECT access_token, refresh_token, expires_at FROM hubspot_oauth_tokens WHERE workspace_id = ? LIMIT 1'
+        ).bind(workspaceId).first() as any;
 
         const connected = !!(tokens && tokens.refresh_token);
         const tokenExpiresAt = tokens?.expires_at || null;
@@ -2046,10 +2085,10 @@ export default {
 
         const workspaceId = userSettings.selected_workspace_id;
 
-        // Delete HubSpot tokens
+        // Delete HubSpot tokens (workspace-level)
         await env.DB.prepare(
-          'DELETE FROM hubspot_oauth_tokens WHERE user_id = ? AND workspace_id = ?'
-        ).bind(userId, workspaceId).run();
+          'DELETE FROM hubspot_oauth_tokens WHERE workspace_id = ?'
+        ).bind(workspaceId).run();
 
         return jsonResponse({
           success: true,
@@ -2080,14 +2119,14 @@ export default {
         const offset = parseInt(url.searchParams.get('offset') || '0');
         const status = url.searchParams.get('status'); // 'success', 'error', 'skipped'
 
-        // Build query
+        // Build query (workspace-level - all members see all sync logs)
         let query = `
           SELECT id, call_id, contact_id, engagement_id, status,
                  error_message, phone_number, created_at
           FROM hubspot_sync_logs
-          WHERE user_id = ? AND workspace_id = ?
+          WHERE workspace_id = ?
         `;
-        const params: any[] = [userId, workspaceId];
+        const params: any[] = [workspaceId];
 
         if (status) {
           query += ' AND status = ?';
@@ -2099,9 +2138,9 @@ export default {
 
         const logs = await env.DB.prepare(query).bind(...params).all();
 
-        // Get total count
-        let countQuery = 'SELECT COUNT(*) as count FROM hubspot_sync_logs WHERE user_id = ? AND workspace_id = ?';
-        const countParams: any[] = [userId, workspaceId];
+        // Get total count (workspace-level)
+        let countQuery = 'SELECT COUNT(*) as count FROM hubspot_sync_logs WHERE workspace_id = ?';
+        const countParams: any[] = [workspaceId];
 
         if (status) {
           countQuery += ' AND status = ?';
@@ -2467,15 +2506,26 @@ export default {
 
           // Send invitation email (don't fail the request if email fails)
           if (env.SENDGRID_API_KEY) {
-          sendTeamInviteEmail(env.SENDGRID_API_KEY, {
-            to: email,
-            workspaceName: workspaceName,
-            email: email,
-            temporaryPassword: temporaryPassword,
-          }).catch((error) => {
-              console.error('Failed to send team invite email:', error);
+            console.log(`[Email] Attempting to send team invite email to: ${email}`);
+            sendTeamInviteEmail(env.SENDGRID_API_KEY, {
+              to: email,
+              workspaceName: workspaceName,
+              email: email,
+              temporaryPassword: temporaryPassword,
+            })
+            .then((result) => {
+              if (result.success) {
+                console.log(`[Email] Successfully sent team invite email to: ${email}`);
+              } else {
+                console.error(`[Email] Failed to send team invite email to ${email}:`, result.error);
+              }
+            })
+            .catch((error) => {
+              console.error(`[Email] Error sending team invite email to ${email}:`, error);
               // Don't throw - email failure shouldn't fail the invitation
             });
+          } else {
+            console.warn('[Email] SENDGRID_API_KEY not configured, skipping email send');
           }
 
           return jsonResponse({
@@ -2589,24 +2639,27 @@ export default {
           return jsonResponse({ error: 'Only owners and admins can remove members' }, 403);
         }
 
+        // memberId is actually user_id (from frontend)
+        const userIdToRemove = memberId;
+
         // Cannot remove owner
-        if (memberId === workspace.owner_user_id) {
+        if (userIdToRemove === workspace.owner_user_id) {
           return jsonResponse({ error: 'Cannot remove workspace owner' }, 400);
         }
 
-        // Get the member to remove
+        // Get the member to remove (lookup by user_id, not workspace_members.id)
         const member = await env.DB.prepare(
-          'SELECT user_id FROM workspace_members WHERE id = ? AND workspace_id = ?'
-        ).bind(memberId, workspaceId).first() as any;
+          'SELECT id, user_id FROM workspace_members WHERE user_id = ? AND workspace_id = ?'
+        ).bind(userIdToRemove, workspaceId).first() as any;
 
         if (!member) {
           return jsonResponse({ error: 'Member not found' }, 404);
         }
 
-        // Remove member
+        // Remove member (delete by workspace_members.id)
         await env.DB.prepare(
           'DELETE FROM workspace_members WHERE id = ? AND workspace_id = ?'
-        ).bind(memberId, workspaceId).run();
+        ).bind(member.id, workspaceId).run();
 
         return jsonResponse({ success: true, message: 'Member removed successfully' });
       }
@@ -2640,20 +2693,23 @@ export default {
           return jsonResponse({ error: 'Only workspace owner can change roles' }, 403);
         }
 
-        // Get the member to update
+        // memberId is actually user_id (from frontend)
+        const userIdToUpdate = memberId;
+
+        // Get the member to update (lookup by user_id)
         const member = await env.DB.prepare(
-          'SELECT user_id FROM workspace_members WHERE id = ? AND workspace_id = ?'
-        ).bind(memberId, workspaceId).first() as any;
+          'SELECT id, user_id FROM workspace_members WHERE user_id = ? AND workspace_id = ?'
+        ).bind(userIdToUpdate, workspaceId).first() as any;
 
         if (!member) {
           return jsonResponse({ error: 'Member not found' }, 404);
         }
 
-        // Update role
+        // Update role (update by workspace_members.id)
         const timestamp = now();
         await env.DB.prepare(
           'UPDATE workspace_members SET role = ?, updated_at = ? WHERE id = ? AND workspace_id = ?'
-        ).bind(role, timestamp, memberId, workspaceId).run();
+        ).bind(role, timestamp, member.id, workspaceId).run();
 
         return jsonResponse({ success: true, message: 'Member role updated successfully' });
       }
@@ -2687,10 +2743,13 @@ export default {
           return jsonResponse({ error: 'Only owners and admins can reset passwords' }, 403);
         }
 
-        // Get the member to reset password for
+        // memberId is actually user_id (from frontend)
+        const userIdToReset = memberId;
+
+        // Get the member to reset password for (lookup by user_id)
         const member = await env.DB.prepare(
-          'SELECT user_id FROM workspace_members WHERE id = ? AND workspace_id = ?'
-        ).bind(memberId, workspaceId).first() as any;
+          'SELECT user_id FROM workspace_members WHERE user_id = ? AND workspace_id = ?'
+        ).bind(userIdToReset, workspaceId).first() as any;
 
         if (!member) {
           return jsonResponse({ error: 'Member not found' }, 404);
@@ -2699,7 +2758,7 @@ export default {
         // Get user email
         const user = await env.DB.prepare(
           'SELECT email FROM users WHERE id = ?'
-        ).bind(member.user_id).first() as any;
+        ).bind(userIdToReset).first() as any;
 
         if (!user) {
           return jsonResponse({ error: 'User not found' }, 404);
@@ -2713,7 +2772,7 @@ export default {
         // Update user's password
         await env.DB.prepare(
           'UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?'
-        ).bind(passwordHash, timestamp, member.user_id).run();
+        ).bind(passwordHash, timestamp, userIdToReset).run();
 
         // Send password reset email (don't fail the request if email fails)
         if (env.SENDGRID_API_KEY) {
@@ -3889,18 +3948,57 @@ export default {
       // ADDONS ENDPOINTS (Protected)
       // ============================================
 
-      // Get user addons configuration
+      // Get workspace addons configuration
       if (url.pathname === '/api/addons' && request.method === 'GET') {
         const userId = await getUserFromToken(request, env);
         if (!userId) {
           return jsonResponse({ error: 'Unauthorized' }, 401);
         }
 
-        const { results } = await env.DB.prepare(
+        // Get user's workspace
+        const userSettings = await env.DB.prepare(
+          'SELECT selected_workspace_id FROM user_settings WHERE user_id = ?'
+        ).bind(userId).first() as any;
+
+        if (!userSettings || !userSettings.selected_workspace_id) {
+          return jsonResponse({ error: 'No workspace selected' }, 400);
+        }
+
+        const workspaceId = userSettings.selected_workspace_id;
+
+        // Verify workspace access
+        const workspace = await env.DB.prepare(
+          'SELECT owner_user_id FROM workspaces WHERE id = ?'
+        ).bind(workspaceId).first() as any;
+
+        if (!workspace) {
+          return jsonResponse({ error: 'Workspace not found' }, 404);
+        }
+
+        const isOwner = workspace.owner_user_id === userId;
+        const membership = await env.DB.prepare(
+          'SELECT status FROM workspace_members WHERE workspace_id = ? AND user_id = ? AND status = "active"'
+        ).bind(workspaceId, userId).first() as any;
+
+        if (!isOwner && !membership) {
+          return jsonResponse({ error: 'Access denied to workspace' }, 403);
+        }
+
+        // Query workspace_addons (fallback to user_addons for backward compatibility)
+        const { results: workspaceResults } = await env.DB.prepare(
+          'SELECT addon_type, is_enabled, settings FROM workspace_addons WHERE workspace_id = ?'
+        ).bind(workspaceId).all();
+
+        if (workspaceResults && workspaceResults.length > 0) {
+          return jsonResponse({ addons: workspaceResults || [] });
+        }
+
+        // Fallback: check user_addons for backward compatibility
+        const { results: userResults } = await env.DB.prepare(
           'SELECT addon_type, is_enabled, settings FROM user_addons WHERE user_id = ?'
         ).bind(userId).all();
 
-        return jsonResponse({ addons: results || [] });
+        return jsonResponse({ addons: userResults || [] });
       }
 
       // Toggle addon on/off
@@ -3916,23 +4014,52 @@ export default {
           return jsonResponse({ error: 'addon_type required' }, 400);
         }
 
+        // Get user's workspace
+        const userSettings = await env.DB.prepare(
+          'SELECT selected_workspace_id FROM user_settings WHERE user_id = ?'
+        ).bind(userId).first() as any;
+
+        if (!userSettings || !userSettings.selected_workspace_id) {
+          return jsonResponse({ error: 'No workspace selected' }, 400);
+        }
+
+        const workspaceId = userSettings.selected_workspace_id;
+
+        // Verify workspace access
+        const workspace = await env.DB.prepare(
+          'SELECT owner_user_id FROM workspaces WHERE id = ?'
+        ).bind(workspaceId).first() as any;
+
+        if (!workspace) {
+          return jsonResponse({ error: 'Workspace not found' }, 404);
+        }
+
+        const isOwner = workspace.owner_user_id === userId;
+        const membership = await env.DB.prepare(
+          'SELECT status FROM workspace_members WHERE workspace_id = ? AND user_id = ? AND status = "active"'
+        ).bind(workspaceId, userId).first() as any;
+
+        if (!isOwner && !membership) {
+          return jsonResponse({ error: 'Access denied to workspace' }, 403);
+        }
+
         const timestamp = now();
 
-        // Check if addon config exists
+        // Check if workspace addon config exists
         const existing = await env.DB.prepare(
-          'SELECT id FROM user_addons WHERE user_id = ? AND addon_type = ?'
-        ).bind(userId, addonType).first();
+          'SELECT id FROM workspace_addons WHERE workspace_id = ? AND addon_type = ?'
+        ).bind(workspaceId, addonType).first();
 
         if (existing) {
           // Update existing
           await env.DB.prepare(
-            'UPDATE user_addons SET is_enabled = ?, updated_at = ? WHERE user_id = ? AND addon_type = ?'
-          ).bind(enabled ? 1 : 0, timestamp, userId, addonType).run();
+            'UPDATE workspace_addons SET is_enabled = ?, updated_at = ? WHERE workspace_id = ? AND addon_type = ?'
+          ).bind(enabled ? 1 : 0, timestamp, workspaceId, addonType).run();
         } else {
           // Create new
           await env.DB.prepare(
-            'INSERT INTO user_addons (id, user_id, addon_type, is_enabled, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
-          ).bind(generateId(), userId, addonType, enabled ? 1 : 0, timestamp, timestamp).run();
+            'INSERT INTO workspace_addons (id, workspace_id, addon_type, is_enabled, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
+          ).bind(generateId(), workspaceId, addonType, enabled ? 1 : 0, timestamp, timestamp).run();
         }
 
         return jsonResponse({ message: 'Addon updated successfully', enabled });
@@ -3981,24 +4108,53 @@ export default {
           return jsonResponse({ error: 'Invalid URL format' }, 400);
         }
 
+        // Get user's workspace
+        const userSettings = await env.DB.prepare(
+          'SELECT selected_workspace_id FROM user_settings WHERE user_id = ?'
+        ).bind(userId).first() as any;
+
+        if (!userSettings || !userSettings.selected_workspace_id) {
+          return jsonResponse({ error: 'No workspace selected' }, 400);
+        }
+
+        const workspaceId = userSettings.selected_workspace_id;
+
+        // Verify workspace access
+        const workspace = await env.DB.prepare(
+          'SELECT owner_user_id FROM workspaces WHERE id = ?'
+        ).bind(workspaceId).first() as any;
+
+        if (!workspace) {
+          return jsonResponse({ error: 'Workspace not found' }, 404);
+        }
+
+        const isOwner = workspace.owner_user_id === userId;
+        const membership = await env.DB.prepare(
+          'SELECT status FROM workspace_members WHERE workspace_id = ? AND user_id = ? AND status = "active"'
+        ).bind(workspaceId, userId).first() as any;
+
+        if (!isOwner && !membership) {
+          return jsonResponse({ error: 'Access denied to workspace' }, 403);
+        }
+
         const timestamp = now();
         const settings = JSON.stringify({ url: embeddingUrl, buttonName: buttonName.trim() });
 
-        // Check if embedding addon exists
+        // Check if workspace embedding addon exists
         const existing = await env.DB.prepare(
-          'SELECT id FROM user_addons WHERE user_id = ? AND addon_type = ?'
-        ).bind(userId, 'embedding').first();
+          'SELECT id FROM workspace_addons WHERE workspace_id = ? AND addon_type = ?'
+        ).bind(workspaceId, 'embedding').first();
 
         if (existing) {
           // Update existing
           await env.DB.prepare(
-            'UPDATE user_addons SET settings = ?, updated_at = ? WHERE user_id = ? AND addon_type = ?'
-          ).bind(settings, timestamp, userId, 'embedding').run();
+            'UPDATE workspace_addons SET settings = ?, updated_at = ? WHERE workspace_id = ? AND addon_type = ?'
+          ).bind(settings, timestamp, workspaceId, 'embedding').run();
         } else {
           // Create new with enabled by default
           await env.DB.prepare(
-            'INSERT INTO user_addons (id, user_id, addon_type, is_enabled, settings, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
-          ).bind(generateId(), userId, 'embedding', 1, settings, timestamp, timestamp).run();
+            'INSERT INTO workspace_addons (id, workspace_id, addon_type, is_enabled, settings, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+          ).bind(generateId(), workspaceId, 'embedding', 1, settings, timestamp, timestamp).run();
         }
 
         return jsonResponse({ message: 'Embedding settings saved successfully' });
@@ -4011,9 +4167,46 @@ export default {
           return jsonResponse({ error: 'Unauthorized' }, 401);
         }
 
-        const result = await env.DB.prepare(
-          'SELECT settings, is_enabled FROM user_addons WHERE user_id = ? AND addon_type = ?'
-        ).bind(userId, 'embedding').first();
+        // Get user's workspace
+        const userSettings = await env.DB.prepare(
+          'SELECT selected_workspace_id FROM user_settings WHERE user_id = ?'
+        ).bind(userId).first() as any;
+
+        if (!userSettings || !userSettings.selected_workspace_id) {
+          return jsonResponse({ error: 'No workspace selected' }, 400);
+        }
+
+        const workspaceId = userSettings.selected_workspace_id;
+
+        // Verify workspace access
+        const workspace = await env.DB.prepare(
+          'SELECT owner_user_id FROM workspaces WHERE id = ?'
+        ).bind(workspaceId).first() as any;
+
+        if (!workspace) {
+          return jsonResponse({ error: 'Workspace not found' }, 404);
+        }
+
+        const isOwner = workspace.owner_user_id === userId;
+        const membership = await env.DB.prepare(
+          'SELECT status FROM workspace_members WHERE workspace_id = ? AND user_id = ? AND status = "active"'
+        ).bind(workspaceId, userId).first() as any;
+
+        if (!isOwner && !membership) {
+          return jsonResponse({ error: 'Access denied to workspace' }, 403);
+        }
+
+        // Query workspace_addons (fallback to user_addons for backward compatibility)
+        let result = await env.DB.prepare(
+          'SELECT settings, is_enabled FROM workspace_addons WHERE workspace_id = ? AND addon_type = ?'
+        ).bind(workspaceId, 'embedding').first();
+
+        // Fallback to user_addons for backward compatibility
+        if (!result || !result.settings) {
+          result = await env.DB.prepare(
+            'SELECT settings, is_enabled FROM user_addons WHERE user_id = ? AND addon_type = ?'
+          ).bind(userId, 'embedding').first();
+        }
 
         if (!result || !result.settings) {
           return jsonResponse({ url: null, buttonName: null, isEnabled: false });
@@ -9057,8 +9250,8 @@ Need help? Contact our support team anytime!
                 // Sync to HubSpot if connected
                 try {
                   const hubspotTokens = await env.DB.prepare(
-                    'SELECT access_token FROM hubspot_oauth_tokens WHERE user_id = ? AND workspace_id = ?'
-                  ).bind(webhook.user_id, wsSettings?.workspace_id).first() as any;
+                    'SELECT access_token FROM hubspot_oauth_tokens WHERE workspace_id = ? LIMIT 1'
+                  ).bind(wsSettings?.workspace_id).first() as any;
 
                   if (hubspotTokens && customer.number && hasSummary) {
                     console.log('[HubSpot] Syncing call to HubSpot...');

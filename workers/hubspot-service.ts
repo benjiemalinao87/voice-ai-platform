@@ -134,13 +134,13 @@ export async function ensureValidToken(
   workspaceId: string,
   env: Env
 ): Promise<string> {
-  // Get current tokens from database
+  // Get current tokens from database (workspace-level)
   const token = await db.prepare(
-    'SELECT access_token, refresh_token, expires_at FROM hubspot_oauth_tokens WHERE user_id = ? AND workspace_id = ?'
-  ).bind(userId, workspaceId).first();
+    'SELECT access_token, refresh_token, expires_at FROM hubspot_oauth_tokens WHERE workspace_id = ? LIMIT 1'
+  ).bind(workspaceId).first();
 
   if (!token || !token.refresh_token) {
-    throw new Error('HubSpot not connected for this user');
+    throw new Error('HubSpot not connected for this workspace');
   }
 
   const now = Math.floor(Date.now() / 1000);
@@ -151,14 +151,13 @@ export async function ensureValidToken(
     console.log('[HubSpot] Access token expired, refreshing...');
     const newTokens = await refreshAccessToken(token.refresh_token, env);
 
-    // Update database with new tokens
+    // Update database with new tokens (workspace-level)
     await db.prepare(
-      'UPDATE hubspot_oauth_tokens SET access_token = ?, expires_at = ?, updated_at = ? WHERE user_id = ? AND workspace_id = ?'
+      'UPDATE hubspot_oauth_tokens SET access_token = ?, expires_at = ?, updated_at = ? WHERE workspace_id = ?'
     ).bind(
       newTokens.access_token,
       newTokens.expires_in,
       Date.now(),
-      userId,
       workspaceId
     ).run();
 

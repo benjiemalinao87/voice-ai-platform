@@ -21,6 +21,7 @@ async function sendEmail(
   options: SendEmailOptions
 ): Promise<{ success: boolean; error?: string }> {
   try {
+    console.log(`[SendGrid] Sending email to: ${options.to}, Subject: ${options.subject}`);
     const response = await fetch(SENDGRID_API_URL, {
       method: 'POST',
       headers: {
@@ -49,16 +50,35 @@ async function sendEmail(
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('SendGrid API error:', response.status, errorText);
+      console.error(`[SendGrid] API error (${response.status}):`, errorText);
+      let errorMessage = `SendGrid API error: ${response.status}`;
+      try {
+        const errorJson = JSON.parse(errorText);
+        if (errorJson.errors && errorJson.errors.length > 0) {
+          errorMessage = errorJson.errors.map((e: any) => e.message || e).join('; ');
+          console.error('[SendGrid] Detailed errors:', JSON.stringify(errorJson.errors, null, 2));
+        }
+      } catch (e) {
+        // If errorText is not JSON, use it as is
+        if (errorText) {
+          errorMessage = errorText;
+        }
+      }
       return {
         success: false,
-        error: `SendGrid API error: ${response.status}`,
+        error: errorMessage,
       };
     }
 
+    console.log('[SendGrid] Email sent successfully to:', options.to);
     return { success: true };
   } catch (error: any) {
-    console.error('Error sending email:', error);
+    console.error('[SendGrid] Exception sending email:', error);
+    console.error('[SendGrid] Error details:', {
+      message: error.message,
+      stack: error.stack,
+      name: error.name,
+    });
     return {
       success: false,
       error: error.message || 'Failed to send email',

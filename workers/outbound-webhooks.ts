@@ -259,10 +259,10 @@ export async function dispatchToOutboundWebhooks(
 
         console.log('[HubSpot] Workspace settings:', wsSettings);
 
-        // Check if HubSpot is connected
+        // Check if HubSpot is connected (workspace-level)
         const hubspotTokens = await env.DB.prepare(
-          'SELECT access_token FROM hubspot_oauth_tokens WHERE user_id = ? AND workspace_id = ?'
-        ).bind(userId, wsSettings?.workspace_id).first() as any;
+          'SELECT access_token FROM hubspot_oauth_tokens WHERE workspace_id = ? LIMIT 1'
+        ).bind(wsSettings?.workspace_id).first() as any;
 
         console.log('[HubSpot] HubSpot tokens:', hubspotTokens ? 'Found' : 'Not found');
 
