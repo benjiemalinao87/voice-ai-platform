@@ -5,7 +5,7 @@
  */
 
 import { useState, useEffect } from 'react';
-import { Users, UserPlus, Building2, CheckCircle2, Clock, Info, X, Mail, MoreVertical, Trash2, Shield, User } from 'lucide-react';
+import { Users, UserPlus, Building2, CheckCircle2, Clock, Info, X, Mail, MoreVertical, Trash2, Shield, User, Key } from 'lucide-react';
 import { d1Client } from '../lib/d1';
 import { useAuth } from '../contexts/AuthContext';
 import { useVapi } from '../contexts/VapiContext';
@@ -84,6 +84,7 @@ export function TeamMembers() {
   const [showMemberMenu, setShowMemberMenu] = useState<string | null>(null);
   const [removingMember, setRemovingMember] = useState<string | null>(null);
   const [changingRole, setChangingRole] = useState<string | null>(null);
+  const [resettingPassword, setResettingPassword] = useState<string | null>(null);
   const [generatedCredentials, setGeneratedCredentials] = useState<{ email: string; temporaryPassword: string } | null>(null);
 
   useEffect(() => {
@@ -400,6 +401,27 @@ export function TeamMembers() {
                                       Change to Admin
                                     </>
                                   )}
+                                </button>
+                                <button
+                                  onClick={async () => {
+                                    if (!selectedWorkspace) return;
+                                    if (!confirm(`Reset password for ${member.name || member.email}? A new password will be sent to their email.`)) return;
+                                    setResettingPassword(member.id);
+                                    try {
+                                      const result = await d1Client.resetMemberPassword(selectedWorkspace.id, member.id);
+                                      alert(result.message || 'Password reset successfully. An email with the new password has been sent.');
+                                    } catch (error: any) {
+                                      alert(error.message || 'Failed to reset password');
+                                    } finally {
+                                      setResettingPassword(null);
+                                      setShowMemberMenu(null);
+                                    }
+                                  }}
+                                  disabled={resettingPassword === member.id}
+                                  className="w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2 disabled:opacity-50"
+                                >
+                                  <Key className="w-4 h-4" />
+                                  Reset Password
                                 </button>
                                 <button
                                   onClick={async () => {

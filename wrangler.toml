@@ -48,6 +48,10 @@ SALESFORCE_CLIENT_SECRET = "your-salesforce-consumer-secret-here"
 # wrangler secret put DYNAMICS_CLIENT_SECRET
 # wrangler secret put DYNAMICS_TENANT_ID
 
+# SendGrid Email Service
+# Configured via wrangler secrets:
+# wrangler secret put SENDGRID_API_KEY
+
 # For production, use:
 # wrangler secret put JWT_SECRET
 # wrangler secret put SALESFORCE_CLIENT_ID
@@ -57,6 +61,7 @@ SALESFORCE_CLIENT_SECRET = "your-salesforce-consumer-secret-here"
 # wrangler secret put DYNAMICS_CLIENT_ID
 # wrangler secret put DYNAMICS_CLIENT_SECRET
 # wrangler secret put DYNAMICS_TENANT_ID
+# wrangler secret put SENDGRID_API_KEY
 
 # Cron trigger for cleanup jobs
 [triggers]

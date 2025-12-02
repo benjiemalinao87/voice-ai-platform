@@ -504,6 +504,12 @@ class D1Client {
     });
   }
 
+  async resetMemberPassword(workspaceId: string, memberId: string): Promise<{ success: boolean; message: string }> {
+    return this.request(`/api/workspaces/${workspaceId}/members/${memberId}/reset-password`, {
+      method: 'POST',
+    });
+  }
+
   // Dashboard Summary - SQL-optimized metrics
   async getDashboardSummary(): Promise<{
     totalCalls: number;

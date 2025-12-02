@@ -16,6 +16,7 @@ import {
 } from './auth';
 import { VoiceAICache, CACHE_TTL } from './cache';
 import { dispatchToOutboundWebhooks } from './outbound-webhooks';
+import { sendTeamInviteEmail, sendPasswordResetEmail } from './email-service';
 import {
   createOutboundWebhook,
   listOutboundWebhooks,
@@ -109,6 +110,7 @@ export interface Env {
   DYNAMICS_CLIENT_ID: string;
   DYNAMICS_CLIENT_SECRET: string;
   DYNAMICS_TENANT_ID: string;
+  SENDGRID_API_KEY?: string; // Set via: wrangler secret put SENDGRID_API_KEY
 }
 
 // CORS headers
@@ -2429,6 +2431,10 @@ export default {
           const passwordHash = await hashPassword(temporaryPassword);
           const newUserId = generateId();
 
+          // Get workspace name for email
+          const workspaceInfo = await env.DB.prepare('SELECT name FROM workspaces WHERE id = ?').bind(workspaceId).first() as any;
+          const workspaceName = workspaceInfo?.name || 'the workspace';
+
           // Create user account
           await env.DB.prepare(
             'INSERT INTO users (id, email, password_hash, name, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
@@ -2436,10 +2442,10 @@ export default {
 
           // Create default workspace for the new user
           const newUserWorkspaceId = 'ws_' + generateId();
-          const workspaceName = email.split('@')[0] || 'My Workspace';
+          const defaultWorkspaceName = email.split('@')[0] || 'My Workspace';
           await env.DB.prepare(
             'INSERT INTO workspaces (id, name, owner_user_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?)'
-          ).bind(newUserWorkspaceId, workspaceName, newUserId, timestamp, timestamp).run();
+          ).bind(newUserWorkspaceId, defaultWorkspaceName, newUserId, timestamp, timestamp).run();
 
           // Create user settings with the invited workspace as selected
           const settingsId = generateId();
@@ -2458,6 +2464,19 @@ export default {
           await env.DB.prepare(
             'UPDATE workspace_invitations SET status = \"accepted\", accepted_at = ? WHERE email = ? AND workspace_id = ? AND status = \"pending\"'
           ).bind(timestamp, email, workspaceId).run();
+
+          // Send invitation email (don't fail the request if email fails)
+          if (env.SENDGRID_API_KEY) {
+          sendTeamInviteEmail(env.SENDGRID_API_KEY, {
+            to: email,
+            workspaceName: workspaceName,
+            email: email,
+            temporaryPassword: temporaryPassword,
+          }).catch((error) => {
+              console.error('Failed to send team invite email:', error);
+              // Don't throw - email failure shouldn't fail the invitation
+            });
+          }
 
           return jsonResponse({
             success: true,
@@ -2637,6 +2656,81 @@ export default {
         ).bind(role, timestamp, memberId, workspaceId).run();
 
         return jsonResponse({ success: true, message: 'Member role updated successfully' });
+      }
+
+      // Reset member password
+      if (url.pathname.includes('/api/workspaces/') && url.pathname.includes('/members/') && url.pathname.endsWith('/reset-password') && request.method === 'POST') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        const parts = url.pathname.split('/');
+        const workspaceId = parts[3];
+        const memberId = parts[5];
+
+        // Verify user has permission (must be owner or admin)
+        const workspace = await env.DB.prepare(
+          'SELECT owner_user_id FROM workspaces WHERE id = ?'
+        ).bind(workspaceId).first() as any;
+
+        if (!workspace) {
+          return jsonResponse({ error: 'Workspace not found' }, 404);
+        }
+
+        const isOwner = workspace.owner_user_id === userId;
+        const membership = await env.DB.prepare(
+          'SELECT role FROM workspace_members WHERE workspace_id = ? AND user_id = ? AND status = "active"'
+        ).bind(workspaceId, userId).first() as any;
+
+        if (!isOwner && (!membership || membership.role !== 'admin')) {
+          return jsonResponse({ error: 'Only owners and admins can reset passwords' }, 403);
+        }
+
+        // Get the member to reset password for
+        const member = await env.DB.prepare(
+          'SELECT user_id FROM workspace_members WHERE id = ? AND workspace_id = ?'
+        ).bind(memberId, workspaceId).first() as any;
+
+        if (!member) {
+          return jsonResponse({ error: 'Member not found' }, 404);
+        }
+
+        // Get user email
+        const user = await env.DB.prepare(
+          'SELECT email FROM users WHERE id = ?'
+        ).bind(member.user_id).first() as any;
+
+        if (!user) {
+          return jsonResponse({ error: 'User not found' }, 404);
+        }
+
+        // Generate new temporary password
+        const newPassword = generateTemporaryPassword();
+        const passwordHash = await hashPassword(newPassword);
+        const timestamp = now();
+
+        // Update user's password
+        await env.DB.prepare(
+          'UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?'
+        ).bind(passwordHash, timestamp, member.user_id).run();
+
+        // Send password reset email (don't fail the request if email fails)
+        if (env.SENDGRID_API_KEY) {
+          sendPasswordResetEmail(env.SENDGRID_API_KEY, {
+            to: user.email,
+            email: user.email,
+            newPassword: newPassword,
+          }).catch((error) => {
+            console.error('Failed to send password reset email:', error);
+            // Don't throw - email failure shouldn't fail the password reset
+          });
+        }
+
+        return jsonResponse({
+          success: true,
+          message: 'Password reset successfully. An email with the new password has been sent.',
+        });
       }
 
       // ============================================
