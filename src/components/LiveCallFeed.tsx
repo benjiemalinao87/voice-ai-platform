@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { Phone, Clock, PhoneIncoming, PhoneOff, PhoneForwarded, Volume2, Trash2, Headphones, MessageSquare, Mic, MicOff, Users } from 'lucide-react';
 import { WarmTransferModal } from './WarmTransferModal';
+import { useVoiceActivityMonitor } from '../hooks/useVoiceActivityMonitor';
+import { VoiceActivityIndicator } from './VoiceActivityIndicator';
 
 interface ActiveCall {
   id: string;
@@ -62,6 +64,10 @@ export function LiveCallFeed() {
   const animationFrameRef = useRef<number | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
+  const [voiceMonitorEnabled, setVoiceMonitorEnabled] = useState(true);
+
+  // Monitor voice activity for all active calls (can be disabled)
+  const voiceActivity = useVoiceActivityMonitor(activeCalls, voiceMonitorEnabled);
 
   // Play notification sound for new calls
   const playNotificationSound = () => {
@@ -831,6 +837,18 @@ export function LiveCallFeed() {
               <Volume2 className="w-3.5 h-3.5" />
               Sound
             </div>
+            <button
+              onClick={() => setVoiceMonitorEnabled(!voiceMonitorEnabled)}
+              className={`flex items-center gap-1.5 px-2 py-0.5 rounded transition-colors ${
+                voiceMonitorEnabled 
+                  ? 'bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400' 
+                  : 'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400'
+              }`}
+              title={voiceMonitorEnabled ? 'Voice activity monitoring enabled' : 'Voice activity monitoring disabled'}
+            >
+              <Mic className="w-3 h-3" />
+              {voiceMonitorEnabled ? 'Voice On' : 'Voice Off'}
+            </button>
           </div>
         </div>
       </div>
@@ -860,6 +878,15 @@ export function LiveCallFeed() {
                       {getStatusIcon(call.status)}
                       {call.status}
                     </span>
+                    {/* Voice Activity Indicators */}
+                    {call.status === 'in-progress' && voiceActivity[call.vapi_call_id] && (
+                      <VoiceActivityIndicator
+                        isCustomerSpeaking={voiceActivity[call.vapi_call_id].isCustomerSpeaking}
+                        isAISpeaking={voiceActivity[call.vapi_call_id].isAISpeaking}
+                        customerLevel={voiceActivity[call.vapi_call_id].customer}
+                        aiLevel={voiceActivity[call.vapi_call_id].ai}
+                      />
+                    )}
                   </div>
 
                   <div className="flex items-center gap-4 text-sm text-gray-600 dark:text-gray-400">
