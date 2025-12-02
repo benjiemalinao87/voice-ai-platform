@@ -1,5 +1,7 @@
-import { Bot, Volume2, Power, Settings, ChevronRight, Phone, Plus, Trash2 } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Bot, Volume2, Power, Settings, ChevronRight, Phone, Plus, Trash2, Workflow, Edit3 } from 'lucide-react';
 import type { Agent } from '../types';
+import { d1Client } from '../lib/d1';
 
 interface VoiceAgentsListProps {
   agents: Agent[];
@@ -44,12 +46,36 @@ function getVoiceDisplayName(agent: Agent): string {
 }
 
 export function VoiceAgentsList({ agents, onSelectAgent, onCreateAgent, onDeleteAgent }: VoiceAgentsListProps) {
+  const [agentFlowStatus, setAgentFlowStatus] = useState<Record<string, boolean>>({});
+
+  // Check which agents have flow data
+  useEffect(() => {
+    const checkFlows = async () => {
+      if (agents.length === 0) return;
+      
+      const agentIds = agents.map(a => a.id);
+      try {
+        const hasFlow = await d1Client.checkAgentFlows(agentIds);
+        setAgentFlowStatus(hasFlow);
+      } catch (error) {
+        console.error('Error checking agent flows:', error);
+      }
+    };
+    
+    checkFlows();
+  }, [agents]);
+
   const handleDelete = (e: React.MouseEvent, agentId: string, agentName: string) => {
     e.stopPropagation(); // Prevent triggering onSelectAgent
 
     if (confirm(`Are you sure you want to delete "${agentName}"? This action cannot be undone.`)) {
       onDeleteAgent(agentId);
     }
+  };
+
+  const handleEditFlow = (e: React.MouseEvent, agentId: string) => {
+    e.stopPropagation(); // Prevent triggering onSelectAgent
+    window.location.href = `/agents/edit/${agentId}`;
   };
   if (agents.length === 0) {
     return (
@@ -66,13 +92,22 @@ export function VoiceAgentsList({ agents, onSelectAgent, onCreateAgent, onDelete
         <p className="text-gray-600 dark:text-gray-400 mb-6 max-w-md mx-auto">
           Create your first voice assistant to get started. Voice AI agents handle calls, answer questions, and interact with your customers.
         </p>
-        <button
-          onClick={onCreateAgent}
-          className="inline-flex items-center gap-2 px-6 py-3 bg-blue-600 dark:bg-blue-500 text-white rounded-lg hover:bg-blue-700 dark:hover:bg-blue-600 transition-colors"
-        >
-          <Plus className="w-5 h-5" />
-          Create Voice AI Agent
-        </button>
+        <div className="flex items-center justify-center gap-3">
+          <button
+            onClick={() => window.location.href = '/agents/create'}
+            className="inline-flex items-center gap-2 px-6 py-3 bg-purple-600 dark:bg-purple-500 text-white rounded-lg hover:bg-purple-700 dark:hover:bg-purple-600 transition-colors"
+          >
+            <Workflow className="w-5 h-5" />
+            Visual Flow Builder
+          </button>
+          <button
+            onClick={onCreateAgent}
+            className="inline-flex items-center gap-2 px-6 py-3 bg-blue-600 dark:bg-blue-500 text-white rounded-lg hover:bg-blue-700 dark:hover:bg-blue-600 transition-colors"
+          >
+            <Plus className="w-5 h-5" />
+            Quick Create
+          </button>
+        </div>
       </div>
     );
   }
@@ -86,13 +121,22 @@ export function VoiceAgentsList({ agents, onSelectAgent, onCreateAgent, onDelete
             Manage and configure your voice assistants
           </p>
         </div>
-        <button
-          onClick={onCreateAgent}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 dark:bg-blue-500 text-white rounded-lg hover:bg-blue-700 dark:hover:bg-blue-600 transition-colors"
-        >
-          <Plus className="w-4 h-4" />
-          Create Agent
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => window.location.href = '/agents/create'}
+            className="flex items-center gap-2 px-4 py-2 bg-purple-600 dark:bg-purple-500 text-white rounded-lg hover:bg-purple-700 dark:hover:bg-purple-600 transition-colors"
+          >
+            <Workflow className="w-4 h-4" />
+            Visual Flow
+          </button>
+          <button
+            onClick={onCreateAgent}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 dark:bg-blue-500 text-white rounded-lg hover:bg-blue-700 dark:hover:bg-blue-600 transition-colors"
+          >
+            <Plus className="w-4 h-4" />
+            Quick Create
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -131,6 +175,13 @@ export function VoiceAgentsList({ agents, onSelectAgent, onCreateAgent, onDelete
                 </div>
               </div>
               <div className="flex items-center gap-2">
+                <button
+                  onClick={(e) => handleEditFlow(e, agent.id)}
+                  className="p-1.5 rounded-lg text-gray-400 dark:text-gray-500 hover:bg-purple-50 dark:hover:bg-purple-900/20 hover:text-purple-600 dark:hover:text-purple-400 transition-colors"
+                  title={agentFlowStatus[agent.id] ? "Edit as visual flow" : "Create visual flow for this agent"}
+                >
+                  <Workflow className="w-4 h-4" />
+                </button>
                 <button
                   onClick={(e) => handleDelete(e, agent.id, agent.name)}
                   className="p-1.5 rounded-lg text-gray-400 dark:text-gray-500 hover:bg-red-50 dark:hover:bg-red-900/20 hover:text-red-600 dark:hover:text-red-400 transition-colors"

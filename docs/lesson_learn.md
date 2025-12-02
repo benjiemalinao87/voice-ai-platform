@@ -4129,3 +4129,136 @@ Every API endpoint that returns user-specific data MUST:
 ### Files Modified
 - `workers/index.ts` - Fixed `/api/tool-call-logs` endpoint
 
+---
+
+## LLM-Based Intent Detection for Flow Builder
+
+**Date:** November 30, 2025
+
+**Problem:**
+1. AI was not waiting for user input at Listen nodes - continued speaking without user response
+2. Intent detection used hardcoded keywords (appointment, support, info) - custom intents like "Margarita", "Kebab" were not detected
+3. Flow visualization advanced based on speech events, not actual user choices
+
+**Root Causes:**
+1. The "Listen" node only added text to the prompt but had no actual waiting mechanism
+2. Branch routing used simple keyword matching that only supported 3 hardcoded intents
+3. The silenceTimeout was not prominently explained to users
+
+**Solution Implemented:**
+
+1. **LLM Intent Classifier** (`src/components/AgentFlowCreator/intentClassifier.ts`):
+   - Created new utility using OpenAI gpt-4o-mini for intent classification
+   - Takes user transcript + available intents from flow edges
+   - Returns matched intent with confidence score
+   - Includes fallback keyword matching when API is unavailable
+
+2. **Updated Branch Detection** (`src/components/AgentFlowCreator/index.tsx`):
+   - Replaced hardcoded keyword matching with LLM classification
+   - When user speaks on listen node, extracts available intents from branch edges dynamically
+   - Calls `classifyIntent()` asynchronously with user's transcript
+   - Routes to matched branch based on LLM classification
+
+3. **Stronger Wait Instructions** (`src/components/AgentFlowCreator/flowToPrompt.ts`):
+   - Changed from `[LISTEN] Wait for user response` to explicit `[WAIT FOR USER RESPONSE]`
+   - Added critical rules: STOP speaking, do NOT assume, do NOT fill silence
+   - Added acknowledgment requirement after user responds
+
+4. **Silence Timeout Documentation** (`AgentConfigPanel.tsx`):
+   - Added helpful description explaining silence timeout purpose
+   - Default is 20 seconds (was already good, just added explanation)
+
+**What NOT to do:**
+- Don't use hardcoded keyword matching for intent detection - it doesn't scale
+- Don't assume the AI will wait just because you said "wait" in the prompt - be explicit
+- Don't rely on AI response analysis for routing - use user's actual response instead
+
+**Key Insight:**
+Intent classification should happen on USER messages, not AI responses. The user's actual spoken words are what determine the intent, not how the AI responds to them.
+
+---
+
+## Branch Visualization Race Condition Fix (Dec 2024)
+
+**Problem:**
+When user says "Latte" during a voice call, the AI responds correctly ("One Latte coming up!"), but the visual flow marking incorrectly shows "Espresso" (the first branch option) as the selected path.
+
+**Root Cause:**
+Race condition between async intent classification and `speech-start` event:
+1. User says "Latte" → intent classification starts asynchronously
+2. Branch node gets marked as visited/completed
+3. AI starts speaking → `speech-start` event fires
+4. `speech-start` handler sees branch is visited, calls `findNextNodes()[0]` 
+5. This ALWAYS returns the first edge (Espresso) regardless of classification result
+6. Espresso gets highlighted before classification completes
+
+**Fix Applied:**
+Added `isClassifyingIntent` flag to `flowTraversalRef`:
+1. Set `traversal.isClassifyingIntent = true` before calling `classifyIntent()`
+2. In `speech-start` handler: skip advancement if `isClassifyingIntent` is true AND current node is branch
+3. Clear flag in `.finally()` blocks after classification completes
+4. Reset flag on `call-start` and `call-end` events
+
+**Files Changed:**
+- `src/components/AgentFlowCreator/index.tsx`
+
+**What NOT to do:**
+- Don't use `findNextNodes()[0]` blindly on branch nodes - edges are in array order, not intent order
+- Don't assume async operations complete before the next event fires
+- Don't mix React state (`setIsClassifyingIntent`) with ref state (`traversal.isClassifyingIntent`) without synchronizing both
+
+**Key Insight:**
+When dealing with async operations that affect UI state, use synchronous ref flags for immediate checks in event handlers. React state updates are batched and may not be visible immediately in subsequent event callbacks.
+
+---
+
+## Dashboard Loading Performance Optimization (Dec 1, 2025)
+
+**Problem:**
+Dashboard was loading slowly due to excessive API calls.
+
+**Root Cause Analysis:**
+1. **Heavy data fetch**: Fetching 1000 webhook calls when only displaying 10 in the recent calls table
+2. **N+1 API calls problem**: After fetching calls, making N individual `getAssistant()` API calls for each unique assistant ID to get assistant names
+
+**Before:**
+```javascript
+// 7 parallel API calls (good)
+Promise.all([
+  getDashboardSummary(),
+  getWebhookCalls({ limit: 1000 }), // TOO HEAVY
+  getKeywords(),
+  getConcurrentCalls(),
+  getConcurrentCallsTimeSeries(),
+  getCallEndedReasons(),
+  getAgentDistribution()  // Already returns assistant names!
+]);
+
+// THEN N more API calls (bad - N+1 problem)
+await Promise.all(
+  uniqueAssistantIds.map(async (assistantId) => {
+    const { assistant } = await d1Client.getAssistant(assistantId);
+    // ...
+  })
+);
+```
+
+**Fix Applied:**
+1. Reduced webhook calls limit from 1000 to 200 (enough for chart data, much lighter)
+2. Modified `/api/agent-distribution` endpoint to return `assistant_id` alongside `assistant_name`
+3. Reuse assistant names from `agentDistribution` response instead of making additional API calls
+4. Eliminated the N+1 API calls entirely
+
+**Files Changed:**
+- `src/components/PerformanceDashboard.tsx` - Reduced limit, reuse agent distribution data
+- `src/lib/d1.ts` - Updated type to include `assistant_id`
+- `workers/index.ts` - Added `assistant_id` to agent-distribution query
+
+**What NOT to do:**
+- Don't fetch more data than you need (1000 calls when displaying 10)
+- Don't make individual API calls in loops when batch data is already available
+- Don't ignore data you already fetched that could be reused
+
+**Key Insight:**
+Always look for data reuse opportunities. If you're fetching related data in parallel, check if one API response contains data needed by another process. The agent distribution endpoint already did a JOIN to get assistant names - no need to fetch them again individually.
+

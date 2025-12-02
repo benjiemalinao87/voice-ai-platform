@@ -1,12 +1,28 @@
 import { useState, useEffect } from 'react';
-import { X, Bot, Volume2, MessageSquare, Settings as SettingsIcon, Sparkles } from 'lucide-react';
-import type { Agent, Webhook as WebhookType } from '../types';
+import { X, Bot, Volume2, MessageSquare, Settings as SettingsIcon, Sparkles, PhoneForwarded, Voicemail, PhoneOff, Database, ChevronDown, ChevronUp } from 'lucide-react';
+import type { AgentCreateData, Webhook as WebhookType } from '../types';
 import { d1Client } from '../lib/d1';
 import { SystemPromptHelper } from './SystemPromptHelper';
 
+// Default structured data schema for appointment extraction
+const DEFAULT_STRUCTURED_DATA_SCHEMA = {
+  type: 'object',
+  required: ['Appointment Date', 'Appointment Time', 'Firstname', 'Lastname', 'Address', 'City', 'State', 'ZIP'],
+  properties: {
+    ZIP: { type: 'string' },
+    City: { type: 'string' },
+    State: { type: 'string' },
+    Address: { type: 'string' },
+    Lastname: { type: 'string' },
+    Firstname: { type: 'string' },
+    'Appointment Date': { type: 'string' },
+    'Appointment Time': { type: 'string' }
+  }
+};
+
 interface CreateAgentModalProps {
   onClose: () => void;
-  onCreate: (agentData: Omit<Agent, 'id' | 'created_at' | 'updated_at' | 'api_key'>, webhookUrl?: string) => Promise<void>;
+  onCreate: (agentData: AgentCreateData, webhookUrl?: string) => Promise<void>;
 }
 
 // Voice options matching VoiceAgentsList and AgentConfig
@@ -41,7 +57,14 @@ export function CreateAgentModal({ onClose, onCreate }: CreateAgentModalProps) {
     response_style: 'adaptive' as 'concise' | 'detailed' | 'adaptive',
     is_active: true,
     phone_number: null as string | null,
+    // Advanced VAPI fields
+    forwardingPhoneNumber: '',
+    voicemailMessage: '',
+    endCallMessage: 'Thanks for your time today.',
+    structuredDataPrompt: 'You will be given a transcript of a call and the system prompt of the AI participant. Extract firstname, lastname, appointment date caller has chosen and time.',
   });
+  
+  const [showAdvancedSettings, setShowAdvancedSettings] = useState(false);
 
   // Fetch available webhooks on mount
   useEffect(() => {
@@ -76,6 +99,31 @@ export function CreateAgentModal({ onClose, onCreate }: CreateAgentModalProps) {
 
     if (!formData.system_prompt.trim()) {
       alert('Please enter a system prompt');
+      return;
+    }
+
+    // Validate advanced settings (required fields)
+    if (!formData.forwardingPhoneNumber || formData.forwardingPhoneNumber.length !== 10) {
+      alert('Please enter a valid 10-digit US phone number for call forwarding');
+      setShowAdvancedSettings(true);
+      return;
+    }
+
+    if (!formData.voicemailMessage.trim()) {
+      alert('Please enter a voicemail message');
+      setShowAdvancedSettings(true);
+      return;
+    }
+
+    if (!formData.endCallMessage.trim()) {
+      alert('Please enter an end call message');
+      setShowAdvancedSettings(true);
+      return;
+    }
+
+    if (!formData.structuredDataPrompt.trim()) {
+      alert('Please enter a structured data prompt');
+      setShowAdvancedSettings(true);
       return;
     }
 
@@ -265,6 +313,130 @@ export function CreateAgentModal({ onClose, onCreate }: CreateAgentModalProps) {
             <label htmlFor="is_active" className="text-sm text-gray-700 dark:text-gray-300">
               Activate agent immediately after creation
             </label>
+          </div>
+
+          {/* Advanced Settings - Collapsible */}
+          <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
+            <button
+              type="button"
+              onClick={() => setShowAdvancedSettings(!showAdvancedSettings)}
+              className="w-full flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-700/50 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+            >
+              <div className="flex items-center gap-2">
+                <SettingsIcon className="w-5 h-5 text-gray-500 dark:text-gray-400" />
+                <span className="font-medium text-gray-900 dark:text-gray-100">Advanced Settings</span>
+                <span className="text-xs text-gray-500 dark:text-gray-400">(Required)</span>
+              </div>
+              {showAdvancedSettings ? (
+                <ChevronUp className="w-5 h-5 text-gray-500 dark:text-gray-400" />
+              ) : (
+                <ChevronDown className="w-5 h-5 text-gray-500 dark:text-gray-400" />
+              )}
+            </button>
+
+            {showAdvancedSettings && (
+              <div className="p-4 space-y-5 border-t border-gray-200 dark:border-gray-700">
+                {/* Forwarding Phone Number */}
+                <div>
+                  <label className="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    <PhoneForwarded className="w-4 h-4" />
+                    Forwarding Phone Number *
+                  </label>
+                  <div className="flex">
+                    <div className="flex items-center px-3 bg-gray-100 dark:bg-gray-600 border border-r-0 border-gray-300 dark:border-gray-600 rounded-l-lg">
+                      <span className="text-sm text-gray-600 dark:text-gray-300">🇺🇸 +1</span>
+                    </div>
+                    <input
+                      type="tel"
+                      value={formData.forwardingPhoneNumber}
+                      onChange={(e) => {
+                        // Only allow digits
+                        const value = e.target.value.replace(/\D/g, '').slice(0, 10);
+                        setFormData({ ...formData, forwardingPhoneNumber: value });
+                      }}
+                      placeholder="4257623355"
+                      className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-r-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+                      required
+                    />
+                  </div>
+                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                    Phone number for call forwarding (10 digits, US only)
+                  </p>
+                </div>
+
+                {/* Voicemail Message */}
+                <div>
+                  <label className="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    <Voicemail className="w-4 h-4" />
+                    Voicemail Message *
+                  </label>
+                  <textarea
+                    value={formData.voicemailMessage}
+                    onChange={(e) => setFormData({ ...formData, voicemailMessage: e.target.value })}
+                    placeholder="Hi, this is [Agent Name] calling about your project. We have availability and a limited promotion..."
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+                    rows={2}
+                    required
+                  />
+                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                    Message the assistant will say if the call is forwarded to voicemail
+                  </p>
+                </div>
+
+                {/* End Call Message */}
+                <div>
+                  <label className="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    <PhoneOff className="w-4 h-4" />
+                    End Call Message *
+                  </label>
+                  <textarea
+                    value={formData.endCallMessage}
+                    onChange={(e) => setFormData({ ...formData, endCallMessage: e.target.value })}
+                    placeholder="Thanks for your time today."
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+                    rows={2}
+                    required
+                  />
+                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                    Message the assistant will say when the call ends
+                  </p>
+                </div>
+
+                {/* Structured Data */}
+                <div>
+                  <label className="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    <Database className="w-4 h-4" />
+                    Structured Data Extraction *
+                  </label>
+                  <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-3 mb-2">
+                    <p className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Extraction Prompt:</p>
+                    <textarea
+                      value={formData.structuredDataPrompt}
+                      onChange={(e) => setFormData({ ...formData, structuredDataPrompt: e.target.value })}
+                      className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+                      rows={2}
+                      required
+                    />
+                  </div>
+                  <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-3">
+                    <p className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-2">Fields to Extract:</p>
+                    <div className="flex flex-wrap gap-2">
+                      {DEFAULT_STRUCTURED_DATA_SCHEMA.required.map((field) => (
+                        <span
+                          key={field}
+                          className="px-2 py-1 text-xs font-medium bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded"
+                        >
+                          {field}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                  <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                    Extract structured data from call transcripts (pre-configured for appointment scheduling)
+                  </p>
+                </div>
+              </div>
+            )}
           </div>
         </form>
 

@@ -223,7 +223,12 @@ export const agentApi = {
     }
   },
 
-  async create(agent: Omit<Agent, 'id' | 'created_at' | 'updated_at'>, vapiClient?: VapiClient | null, serverUrl?: string): Promise<Agent> {
+  async create(agent: Omit<Agent, 'id' | 'created_at' | 'updated_at'> & {
+    forwardingPhoneNumber?: string;
+    voicemailMessage?: string;
+    endCallMessage?: string;
+    structuredDataPrompt?: string;
+  }, vapiClient?: VapiClient | null, serverUrl?: string): Promise<Agent> {
     // ALWAYS use direct VAPI API (no cache) for real-time updates
     if (!vapiClient) {
       throw new Error('API client is required for creating assistants');
@@ -246,6 +251,42 @@ export const agentApi = {
         },
         firstMessage: agent.conversation_prompt,
       };
+
+      // Add forwarding phone number if provided
+      if (agent.forwardingPhoneNumber) {
+        vapiAgent.forwardingPhoneNumber = `+1${agent.forwardingPhoneNumber}`;
+      }
+
+      // Add voicemail message if provided
+      if (agent.voicemailMessage) {
+        vapiAgent.voicemailMessage = agent.voicemailMessage;
+      }
+
+      // Add end call message if provided
+      if (agent.endCallMessage) {
+        vapiAgent.endCallMessage = agent.endCallMessage;
+      }
+
+      // Add structured data analysis plan if prompt is provided
+      if (agent.structuredDataPrompt) {
+        vapiAgent.analysisPlan = {
+          structuredDataPrompt: agent.structuredDataPrompt,
+          structuredDataSchema: {
+            type: 'object',
+            required: ['Appointment Date', 'Appointment Time', 'Firstname', 'Lastname', 'Address', 'City', 'State', 'ZIP'],
+            properties: {
+              ZIP: { type: 'string' },
+              City: { type: 'string' },
+              State: { type: 'string' },
+              Address: { type: 'string' },
+              Lastname: { type: 'string' },
+              Firstname: { type: 'string' },
+              'Appointment Date': { type: 'string' },
+              'Appointment Time': { type: 'string' }
+            }
+          }
+        };
+      }
 
       // Add server URL if provided (webhook attachment)
       if (serverUrl) {

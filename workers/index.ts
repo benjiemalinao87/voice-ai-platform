@@ -350,6 +350,179 @@ async function storeKeywords(
   }
 }
 
+// Helper: Inject context from Action nodes when a call starts
+// This is the SERVER-SIDE implementation for production phone calls
+async function injectActionNodeContext(
+  env: Env,
+  assistantId: string,
+  userId: string,
+  vapiCallId: string,
+  customerPhone: string
+): Promise<void> {
+  console.log('[Action Context] ========================================');
+  console.log('[Action Context] Starting context injection');
+  console.log('[Action Context] Assistant ID:', assistantId);
+  console.log('[Action Context] Call ID:', vapiCallId);
+  console.log('[Action Context] Customer phone:', customerPhone);
+
+  try {
+    // 1. Get workspace settings (for VAPI API key)
+    const settings = await getWorkspaceSettingsForUser(env, userId);
+    if (!settings?.private_key) {
+      console.warn('[Action Context] No VAPI API key configured');
+      return;
+    }
+
+    // 2. Look up the agent flow configuration
+    const flowRecord = await env.DB.prepare(
+      'SELECT flow_data, config_data FROM agent_flows WHERE vapi_assistant_id = ? AND user_id = ?'
+    ).bind(assistantId, userId).first() as any;
+
+    if (!flowRecord) {
+      console.log('[Action Context] No flow configuration found for assistant');
+      return;
+    }
+
+    const flowData = JSON.parse(flowRecord.flow_data || '{}');
+    const nodes = flowData.nodes || [];
+
+    // 3. Find action nodes with API configs
+    const actionNodes = nodes.filter((node: any) => 
+      node.type === 'action' && 
+      node.data?.apiConfig?.endpoint
+    );
+
+    if (actionNodes.length === 0) {
+      console.log('[Action Context] No action nodes with API configs found');
+      return;
+    }
+
+    console.log('[Action Context] Found', actionNodes.length, 'action node(s) with API configs');
+
+    // 4. Get call details from VAPI to get controlUrl
+    const getCallResponse = await fetch(`https://api.vapi.ai/call/${vapiCallId}`, {
+      method: 'GET',
+      headers: { 'Authorization': `Bearer ${settings.private_key}` }
+    });
+
+    if (!getCallResponse.ok) {
+      console.error('[Action Context] Failed to get call details:', getCallResponse.status);
+      return;
+    }
+
+    const callDetails = await getCallResponse.json() as any;
+    const controlUrl = callDetails.monitor?.controlUrl;
+
+    if (!controlUrl) {
+      console.warn('[Action Context] No controlUrl in call details');
+      return;
+    }
+
+    console.log('[Action Context] Got controlUrl:', controlUrl);
+
+    // 5. Execute each action API and collect context
+    const contextParts: string[] = [];
+
+    for (const actionNode of actionNodes) {
+      const apiConfig = actionNode.data.apiConfig;
+      console.log('[Action Context] Executing API:', apiConfig.endpoint);
+
+      try {
+        // Replace {phone} placeholder with actual phone number
+        let endpoint = apiConfig.endpoint.replace(/{phone}/g, encodeURIComponent(customerPhone));
+        
+        // Build headers
+        const headers: Record<string, string> = {
+          'Content-Type': 'application/json'
+        };
+        if (apiConfig.headers) {
+          for (const h of apiConfig.headers) {
+            if (h.key && h.value) {
+              headers[h.key] = h.value;
+            }
+          }
+        }
+
+        // Make the API call
+        const apiResponse = await fetch(endpoint, {
+          method: apiConfig.method || 'GET',
+          headers
+        });
+
+        if (!apiResponse.ok) {
+          console.error('[Action Context] API call failed:', apiResponse.status);
+          continue;
+        }
+
+        const data = await apiResponse.json();
+        console.log('[Action Context] API response received');
+
+        // Extract context using response mapping
+        const responseMapping = apiConfig.responseMapping || [];
+        const enabledMappings = responseMapping.filter((m: any) => m.enabled);
+
+        if (enabledMappings.length === 0) {
+          console.log('[Action Context] No enabled response mappings');
+          continue;
+        }
+
+        // Helper to get value by path (e.g., "data.0.appointment_date")
+        const getValueByPath = (obj: any, path: string): any => {
+          const parts = path.split('.');
+          let current = obj;
+          for (const part of parts) {
+            if (current == null) return undefined;
+            current = current[part];
+          }
+          return current;
+        };
+
+        const contextLines = enabledMappings.map((mapping: any) => {
+          const value = getValueByPath(data, mapping.path);
+          const displayValue = typeof value === 'object' ? JSON.stringify(value) : String(value ?? 'N/A');
+          return `- ${mapping.label}: ${displayValue}`;
+        });
+
+        if (contextLines.length > 0) {
+          contextParts.push(...contextLines);
+        }
+      } catch (apiError) {
+        console.error('[Action Context] Error executing API:', apiError);
+      }
+    }
+
+    // 6. Inject context if we have any
+    if (contextParts.length === 0) {
+      console.log('[Action Context] No context to inject');
+      return;
+    }
+
+    const context = `[CONTEXT UPDATE] Customer information retrieved:\n${contextParts.join('\n')}`;
+    console.log('[Action Context] Injecting context:', context);
+
+    const injectResponse = await fetch(controlUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        type: 'add-message',
+        message: {
+          role: 'system',
+          content: context
+        }
+      })
+    });
+
+    if (injectResponse.ok) {
+      console.log('[Action Context] ✅ Context injected successfully!');
+    } else {
+      console.error('[Action Context] Failed to inject context:', injectResponse.status);
+    }
+
+  } catch (error) {
+    console.error('[Action Context] Error:', error);
+  }
+}
+
 // Helper: Lookup caller info using Twilio API
 interface TwilioCallerInfo {
   callerName: string | null;
@@ -610,6 +783,66 @@ async function getEffectiveUserId(env: Env, userId: string): Promise<{ effective
 
   // User doesn't have access, fall back to personal
   return { effectiveUserId: userId, isWorkspaceContext: false };
+}
+
+// Helper: Find user and workspace by CustomerConnect workspace_id
+// This is used to associate tool logs with the correct user who has CHAU Text Engine configured
+async function findUserByCustomerConnectWorkspace(env: Env, customerconnectWorkspaceId: string): Promise<{
+  userId: string;
+  workspaceId: string;
+} | null> {
+  // Find workspace_settings that has this customerconnect_workspace_id
+  const wsSettings = await env.DB.prepare(
+    'SELECT workspace_id FROM workspace_settings WHERE customerconnect_workspace_id = ?'
+  ).bind(customerconnectWorkspaceId).first() as any;
+  
+  if (wsSettings?.workspace_id) {
+    // Find the owner of this workspace
+    const workspace = await env.DB.prepare(
+      'SELECT owner_user_id FROM workspaces WHERE id = ?'
+    ).bind(wsSettings.workspace_id).first() as any;
+    
+    if (workspace?.owner_user_id) {
+      return {
+        userId: workspace.owner_user_id,
+        workspaceId: wsSettings.workspace_id
+      };
+    }
+  }
+  
+  return null;
+}
+
+// Helper: Find CustomerConnect credentials from ANY user's workspace (for tool calls)
+// This allows the tool to work even if the webhook owner doesn't have it configured
+async function findAnyCustomerConnectCredentials(env: Env): Promise<{
+  userId: string;
+  workspaceId: string;
+  customerconnect_workspace_id: string;
+  customerconnect_api_key: string;
+} | null> {
+  // Find any workspace that has CustomerConnect configured
+  const wsSettings = await env.DB.prepare(
+    `SELECT ws.workspace_id, ws.customerconnect_workspace_id, ws.customerconnect_api_key, w.owner_user_id
+     FROM workspace_settings ws
+     JOIN workspaces w ON ws.workspace_id = w.id
+     WHERE ws.customerconnect_workspace_id IS NOT NULL 
+       AND ws.customerconnect_workspace_id != ''
+       AND ws.customerconnect_api_key IS NOT NULL
+       AND ws.customerconnect_api_key != ''
+     LIMIT 1`
+  ).first() as any;
+  
+  if (wsSettings) {
+    return {
+      userId: wsSettings.owner_user_id,
+      workspaceId: wsSettings.workspace_id,
+      customerconnect_workspace_id: wsSettings.customerconnect_workspace_id,
+      customerconnect_api_key: wsSettings.customerconnect_api_key
+    };
+  }
+  
+  return null;
 }
 
 // Helper: Get workspace settings for a user (finds their workspace and returns its credentials)
@@ -2579,12 +2812,15 @@ export default {
           });
 
           if (!vapiResponse.ok) {
-            const errorText = await vapiResponse.text();
+            let errorText = await vapiResponse.text();
+            // Remove Vapi branding from error messages
+            errorText = errorText.replace(/Vapi free phone numbers/gi, 'free phone numbers');
+            errorText = errorText.replace(/Vapi/gi, 'CHAU Voice Engine');
             return jsonResponse({ error: `CHAU Voice Engine API error: ${vapiResponse.status} - ${errorText}` }, 400);
           }
 
           const vapiData = await vapiResponse.json() as any;
-          
+
           return jsonResponse({
             id: vapiData.id,
             number: vapiData.number || vapiData.phoneNumber,
@@ -2592,7 +2828,11 @@ export default {
           });
         } catch (error: any) {
           console.error('Error importing Twilio number:', error);
-          return jsonResponse({ error: `Failed to import Twilio number: ${error.message}` }, 500);
+          // Remove Vapi branding from error messages
+          let errorMessage = error.message || 'Unknown error';
+          errorMessage = errorMessage.replace(/Vapi free phone numbers/gi, 'free phone numbers');
+          errorMessage = errorMessage.replace(/Vapi/gi, 'CHAU Voice Engine');
+          return jsonResponse({ error: `Failed to import Twilio number: ${errorMessage}` }, 500);
         }
       }
 
@@ -2690,11 +2930,16 @@ export default {
             } catch {
               // If not JSON, use error text as is
             }
+
+            // Remove Vapi branding from error messages
+            errorText = errorText.replace(/Vapi free phone numbers/gi, 'free phone numbers');
+            errorText = errorText.replace(/Vapi/gi, 'CHAU Voice Engine');
+
             return jsonResponse({ error: errorText }, 400);
           }
 
           const vapiData = await vapiResponse.json() as any;
-          
+
           return jsonResponse({
             id: vapiData.id,
             number: vapiData.number || vapiData.phoneNumber,
@@ -2702,7 +2947,11 @@ export default {
           });
         } catch (error: any) {
           console.error('Error creating CHAU Voice Engine phone number:', error);
-          return jsonResponse({ error: `Failed to create phone number: ${error.message}` }, 500);
+          // Remove Vapi branding from error messages
+          let errorMessage = error.message || 'Unknown error';
+          errorMessage = errorMessage.replace(/Vapi free phone numbers/gi, 'free phone numbers');
+          errorMessage = errorMessage.replace(/Vapi/gi, 'CHAU Voice Engine');
+          return jsonResponse({ error: `Failed to create phone number: ${errorMessage}` }, 500);
         }
       }
 
@@ -2793,7 +3042,10 @@ export default {
           });
 
           if (!vapiResponse.ok) {
-            const errorText = await vapiResponse.text();
+            let errorText = await vapiResponse.text();
+            // Remove Vapi branding from error messages
+            errorText = errorText.replace(/Vapi free phone numbers/gi, 'free phone numbers');
+            errorText = errorText.replace(/Vapi/gi, 'CHAU Voice Engine');
             return jsonResponse({ error: `CHAU Voice Engine API error: ${vapiResponse.status} - ${errorText}` }, 400);
           }
 
@@ -2809,7 +3061,11 @@ export default {
           });
         } catch (error: any) {
           console.error('Error updating phone number assistant:', error);
-          return jsonResponse({ error: `Failed to update phone number: ${error.message}` }, 500);
+          // Remove Vapi branding from error messages
+          let errorMessage = error.message || 'Unknown error';
+          errorMessage = errorMessage.replace(/Vapi free phone numbers/gi, 'free phone numbers');
+          errorMessage = errorMessage.replace(/Vapi/gi, 'CHAU Voice Engine');
+          return jsonResponse({ error: `Failed to update phone number: ${errorMessage}` }, 500);
         }
       }
 
@@ -2910,7 +3166,10 @@ export default {
           });
 
           if (!vapiResponse.ok) {
-            const errorText = await vapiResponse.text();
+            let errorText = await vapiResponse.text();
+            // Remove Vapi branding from error messages
+            errorText = errorText.replace(/Vapi free phone numbers/gi, 'free phone numbers');
+            errorText = errorText.replace(/Vapi/gi, 'CHAU Voice Engine');
             return jsonResponse({ error: `CHAU Voice Engine API error: ${vapiResponse.status} - ${errorText}` }, 400);
           }
 
@@ -2933,7 +3192,11 @@ export default {
           return jsonResponse({ assistants, cached: false });
         } catch (error: any) {
           console.error('Error fetching assistants:', error);
-          return jsonResponse({ error: `Failed to fetch assistants: ${error.message}` }, 500);
+          // Remove Vapi branding from error messages
+          let errorMessage = error.message || 'Unknown error';
+          errorMessage = errorMessage.replace(/Vapi free phone numbers/gi, 'free phone numbers');
+          errorMessage = errorMessage.replace(/Vapi/gi, 'CHAU Voice Engine');
+          return jsonResponse({ error: `Failed to fetch assistants: ${errorMessage}` }, 500);
         }
       }
 
@@ -3013,7 +3276,10 @@ export default {
           });
 
           if (!vapiResponse.ok) {
-            const errorText = await vapiResponse.text();
+            let errorText = await vapiResponse.text();
+            // Remove Vapi branding from error messages
+            errorText = errorText.replace(/Vapi free phone numbers/gi, 'free phone numbers');
+            errorText = errorText.replace(/Vapi/gi, 'CHAU Voice Engine');
             return jsonResponse({ error: `CHAU Voice Engine API error: ${vapiResponse.status} - ${errorText}` }, 400);
           }
 
@@ -3034,7 +3300,11 @@ export default {
           return jsonResponse({ assistant, cached: false });
         } catch (error: any) {
           console.error('Error fetching assistant:', error);
-          return jsonResponse({ error: `Failed to fetch assistant: ${error.message}` }, 500);
+          // Remove Vapi branding from error messages
+          let errorMessage = error.message || 'Unknown error';
+          errorMessage = errorMessage.replace(/Vapi free phone numbers/gi, 'free phone numbers');
+          errorMessage = errorMessage.replace(/Vapi/gi, 'CHAU Voice Engine');
+          return jsonResponse({ error: `Failed to fetch assistant: ${errorMessage}` }, 500);
         }
       }
 
@@ -3120,7 +3390,10 @@ export default {
           });
 
           if (!vapiResponse.ok) {
-            const errorText = await vapiResponse.text();
+            let errorText = await vapiResponse.text();
+            // Remove Vapi branding from error messages
+            errorText = errorText.replace(/Vapi free phone numbers/gi, 'free phone numbers');
+            errorText = errorText.replace(/Vapi/gi, 'CHAU Voice Engine');
             return jsonResponse({ error: `CHAU Voice Engine API error: ${vapiResponse.status} - ${errorText}` }, 400);
           }
 
@@ -3141,7 +3414,11 @@ export default {
           return jsonResponse({ assistant: updatedAssistant });
         } catch (error: any) {
           console.error('Error updating assistant:', error);
-          return jsonResponse({ error: `Failed to update assistant: ${error.message}` }, 500);
+          // Remove Vapi branding from error messages
+          let errorMessage = error.message || 'Unknown error';
+          errorMessage = errorMessage.replace(/Vapi free phone numbers/gi, 'free phone numbers');
+          errorMessage = errorMessage.replace(/Vapi/gi, 'CHAU Voice Engine');
+          return jsonResponse({ error: `Failed to update assistant: ${errorMessage}` }, 500);
         }
       }
 
@@ -3237,7 +3514,11 @@ export default {
           return jsonResponse({ assistant: newAssistant });
         } catch (error: any) {
           console.error('Error creating assistant:', error);
-          return jsonResponse({ error: `Failed to create assistant: ${error.message}` }, 500);
+          // Remove Vapi branding from error messages
+          let errorMessage = error.message || 'Unknown error';
+          errorMessage = errorMessage.replace(/Vapi free phone numbers/gi, 'free phone numbers');
+          errorMessage = errorMessage.replace(/Vapi/gi, 'CHAU Voice Engine');
+          return jsonResponse({ error: `Failed to create assistant: ${errorMessage}` }, 500);
         }
       }
 
@@ -3304,7 +3585,10 @@ export default {
           });
 
           if (!vapiResponse.ok) {
-            const errorText = await vapiResponse.text();
+            let errorText = await vapiResponse.text();
+            // Remove Vapi branding from error messages
+            errorText = errorText.replace(/Vapi free phone numbers/gi, 'free phone numbers');
+            errorText = errorText.replace(/Vapi/gi, 'CHAU Voice Engine');
             return jsonResponse({ error: `CHAU Voice Engine API error: ${vapiResponse.status} - ${errorText}` }, 400);
           }
 
@@ -3316,7 +3600,194 @@ export default {
           return jsonResponse({ success: true });
         } catch (error: any) {
           console.error('Error deleting assistant:', error);
-          return jsonResponse({ error: `Failed to delete assistant: ${error.message}` }, 500);
+          // Remove Vapi branding from error messages
+          let errorMessage = error.message || 'Unknown error';
+          errorMessage = errorMessage.replace(/Vapi free phone numbers/gi, 'free phone numbers');
+          errorMessage = errorMessage.replace(/Vapi/gi, 'CHAU Voice Engine');
+          return jsonResponse({ error: `Failed to delete assistant: ${errorMessage}` }, 500);
+        }
+      }
+
+      // ============================================
+      // AGENT FLOWS ENDPOINTS (Protected)
+      // ============================================
+
+      // Save agent flow (CREATE)
+      if (url.pathname === '/api/agent-flows' && request.method === 'POST') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        try {
+          const { vapiAssistantId, flowData, configData } = await request.json() as any;
+
+          if (!vapiAssistantId) {
+            return jsonResponse({ error: 'VAPI assistant ID is required' }, 400);
+          }
+
+          if (!flowData || !configData) {
+            return jsonResponse({ error: 'Flow data and config data are required' }, 400);
+          }
+
+          const id = crypto.randomUUID();
+          const timestamp = now();
+
+          await env.DB.prepare(
+            'INSERT INTO agent_flows (id, vapi_assistant_id, user_id, flow_data, config_data, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+          ).bind(
+            id,
+            vapiAssistantId,
+            userId,
+            JSON.stringify(flowData),
+            JSON.stringify(configData),
+            timestamp,
+            timestamp
+          ).run();
+
+          return jsonResponse({ 
+            success: true, 
+            id,
+            vapiAssistantId 
+          });
+        } catch (error: any) {
+          console.error('Error saving agent flow:', error);
+          return jsonResponse({ error: `Failed to save agent flow: ${error.message}` }, 500);
+        }
+      }
+
+      // Get agent flow by VAPI assistant ID
+      if (url.pathname.startsWith('/api/agent-flows/') && request.method === 'GET') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        const vapiAssistantId = url.pathname.split('/').pop();
+        if (!vapiAssistantId) {
+          return jsonResponse({ error: 'VAPI assistant ID is required' }, 400);
+        }
+
+        try {
+          const flow = await env.DB.prepare(
+            'SELECT id, vapi_assistant_id, flow_data, config_data, created_at, updated_at FROM agent_flows WHERE vapi_assistant_id = ? AND user_id = ?'
+          ).bind(vapiAssistantId, userId).first() as any;
+
+          if (!flow) {
+            return jsonResponse({ error: 'Flow not found', exists: false }, 404);
+          }
+
+          return jsonResponse({
+            exists: true,
+            id: flow.id,
+            vapiAssistantId: flow.vapi_assistant_id,
+            flowData: JSON.parse(flow.flow_data),
+            configData: JSON.parse(flow.config_data),
+            createdAt: flow.created_at,
+            updatedAt: flow.updated_at
+          });
+        } catch (error: any) {
+          console.error('Error getting agent flow:', error);
+          return jsonResponse({ error: `Failed to get agent flow: ${error.message}` }, 500);
+        }
+      }
+
+      // Update agent flow
+      if (url.pathname.startsWith('/api/agent-flows/') && request.method === 'PUT') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        const vapiAssistantId = url.pathname.split('/').pop();
+        if (!vapiAssistantId) {
+          return jsonResponse({ error: 'VAPI assistant ID is required' }, 400);
+        }
+
+        try {
+          const { flowData, configData } = await request.json() as any;
+
+          if (!flowData || !configData) {
+            return jsonResponse({ error: 'Flow data and config data are required' }, 400);
+          }
+
+          const timestamp = now();
+
+          const result = await env.DB.prepare(
+            'UPDATE agent_flows SET flow_data = ?, config_data = ?, updated_at = ? WHERE vapi_assistant_id = ? AND user_id = ?'
+          ).bind(
+            JSON.stringify(flowData),
+            JSON.stringify(configData),
+            timestamp,
+            vapiAssistantId,
+            userId
+          ).run();
+
+          if (result.meta.changes === 0) {
+            return jsonResponse({ error: 'Flow not found or not authorized' }, 404);
+          }
+
+          return jsonResponse({ success: true, vapiAssistantId });
+        } catch (error: any) {
+          console.error('Error updating agent flow:', error);
+          return jsonResponse({ error: `Failed to update agent flow: ${error.message}` }, 500);
+        }
+      }
+
+      // Delete agent flow
+      if (url.pathname.startsWith('/api/agent-flows/') && request.method === 'DELETE') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        const vapiAssistantId = url.pathname.split('/').pop();
+        if (!vapiAssistantId) {
+          return jsonResponse({ error: 'VAPI assistant ID is required' }, 400);
+        }
+
+        try {
+          await env.DB.prepare(
+            'DELETE FROM agent_flows WHERE vapi_assistant_id = ? AND user_id = ?'
+          ).bind(vapiAssistantId, userId).run();
+
+          return jsonResponse({ success: true });
+        } catch (error: any) {
+          console.error('Error deleting agent flow:', error);
+          return jsonResponse({ error: `Failed to delete agent flow: ${error.message}` }, 500);
+        }
+      }
+
+      // Check if agent has flow data (lightweight check)
+      if (url.pathname === '/api/agent-flows/check' && request.method === 'POST') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        try {
+          const { assistantIds } = await request.json() as any;
+
+          if (!Array.isArray(assistantIds)) {
+            return jsonResponse({ error: 'assistantIds must be an array' }, 400);
+          }
+
+          const placeholders = assistantIds.map(() => '?').join(',');
+          const { results } = await env.DB.prepare(
+            `SELECT vapi_assistant_id FROM agent_flows WHERE vapi_assistant_id IN (${placeholders}) AND user_id = ?`
+          ).bind(...assistantIds, userId).all();
+
+          const flowIds = new Set((results || []).map((r: any) => r.vapi_assistant_id));
+          const hasFlow: Record<string, boolean> = {};
+          
+          assistantIds.forEach((id: string) => {
+            hasFlow[id] = flowIds.has(id);
+          });
+
+          return jsonResponse({ hasFlow });
+        } catch (error: any) {
+          console.error('Error checking agent flows:', error);
+          return jsonResponse({ error: `Failed to check agent flows: ${error.message}` }, 500);
         }
       }
 
@@ -4336,8 +4807,10 @@ export default {
 
         // Query to get call distribution by assistant
         // Using JSON extraction to get assistant ID from raw_payload, then joining with assistants_cache
+        // Now also returns assistant_id for mapping purposes
         const { results } = await env.DB.prepare(
           `SELECT
+            ac.id as assistant_id,
             json_extract(ac.vapi_data, '$.name') as assistant_name,
             COUNT(*) as call_count
           FROM webhook_calls wc
@@ -4345,7 +4818,7 @@ export default {
           WHERE wc.user_id = ?
             AND wc.raw_payload IS NOT NULL
             AND wc.customer_number IS NOT NULL
-          GROUP BY assistant_name
+          GROUP BY ac.id, assistant_name
           ORDER BY call_count DESC`
         ).bind(effectiveUserId).all();
 
@@ -5628,22 +6101,17 @@ export default {
 
               const dateLower = dateStr.toLowerCase().trim();
               const callDate = new Date(callTimestamp * 1000);
-              console.log('Parsing date:', dateStr, 'Call date:', callDate.toISOString());
 
               // Handle "today"
               if (dateLower === 'today') {
-                const result = callDate.toISOString().split('T')[0];
-                console.log('Parsed "today" as:', result);
-                return result;
+                return callDate.toISOString().split('T')[0];
               }
 
               // Handle "tomorrow"
               if (dateLower === 'tomorrow') {
                 const tomorrow = new Date(callDate);
                 tomorrow.setDate(tomorrow.getDate() + 1);
-                const result = tomorrow.toISOString().split('T')[0];
-                console.log('Parsed "tomorrow" as:', result);
-                return result;
+                return tomorrow.toISOString().split('T')[0];
               }
 
               // Handle "day after tomorrow" or "in 2 days"
@@ -5752,9 +6220,7 @@ export default {
                 if (daysUntil <= 0) daysUntil += 7; // Next week's day
                 const targetDate = new Date(callDate);
                 targetDate.setDate(targetDate.getDate() + daysUntil);
-                const result = targetDate.toISOString().split('T')[0];
-                console.log('Parsed day name "' + dateStr + '" as:', result);
-                return result;
+                return targetDate.toISOString().split('T')[0];
               }
 
               // Try to parse as ISO date or standard date
@@ -5792,7 +6258,6 @@ export default {
               }
 
               // Return original if we can't parse it
-              console.log('Could not parse date, returning original:', dateStr);
               return dateStr;
             };
 
@@ -5899,7 +6364,6 @@ export default {
           // Only include appointments that have a valid appointment_date
           // Exclude entries with "N/A", null, or invalid dates
           if (!apt.appointment_date) {
-            console.log('Filtered out - no appointment_date:', apt.phone_number);
             return false;
           }
           
@@ -5909,7 +6373,6 @@ export default {
             
             // Check if date is valid
             if (isNaN(appointmentDate.getTime())) {
-              console.log('Filtered out - invalid date:', apt.phone_number, apt.appointment_date);
               return false; // Invalid date
             }
             
@@ -5917,25 +6380,19 @@ export default {
             const currentYear = new Date().getFullYear();
             const appointmentYear = appointmentDate.getFullYear();
             
-            console.log('Appointment check:', apt.phone_number, apt.customer_name, apt.appointment_date, 'Year:', appointmentYear, 'Current:', currentYear);
-            
             // Exclude if appointment is from a previous year
             if (appointmentYear < currentYear) {
-              console.log('Filtered out - previous year:', apt.phone_number);
               return false;
             }
-            
-            console.log('Appointment PASSED filter:', apt.phone_number);
           } catch (e) {
             // If date parsing fails, exclude the appointment
-            console.log('Filtered out - parsing error:', apt.phone_number, e);
             return false;
           }
 
           return true;
         });
 
-        console.log(`[Appointments API] Returning ${appointments.length} appointments after filtering`);
+        console.log(`[Appointments API] Returning ${appointments.length} appointments (filtered from ${results.length} records)`);
         return jsonResponse(appointments);
       }
 
@@ -8035,6 +8492,16 @@ Need help? Contact our support team anytime!
               );
             }
 
+            // Auto-inject context from Action nodes when call becomes in-progress
+            if (callStatus === 'in-progress' && customerNumber) {
+              const assistantId = call.assistantId || call.assistant?.id;
+              if (assistantId) {
+                ctx.waitUntil(
+                  injectActionNodeContext(env, assistantId, webhook.user_id, vapiCallId, customerNumber)
+                );
+              }
+            }
+
             return jsonResponse({ success: true, message: 'Call status updated' });
 
           } else if (callStatus === 'ended') {
@@ -8104,30 +8571,49 @@ Need help? Contact our support team anytime!
                 continue;
               }
 
-              // Get CustomerConnect settings for this user
-              const wsSettings = await getWorkspaceSettingsForUser(env, webhook.user_id);
+              // Get CustomerConnect settings - first try webhook owner, then find ANY configured user
+              let wsSettings = await getWorkspaceSettingsForUser(env, webhook.user_id);
+              let customerConnectOwnerId = webhook.user_id;
+              let customerConnectWorkspaceId = wsSettings?.workspace_id;
 
+              // If webhook owner doesn't have CustomerConnect configured, find ANY user who does
               if (!wsSettings?.customerconnect_workspace_id || !wsSettings?.customerconnect_api_key) {
-                console.log('[Tool Call] ERROR: CustomerConnect not configured for user:', webhook.user_id);
-                await logToolCall(env, {
-                  userId: webhook.user_id,
-                  workspaceId: wsSettings?.workspace_id,
-                  vapiCallId,
-                  toolName,
-                  phoneNumber,
-                  status: 'not_configured',
-                  requestTimestamp,
-                  errorMessage: 'CustomerConnect credentials not configured'
-                });
-                results.push({
-                  toolCallId,
-                  result: 'Customer lookup is not configured. Proceeding without customer history.'
-                });
-                continue;
+                console.log('[Tool Call] Webhook owner does not have CustomerConnect, searching for configured user...');
+                const anyCC = await findAnyCustomerConnectCredentials(env);
+                
+                if (anyCC) {
+                  console.log('[Tool Call] Found CustomerConnect configured for user:', anyCC.userId);
+                  // Use the CustomerConnect owner's credentials and ID for logging
+                  wsSettings = {
+                    ...wsSettings,
+                    customerconnect_workspace_id: anyCC.customerconnect_workspace_id,
+                    customerconnect_api_key: anyCC.customerconnect_api_key
+                  };
+                  customerConnectOwnerId = anyCC.userId;
+                  customerConnectWorkspaceId = anyCC.workspaceId;
+                } else {
+                  console.log('[Tool Call] ERROR: No user has CustomerConnect configured');
+                  await logToolCall(env, {
+                    userId: webhook.user_id,
+                    workspaceId: wsSettings?.workspace_id,
+                    vapiCallId,
+                    toolName,
+                    phoneNumber,
+                    status: 'not_configured',
+                    requestTimestamp,
+                    errorMessage: 'CustomerConnect credentials not configured'
+                  });
+                  results.push({
+                    toolCallId,
+                    result: 'Customer lookup is not configured. Proceeding without customer history.'
+                  });
+                  continue;
+                }
               }
 
               console.log('[Tool Call] Calling CustomerConnect API...');
               console.log('[Tool Call] Workspace ID:', wsSettings.customerconnect_workspace_id);
+              console.log('[Tool Call] Logging to user:', customerConnectOwnerId);
 
               // Lookup customer from CustomerConnect API
               const customerData = await lookupCustomerFromCustomerConnect(
@@ -8167,10 +8653,10 @@ Need help? Contact our support team anytime!
                 console.log('[Tool Call] Appointment:', customerData.appointmentDate, customerData.appointmentTime);
                 console.log('[Tool Call] Household:', customerData.household);
 
-                // Log successful lookup
+                // Log successful lookup - use CustomerConnect owner's ID, not webhook owner
                 await logToolCall(env, {
-                  userId: webhook.user_id,
-                  workspaceId: wsSettings.workspace_id,
+                  userId: customerConnectOwnerId,
+                  workspaceId: customerConnectWorkspaceId,
                   vapiCallId,
                   toolName,
                   phoneNumber,
@@ -8192,10 +8678,10 @@ Need help? Contact our support team anytime!
                 console.log('[Tool Call] NOT FOUND: No customer record');
                 console.log('[Tool Call] Response time:', responseTimeMs, 'ms');
 
-                // Log not found
+                // Log not found - use CustomerConnect owner's ID, not webhook owner
                 await logToolCall(env, {
-                  userId: webhook.user_id,
-                  workspaceId: wsSettings.workspace_id,
+                  userId: customerConnectOwnerId,
+                  workspaceId: customerConnectWorkspaceId,
                   vapiCallId,
                   toolName,
                   phoneNumber,
@@ -8619,6 +9105,66 @@ Need help? Contact our support team anytime!
           ).run();
 
           return jsonResponse({ error: 'Failed to store call data' }, 500);
+        }
+      }
+
+      // API Proxy - allows frontend to make API calls through backend (avoids CORS)
+      if (url.pathname === '/api/proxy' && request.method === 'POST') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        try {
+          const body = await request.json() as {
+            url: string;
+            method?: string;
+            headers?: Record<string, string>;
+            body?: any;
+          };
+
+          if (!body.url) {
+            return jsonResponse({ error: 'URL is required' }, 400);
+          }
+
+          // Make the proxied request
+          const proxyHeaders: Record<string, string> = {
+            ...body.headers
+          };
+
+          const proxyOptions: RequestInit = {
+            method: body.method || 'GET',
+            headers: proxyHeaders,
+          };
+
+          if (body.body && body.method !== 'GET') {
+            proxyOptions.body = JSON.stringify(body.body);
+          }
+
+          console.log('[API Proxy] Forwarding request to:', body.url);
+          
+          const proxyResponse = await fetch(body.url, proxyOptions);
+          
+          // Try to parse as JSON, fall back to text
+          let responseData;
+          const contentType = proxyResponse.headers.get('content-type');
+          if (contentType?.includes('application/json')) {
+            responseData = await proxyResponse.json();
+          } else {
+            responseData = await proxyResponse.text();
+          }
+
+          return jsonResponse({
+            status: proxyResponse.status,
+            statusText: proxyResponse.statusText,
+            data: responseData
+          }, proxyResponse.ok ? 200 : proxyResponse.status);
+        } catch (error: any) {
+          console.error('[API Proxy] Error:', error);
+          return jsonResponse({ 
+            error: error.message || 'Proxy request failed',
+            status: 500
+          }, 500);
         }
       }
 

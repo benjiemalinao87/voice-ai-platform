@@ -2,6 +2,77 @@
 
 ## Completed Features
 
+### Dashboard Loading Performance Optimization (December 1, 2025)
+✅ **Optimized dashboard loading by reducing API calls from 16 to 7**
+
+**Problem:**
+Dashboard was loading slowly due to excessive API calls.
+
+**Root Cause:**
+1. Fetching 1000 webhook calls when only 10 are displayed in the table
+2. N+1 API problem: Making individual `getAssistant()` calls for each unique assistant ID after loading calls
+
+**Fix Applied:**
+1. Reduced webhook-calls limit from 1000 to 200 (80% less data)
+2. Added `assistant_id` to `/api/agent-distribution` endpoint response
+3. Reuse assistant names from agent-distribution data instead of individual API calls
+4. Eliminated 9+ individual assistant API calls entirely
+
+**Performance Impact:**
+- **57% fewer API calls** (7 vs 16)
+- **80% less data** in webhook-calls response
+- **Eliminated N+1 query problem**
+
+**Files Modified:**
+- `src/components/PerformanceDashboard.tsx` - Reduced limit, reuse agent distribution data
+- `src/lib/d1.ts` - Updated type to include `assistant_id`
+- `workers/index.ts` - Added `assistant_id` to agent-distribution SQL query
+
+---
+
+### Workers Automatic Tracing Enabled (December 2024)
+✅ **Enabled Cloudflare Workers automatic tracing (open beta)**
+
+**What It Does:**
+- Provides detailed metadata and timing information for every operation the Worker performs
+- Helps identify performance bottlenecks and resolve errors
+- Shows how the Worker interacts with D1 database, KV cache, and R2 storage
+
+**Questions It Can Answer:**
+- Which calls are slowing down the application?
+- Which queries to the database take the longest?
+- What happened within a request that resulted in an error?
+
+**Features:**
+- View traces alongside logs in Workers Observability dashboard
+- Export traces to OTLP-compatible destinations (Honeycomb, Sentry, Grafana)
+- Analyze and query across span attributes (operation type, status, duration, errors)
+
+**Files Modified:**
+- `wrangler.toml` - Added `[observability]` and `[observability.tracing]` configuration
+
+**Documentation:**
+- https://developers.cloudflare.com/workers/observability/traces/
+
+---
+
+### Branch Visualization Race Condition Fix (December 2024)
+✅ **Fixed visual flow marking showing wrong branch path during live calls**
+
+**Problem:**
+When user said "Latte", the AI responded correctly but the visual marking incorrectly showed "Espresso" (the first branch option).
+
+**Root Cause:**
+Race condition - `speech-start` event fired before async intent classification completed, blindly advancing to `findNextNodes()[0]` (always the first edge).
+
+**Fix:**
+Added `isClassifyingIntent` flag to prevent premature node advancement while classification is in progress.
+
+**Files Modified:**
+- `src/components/AgentFlowCreator/index.tsx` - Added classification guard logic
+
+---
+
 ### CustomerConnect Auto-Context Injection (November 28, 2025)
 ✅ **Successfully implemented automatic customer context injection via VAPI Tool**
 

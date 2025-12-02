@@ -526,6 +526,7 @@ class D1Client {
 
   // Get call distribution by voice agent
   async getAgentDistribution(): Promise<Array<{
+    assistant_id: string;
     assistant_name: string;
     call_count: number;
   }>> {
@@ -816,6 +817,93 @@ class D1Client {
       limit: response.limit,
       offset: response.offset,
     }));
+  }
+
+  // ============================================
+  // AGENT FLOWS METHODS
+  // ============================================
+
+  /**
+   * Save agent flow data
+   * Links visual flow to a VAPI assistant
+   */
+  async saveAgentFlow(vapiAssistantId: string, flowData: any, configData: any): Promise<{
+    success: boolean;
+    id: string;
+    vapiAssistantId: string;
+  }> {
+    return this.request('/api/agent-flows', {
+      method: 'POST',
+      body: JSON.stringify({ vapiAssistantId, flowData, configData }),
+    });
+  }
+
+  /**
+   * Get agent flow data by VAPI assistant ID
+   */
+  async getAgentFlow(vapiAssistantId: string): Promise<{
+    exists: boolean;
+    id?: string;
+    vapiAssistantId?: string;
+    flowData?: any;
+    configData?: any;
+    createdAt?: number;
+    updatedAt?: number;
+  }> {
+    try {
+      return await this.request(`/api/agent-flows/${vapiAssistantId}`, {
+        method: 'GET',
+      });
+    } catch (error: any) {
+      // If 404, return exists: false
+      if (error.message?.includes('404')) {
+        return { exists: false };
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Update agent flow data
+   */
+  async updateAgentFlow(vapiAssistantId: string, flowData: any, configData: any): Promise<{
+    success: boolean;
+    vapiAssistantId: string;
+  }> {
+    return this.request(`/api/agent-flows/${vapiAssistantId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ flowData, configData }),
+    });
+  }
+
+  /**
+   * Delete agent flow data
+   */
+  async deleteAgentFlow(vapiAssistantId: string): Promise<{ success: boolean }> {
+    return this.request(`/api/agent-flows/${vapiAssistantId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  /**
+   * Check which agents have flow data
+   * Returns a map of assistantId -> hasFlow
+   */
+  async checkAgentFlows(assistantIds: string[]): Promise<Record<string, boolean>> {
+    if (assistantIds.length === 0) {
+      return {};
+    }
+
+    try {
+      const response = await this.request<{ hasFlow: Record<string, boolean> }>('/api/agent-flows/check', {
+        method: 'POST',
+        body: JSON.stringify({ assistantIds }),
+      });
+      return response.hasFlow;
+    } catch (error) {
+      console.error('Error checking agent flows:', error);
+      return {};
+    }
   }
 
   // ============================================

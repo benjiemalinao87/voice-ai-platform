@@ -197,7 +197,7 @@ export class VoiceAICache {
   /**
    * Cache intent dashboard summary
    */
-  async cacheIntentSummary(userId: string, summaryData: any, ttl: number = 120): Promise<void> {
+  async cacheIntentSummary(userId: string, summaryData: any, ttl: number = 300): Promise<void> {
     const key = this.getIntentSummaryKey(userId);
     await this.set(key, summaryData, { ttl });
   }
@@ -276,6 +276,6 @@ export const CACHE_TTL = {
   RECORDINGS: 300,      // 5 minutes
   CALL_DETAILS: 600,    // 10 minutes
   INTENT_ANALYSIS: 600, // 10 minutes
-  INTENT_SUMMARY: 120,  // 2 minutes
+  INTENT_SUMMARY: 300,  // 5 minutes (increased from 2 min for better cache hit rate)
   ENHANCED_DATA: 1800,  // 30 minutes
 } as const;
