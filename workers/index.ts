@@ -4597,6 +4597,63 @@ export default {
         }
       }
 
+      // Batch get listen URLs for multiple calls (for voice activity monitoring)
+      if (url.pathname === '/api/calls/batch-listen' && request.method === 'POST') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        const { callIds } = await request.json() as { callIds: string[] };
+        
+        if (!callIds || !Array.isArray(callIds) || callIds.length === 0) {
+          return jsonResponse({ error: 'callIds array required' }, 400);
+        }
+
+        // Limit to prevent abuse
+        if (callIds.length > 10) {
+          return jsonResponse({ error: 'Maximum 10 calls at a time' }, 400);
+        }
+
+        console.log('[Batch Listen] Fetching listen URLs for', callIds.length, 'calls');
+
+        const settings = await getWorkspaceSettingsForUser(env, userId);
+        if (!settings?.private_key) {
+          return jsonResponse({ error: 'VAPI credentials not configured' }, 400);
+        }
+
+        // Fetch listen URLs for all calls in parallel
+        const results = await Promise.all(
+          callIds.map(async (callId) => {
+            try {
+              const response = await fetch(`https://api.vapi.ai/call/${callId}`, {
+                method: 'GET',
+                headers: { 'Authorization': `Bearer ${settings.private_key}` }
+              });
+
+              if (!response.ok) {
+                return { callId, error: 'Failed to get call details' };
+              }
+
+              const callDetails = await response.json() as any;
+              const listenUrl = callDetails.monitor?.listenUrl;
+
+              if (!listenUrl) {
+                return { callId, error: 'Listen URL not available' };
+              }
+
+              return { callId, listenUrl };
+            } catch (error) {
+              return { callId, error: 'Request failed' };
+            }
+          })
+        );
+
+        console.log('[Batch Listen] Results:', results.length, 'processed');
+
+        return jsonResponse({ results });
+      }
+
       // Control: Say Message
       if (url.pathname.startsWith('/api/calls/') && url.pathname.endsWith('/control/say') && request.method === 'POST') {
         const userId = await getUserFromToken(request, env);
