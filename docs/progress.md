@@ -2,6 +2,67 @@
 
 ## Completed Features
 
+### Auto Warm Transfer Feature (December 4, 2024)
+✅ **Implemented automatic warm transfers triggered by AI when sales opportunities are detected**
+
+**Feature Description:**
+When the AI assistant detects a sales opportunity during a call (using the `transfer_to_sales()` function call), the system automatically:
+1. Dials through a list of configured agents in priority order
+2. Plays an announcement to the agent before connecting
+3. Transfers the customer to the first agent who answers
+4. Falls back gracefully to AI handling if no agents answer
+
+**Key Components:**
+
+1. **Database Tables:**
+   - `assistant_transfer_agents` - Agent phone list per assistant
+   - `assistant_transfer_settings` - Configuration (ring timeout, max attempts, enabled)
+   - `auto_transfer_logs` - Complete audit trail of all dial attempts
+
+2. **API Endpoints:**
+   - `GET/POST /api/assistants/:id/transfer-agents` - Agent list management
+   - `PATCH/DELETE /api/assistants/:id/transfer-agents/:agentId` - Individual agent operations
+   - `GET/PUT /api/assistants/:id/transfer-settings` - Settings management
+   - `GET /api/auto-transfer-logs` - Logs retrieval
+
+3. **Backend Logic:**
+   - Extended `tool-calls` webhook handler for `transfer_to_sales` function
+   - `autoDialAgentLoop()` function with retry logic
+   - TwiML endpoints for agent announcements
+   - Comprehensive logging for all dial attempts
+
+4. **Frontend Components:**
+   - `TransferAgentSettings.tsx` - Agent list management UI
+   - `AutoTransferLogs.tsx` - Transfer history and analytics
+
+**Files Added:**
+- `workers/migrations/0027_create_auto_transfer_tables.sql`
+- `src/components/TransferAgentSettings.tsx`
+- `src/components/AutoTransferLogs.tsx`
+
+**Files Modified:**
+- `workers/index.ts` - API endpoints, tool handler, TwiML endpoints
+- `src/lib/d1.ts` - D1 client methods for new endpoints
+
+**Configuration Options:**
+- Ring timeout per agent (default: 30 seconds)
+- Maximum attempts before fallback (default: 3)
+- Custom announcement message
+- Enable/disable toggle per assistant
+
+---
+
+### Webhook Event Type Filtering Fix (December 4, 2024)
+✅ **Fixed call metrics inflation by filtering non-end-of-call webhook events**
+
+**Problem:**
+VAPI sends multiple event types for each call (speech-update, conversation-update, assistant.started, hang, etc.). Without filtering, these events could create duplicate call records, inflating metrics.
+
+**Fix:**
+Added explicit check to only process `end-of-call-report` events for call records in `webhook_calls` table.
+
+---
+
 ### Real-Time Active Calls with Durable Objects (December 4, 2025)
 ✅ **Replaced polling with WebSocket-based real-time updates using Cloudflare Durable Objects**
 

@@ -913,6 +913,155 @@ class D1Client {
   }
 
   // ============================================
+  // AUTO WARM TRANSFER METHODS
+  // ============================================
+
+  /**
+   * Get transfer agents for an assistant
+   */
+  async getTransferAgents(assistantId: string): Promise<{
+    agents: Array<{
+      id: string;
+      assistant_id: string;
+      phone_number: string;
+      agent_name: string | null;
+      priority: number;
+      is_active: number;
+      created_at: number;
+      updated_at: number;
+    }>;
+    assistantId: string;
+  }> {
+    return this.request(`/api/assistants/${assistantId}/transfer-agents`, {
+      method: 'GET',
+    });
+  }
+
+  /**
+   * Add a transfer agent to an assistant
+   */
+  async addTransferAgent(assistantId: string, data: {
+    phone_number: string;
+    agent_name?: string;
+    priority?: number;
+  }): Promise<{
+    id: string;
+    assistant_id: string;
+    phone_number: string;
+    agent_name: string | null;
+    priority: number;
+    is_active: number;
+  }> {
+    return this.request(`/api/assistants/${assistantId}/transfer-agents`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  /**
+   * Update a transfer agent
+   */
+  async updateTransferAgent(assistantId: string, agentId: string, data: {
+    phone_number?: string;
+    agent_name?: string;
+    priority?: number;
+    is_active?: boolean;
+  }): Promise<any> {
+    return this.request(`/api/assistants/${assistantId}/transfer-agents/${agentId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  }
+
+  /**
+   * Delete a transfer agent
+   */
+  async deleteTransferAgent(assistantId: string, agentId: string): Promise<{ success: boolean }> {
+    return this.request(`/api/assistants/${assistantId}/transfer-agents/${agentId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  /**
+   * Get transfer settings for an assistant
+   */
+  async getTransferSettings(assistantId: string): Promise<{
+    assistant_id: string;
+    ring_timeout_seconds: number;
+    max_attempts: number;
+    enabled: number;
+    announcement_message: string | null;
+  }> {
+    return this.request(`/api/assistants/${assistantId}/transfer-settings`, {
+      method: 'GET',
+    });
+  }
+
+  /**
+   * Update transfer settings for an assistant
+   */
+  async updateTransferSettings(assistantId: string, data: {
+    ring_timeout_seconds?: number;
+    max_attempts?: number;
+    enabled?: boolean;
+    announcement_message?: string;
+  }): Promise<any> {
+    return this.request(`/api/assistants/${assistantId}/transfer-settings`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  /**
+   * Get auto transfer logs
+   */
+  async getAutoTransferLogs(params?: {
+    assistant_id?: string;
+    status?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<{
+    logs: Array<{
+      id: string;
+      transfer_id: string;
+      vapi_call_id: string;
+      assistant_id: string;
+      agent_phone: string;
+      agent_name: string | null;
+      attempt_number: number;
+      status: string;
+      reason: string | null;
+      started_at: number;
+      ended_at: number | null;
+      duration_seconds: number | null;
+    }>;
+    total: number;
+    limit: number;
+    offset: number;
+  }> {
+    const queryParams = new URLSearchParams();
+    if (params?.assistant_id) queryParams.set('assistant_id', params.assistant_id);
+    if (params?.status) queryParams.set('status', params.status);
+    if (params?.limit) queryParams.set('limit', params.limit.toString());
+    if (params?.offset) queryParams.set('offset', params.offset.toString());
+
+    const url = `/api/auto-transfer-logs${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
+    return this.request(url, { method: 'GET' });
+  }
+
+  /**
+   * Get specific transfer details with all attempts
+   */
+  async getAutoTransferDetails(transferId: string): Promise<{
+    transfer_id: string;
+    attempts: Array<any>;
+  }> {
+    return this.request(`/api/auto-transfer-logs/${transferId}`, {
+      method: 'GET',
+    });
+  }
+
+  // ============================================
   // GENERIC HTTP METHODS
   // ============================================
 

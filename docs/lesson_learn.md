@@ -4355,3 +4355,63 @@ if (messageType !== 'end-of-call-report') {
 **Key Insight:**
 When integrating with third-party webhook providers (like VAPI), always explicitly handle or reject each event type. A single phone call can generate 10+ webhook events. If all are counted as separate calls, metrics become meaningless. The safest approach is to whitelist specific event types rather than blacklist unwanted ones.
 
+---
+
+## 2024-12-04: Auto Warm Transfer - Extending Manual Feature to Automated
+
+**Feature:**
+Extended the existing manual warm transfer (triggered via UI) to support automated transfers triggered by AI when it detects sales opportunities.
+
+**Implementation Approach:**
+
+1. **Leverage VAPI Tool Calls:**
+   - AI assistant configured with a `transfer_to_sales()` function tool
+   - AI decides when to call this function based on conversation context
+   - Our webhook handler receives the tool-call and initiates the transfer sequence
+
+2. **Sequential Agent Dialing with Polling:**
+   - For Cloudflare Workers (limited execution time), used polling approach
+   - Dial agent → poll Twilio API for status → timeout or answered → next action
+   - This keeps within Workers' CPU time limits while providing reliable behavior
+
+3. **Graceful Fallback:**
+   - If all agents fail to answer, return a message to AI to continue handling
+   - Customer never knows the transfer failed - AI smoothly continues
+
+**Key Technical Decisions:**
+
+1. **Per-Assistant Configuration:**
+   - Each AI assistant can have its own agent list and settings
+   - Allows different departments/use cases with different transfer targets
+
+2. **Comprehensive Logging:**
+   - Every dial attempt logged with status, duration, timestamps
+   - Enables analytics: success rate, average time to connect, agent performance
+
+3. **Background Processing with ctx.waitUntil:**
+   - Auto-dial loop runs in background, doesn't block webhook response
+   - AI immediately gets a response to say to customer while dialing happens
+
+**Files Created:**
+- `workers/migrations/0027_create_auto_transfer_tables.sql` - 3 new tables
+- `src/components/TransferAgentSettings.tsx` - Agent list management UI
+- `src/components/AutoTransferLogs.tsx` - Transfer history view
+
+**Files Modified:**
+- `workers/index.ts`:
+  - Added `autoDialAgentLoop()` function with retry logic
+  - Added `logAutoTransferAttempt()` helper for logging
+  - Extended `tool-calls` handler for `transfer_to_sales`
+  - Added API endpoints for agents, settings, and logs
+  - Added TwiML endpoint for auto-transfer announcements
+- `src/lib/d1.ts` - D1 client methods for new endpoints
+
+**What NOT to do:**
+- Don't block webhook response while dialing agents (use background processing)
+- Don't assume Twilio calls complete synchronously (use polling or callbacks)
+- Don't forget to log all attempts for audit/analytics
+- Don't make transfer configuration global - per-assistant is more flexible
+
+**Key Insight:**
+When extending a manual UI feature to automation, the key is finding the right trigger point. For VAPI, the `tool-calls` webhook is perfect - the AI can call a function when it detects the right conditions, and the backend can execute complex logic in response. This pattern (AI triggers → Backend executes) is powerful for building intelligent automation.
+

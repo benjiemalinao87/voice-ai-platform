@@ -974,6 +974,350 @@ async function logToolCall(env: Env, data: {
   }
 }
 
+// Helper: Log auto-transfer attempt to database
+async function logAutoTransferAttempt(env: Env, data: {
+  transferId: string;
+  vapiCallId: string;
+  assistantId: string;
+  userId: string;
+  agentPhone: string;
+  agentName?: string | null;
+  attemptNumber: number;
+  status: 'dialing' | 'answered' | 'no_answer' | 'busy' | 'failed';
+  twilioCallSid?: string | null;
+  reason?: string | null;
+  errorMessage?: string | null;
+  startedAt: number;
+  endedAt?: number | null;
+  durationSeconds?: number | null;
+}): Promise<void> {
+  try {
+    const logId = generateId();
+    await env.DB.prepare(
+      `INSERT INTO auto_transfer_logs (
+        id, transfer_id, vapi_call_id, assistant_id, user_id, 
+        agent_phone, agent_name, attempt_number, status, 
+        twilio_call_sid, reason, error_message, started_at, ended_at, duration_seconds
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).bind(
+      logId,
+      data.transferId,
+      data.vapiCallId,
+      data.assistantId,
+      data.userId,
+      data.agentPhone,
+      data.agentName || null,
+      data.attemptNumber,
+      data.status,
+      data.twilioCallSid || null,
+      data.reason || null,
+      data.errorMessage || null,
+      data.startedAt,
+      data.endedAt || null,
+      data.durationSeconds || null
+    ).run();
+
+    console.log('[Auto Transfer Log] Saved attempt:', data.attemptNumber, 'Status:', data.status);
+  } catch (error) {
+    console.error('[Auto Transfer Log] Error saving log:', error);
+  }
+}
+
+// Helper: Auto-dial agent loop for automated warm transfers
+// This function tries agents sequentially until one answers or all fail
+async function autoDialAgentLoop(env: Env, params: {
+  transferId: string;
+  vapiCallId: string;
+  assistantId: string;
+  userId: string;
+  agents: Array<{ id: string; phone_number: string; agent_name?: string; priority: number }>;
+  transferSettings: { ring_timeout_seconds: number; max_attempts: number; announcement_message?: string };
+  twilioConfig: {
+    accountSid: string;
+    authToken: string;
+    workerUrl: string;
+    twilioPhoneNumber: string;
+  };
+  vapiPrivateKey: string;
+  reason: string;
+}): Promise<{ success: boolean; answeredAgent?: string }> {
+  const {
+    transferId,
+    vapiCallId,
+    assistantId,
+    userId,
+    agents,
+    transferSettings,
+    twilioConfig,
+    vapiPrivateKey,
+    reason
+  } = params;
+
+  console.log('[Auto Transfer] ========================================');
+  console.log('[Auto Transfer] Starting auto-dial loop');
+  console.log('[Auto Transfer] Transfer ID:', transferId);
+  console.log('[Auto Transfer] VAPI Call ID:', vapiCallId);
+  console.log('[Auto Transfer] Agents to try:', agents.length);
+  console.log('[Auto Transfer] Ring timeout:', transferSettings.ring_timeout_seconds, 'seconds');
+  console.log('[Auto Transfer] Max attempts:', transferSettings.max_attempts);
+  console.log('[Auto Transfer] ========================================');
+
+  const maxAttempts = Math.min(agents.length, transferSettings.max_attempts);
+  const ringTimeout = transferSettings.ring_timeout_seconds * 1000; // Convert to ms
+  const announcement = transferSettings.announcement_message || `You have an incoming transfer. Reason: ${reason}. Please stay on the line.`;
+
+  for (let i = 0; i < maxAttempts; i++) {
+    const agent = agents[i];
+    const attemptNumber = i + 1;
+    const attemptStartTime = Date.now();
+
+    console.log(`[Auto Transfer] Attempt ${attemptNumber}/${maxAttempts}: Dialing ${agent.agent_name || 'Agent'} at ${agent.phone_number}`);
+
+    // Log the attempt as 'dialing'
+    await logAutoTransferAttempt(env, {
+      transferId,
+      vapiCallId,
+      assistantId,
+      userId,
+      agentPhone: agent.phone_number,
+      agentName: agent.agent_name,
+      attemptNumber,
+      status: 'dialing',
+      reason,
+      startedAt: Math.floor(attemptStartTime / 1000)
+    });
+
+    try {
+      // Make Twilio call to agent
+      const twimlUrl = `${twilioConfig.workerUrl}/twiml/auto-transfer-announcement/${transferId}?announcement=${encodeURIComponent(announcement)}&attempt=${attemptNumber}`;
+      
+      const bodyParams = new URLSearchParams();
+      bodyParams.append('To', agent.phone_number);
+      bodyParams.append('From', twilioConfig.twilioPhoneNumber);
+      bodyParams.append('Url', twimlUrl);
+      bodyParams.append('Timeout', String(transferSettings.ring_timeout_seconds));
+      bodyParams.append('StatusCallback', `${twilioConfig.workerUrl}/webhook/auto-transfer-status/${transferId}`);
+      bodyParams.append('StatusCallbackEvent', 'initiated');
+      bodyParams.append('StatusCallbackEvent', 'ringing');
+      bodyParams.append('StatusCallbackEvent', 'answered');
+      bodyParams.append('StatusCallbackEvent', 'completed');
+      bodyParams.append('StatusCallbackMethod', 'POST');
+
+      const callResponse = await fetch(
+        `https://api.twilio.com/2010-04-01/Accounts/${twilioConfig.accountSid}/Calls.json`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': 'Basic ' + btoa(`${twilioConfig.accountSid}:${twilioConfig.authToken}`),
+            'Content-Type': 'application/x-www-form-urlencoded',
+          },
+          body: bodyParams,
+        }
+      );
+
+      if (!callResponse.ok) {
+        const errorText = await callResponse.text();
+        console.error(`[Auto Transfer] Failed to dial agent ${attemptNumber}:`, errorText);
+        
+        const attemptEndTime = Date.now();
+        await logAutoTransferAttempt(env, {
+          transferId,
+          vapiCallId,
+          assistantId,
+          userId,
+          agentPhone: agent.phone_number,
+          agentName: agent.agent_name,
+          attemptNumber,
+          status: 'failed',
+          reason,
+          errorMessage: `Twilio error: ${callResponse.status}`,
+          startedAt: Math.floor(attemptStartTime / 1000),
+          endedAt: Math.floor(attemptEndTime / 1000),
+          durationSeconds: Math.floor((attemptEndTime - attemptStartTime) / 1000)
+        });
+        continue; // Try next agent
+      }
+
+      const callData = await callResponse.json() as any;
+      const callSid = callData.sid;
+
+      console.log(`[Auto Transfer] Call initiated to agent ${attemptNumber}, SID:`, callSid);
+
+      // Poll for call status until answered, completed, or timeout
+      let callAnswered = false;
+      let callStatus = 'queued';
+      const pollStartTime = Date.now();
+      const pollInterval = 2000; // Check every 2 seconds
+
+      while (Date.now() - pollStartTime < ringTimeout + 5000) { // Add 5s buffer
+        await new Promise(resolve => setTimeout(resolve, pollInterval));
+
+        // Check call status
+        const statusResponse = await fetch(
+          `https://api.twilio.com/2010-04-01/Accounts/${twilioConfig.accountSid}/Calls/${callSid}.json`,
+          {
+            method: 'GET',
+            headers: {
+              'Authorization': 'Basic ' + btoa(`${twilioConfig.accountSid}:${twilioConfig.authToken}`),
+            },
+          }
+        );
+
+        if (statusResponse.ok) {
+          const statusData = await statusResponse.json() as any;
+          callStatus = statusData.status;
+
+          console.log(`[Auto Transfer] Agent ${attemptNumber} call status:`, callStatus);
+
+          if (callStatus === 'in-progress') {
+            // Agent answered!
+            callAnswered = true;
+            break;
+          } else if (['completed', 'busy', 'no-answer', 'failed', 'canceled'].includes(callStatus)) {
+            // Call ended without answering
+            break;
+          }
+        }
+      }
+
+      const attemptEndTime = Date.now();
+      const durationSeconds = Math.floor((attemptEndTime - attemptStartTime) / 1000);
+
+      if (callAnswered) {
+        console.log(`[Auto Transfer] SUCCESS! Agent ${attemptNumber} (${agent.agent_name || agent.phone_number}) answered!`);
+
+        // Log successful answer
+        await logAutoTransferAttempt(env, {
+          transferId,
+          vapiCallId,
+          assistantId,
+          userId,
+          agentPhone: agent.phone_number,
+          agentName: agent.agent_name,
+          attemptNumber,
+          status: 'answered',
+          twilioCallSid: callSid,
+          reason,
+          startedAt: Math.floor(attemptStartTime / 1000),
+          endedAt: Math.floor(attemptEndTime / 1000),
+          durationSeconds
+        });
+
+        // Wait a moment for agent to hear announcement
+        await new Promise(resolve => setTimeout(resolve, 3000));
+
+        // Now transfer the customer to this agent's phone via VAPI
+        try {
+          // Get VAPI call's controlUrl
+          const getCallResponse = await fetch(`https://api.vapi.ai/call/${vapiCallId}`, {
+            method: 'GET',
+            headers: { 'Authorization': `Bearer ${vapiPrivateKey}` }
+          });
+
+          if (getCallResponse.ok) {
+            const callDetails = await getCallResponse.json() as any;
+            const controlUrl = callDetails.monitor?.controlUrl;
+            const vapiCallStatus = callDetails.status;
+
+            if (vapiCallStatus !== 'ended' && controlUrl) {
+              // Transfer customer to agent
+              const transferPayload = {
+                type: 'transfer',
+                destination: {
+                  type: 'number',
+                  number: agent.phone_number
+                }
+              };
+
+              console.log('[Auto Transfer] Sending transfer command to VAPI...');
+
+              const transferResponse = await fetch(controlUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(transferPayload)
+              });
+
+              if (transferResponse.ok) {
+                console.log('[Auto Transfer] Customer transfer initiated successfully!');
+                return { success: true, answeredAgent: agent.agent_name || agent.phone_number };
+              } else {
+                console.error('[Auto Transfer] Failed to transfer customer:', await transferResponse.text());
+              }
+            } else {
+              console.log('[Auto Transfer] VAPI call already ended or no controlUrl');
+            }
+          }
+        } catch (transferError) {
+          console.error('[Auto Transfer] Error transferring customer:', transferError);
+        }
+
+        // Even if transfer failed, agent answered - return success
+        return { success: true, answeredAgent: agent.agent_name || agent.phone_number };
+      } else {
+        // Agent didn't answer
+        console.log(`[Auto Transfer] Agent ${attemptNumber} did not answer. Status: ${callStatus}`);
+
+        await logAutoTransferAttempt(env, {
+          transferId,
+          vapiCallId,
+          assistantId,
+          userId,
+          agentPhone: agent.phone_number,
+          agentName: agent.agent_name,
+          attemptNumber,
+          status: callStatus === 'busy' ? 'busy' : 'no_answer',
+          twilioCallSid: callSid,
+          reason,
+          startedAt: Math.floor(attemptStartTime / 1000),
+          endedAt: Math.floor(attemptEndTime / 1000),
+          durationSeconds
+        });
+
+        // Hang up the agent call if still active
+        try {
+          await fetch(
+            `https://api.twilio.com/2010-04-01/Accounts/${twilioConfig.accountSid}/Calls/${callSid}.json`,
+            {
+              method: 'POST',
+              headers: {
+                'Authorization': 'Basic ' + btoa(`${twilioConfig.accountSid}:${twilioConfig.authToken}`),
+                'Content-Type': 'application/x-www-form-urlencoded',
+              },
+              body: new URLSearchParams({ 'Status': 'completed' }),
+            }
+          );
+        } catch (hangupError) {
+          // Ignore hangup errors
+        }
+      }
+    } catch (error) {
+      console.error(`[Auto Transfer] Error dialing agent ${attemptNumber}:`, error);
+      
+      const attemptEndTime = Date.now();
+      await logAutoTransferAttempt(env, {
+        transferId,
+        vapiCallId,
+        assistantId,
+        userId,
+        agentPhone: agent.phone_number,
+        agentName: agent.agent_name,
+        attemptNumber,
+        status: 'failed',
+        reason,
+        errorMessage: String(error),
+        startedAt: Math.floor(attemptStartTime / 1000),
+        endedAt: Math.floor(attemptEndTime / 1000),
+        durationSeconds: Math.floor((attemptEndTime - attemptStartTime) / 1000)
+      });
+    }
+  }
+
+  console.log('[Auto Transfer] All agents tried, none answered. AI will continue handling the call.');
+  console.log('[Auto Transfer] ========================================');
+
+  return { success: false };
+}
+
 // Helper: Lookup customer from CustomerConnect API
 async function lookupCustomerFromCustomerConnect(
   phoneNumber: string,
@@ -3372,7 +3716,8 @@ export default {
       }
 
       // Get single assistant (cache-first)
-      if (url.pathname.startsWith('/api/assistants/') && url.pathname !== '/api/assistants' && request.method === 'GET') {
+      // Note: Only match /api/assistants/{id} - NOT sub-routes like /api/assistants/{id}/transfer-agents
+      if (url.pathname.match(/^\/api\/assistants\/[^/]+$/) && request.method === 'GET') {
         const userId = await getUserFromToken(request, env);
         if (!userId) {
           return jsonResponse({ error: 'Unauthorized' }, 401);
@@ -3480,7 +3825,8 @@ export default {
       }
 
       // Update assistant (write-through cache)
-      if (url.pathname.startsWith('/api/assistants/') && url.pathname !== '/api/assistants' && request.method === 'PATCH') {
+      // Note: Only match /api/assistants/{id} - NOT sub-routes like /api/assistants/{id}/transfer-settings
+      if (url.pathname.match(/^\/api\/assistants\/[^/]+$/) && request.method === 'PATCH') {
         const userId = await getUserFromToken(request, env);
         if (!userId) {
           return jsonResponse({ error: 'Unauthorized' }, 401);
@@ -3694,7 +4040,8 @@ export default {
       }
 
       // Delete assistant (write-through cache)
-      if (url.pathname.startsWith('/api/assistants/') && url.pathname !== '/api/assistants' && request.method === 'DELETE') {
+      // Note: Only match /api/assistants/{id} - NOT sub-routes
+      if (url.pathname.match(/^\/api\/assistants\/[^/]+$/) && request.method === 'DELETE') {
         const userId = await getUserFromToken(request, env);
         if (!userId) {
           return jsonResponse({ error: 'Unauthorized' }, 401);
@@ -6131,6 +6478,539 @@ export default {
         return jsonResponse({ success: true, message: 'Warm transfer cancelled' });
       }
 
+      // ============================================
+      // AUTO WARM TRANSFER ENDPOINTS
+      // ============================================
+
+      // List transfer agents for an assistant
+      if (url.pathname.match(/^\/api\/assistants\/[^/]+\/transfer-agents$/) && request.method === 'GET') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        const pathParts = url.pathname.split('/');
+        const assistantId = pathParts[3];
+
+        const { effectiveUserId } = await getEffectiveUserId(env, userId);
+
+        const { results } = await env.DB.prepare(
+          `SELECT * FROM assistant_transfer_agents 
+           WHERE assistant_id = ? AND user_id = ? 
+           ORDER BY priority ASC, created_at ASC`
+        ).bind(assistantId, effectiveUserId).all();
+
+        return jsonResponse({
+          agents: results || [],
+          assistantId
+        });
+      }
+
+      // Add transfer agent to assistant
+      if (url.pathname.match(/^\/api\/assistants\/[^/]+\/transfer-agents$/) && request.method === 'POST') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        const pathParts = url.pathname.split('/');
+        const assistantId = pathParts[3];
+
+        const body = await request.json() as any;
+        const { phone_number, agent_name, priority } = body;
+
+        if (!phone_number) {
+          return jsonResponse({ error: 'Phone number is required' }, 400);
+        }
+
+        // Normalize phone number to E.164
+        const normalizedPhone = phone_number.replace(/[\s\-\(\)]/g, '');
+
+        const { effectiveUserId } = await getEffectiveUserId(env, userId);
+        const timestamp = now();
+        const agentId = generateId();
+
+        // Get current max priority if not provided
+        let agentPriority = priority;
+        if (agentPriority === undefined || agentPriority === null) {
+          const maxPriority = await env.DB.prepare(
+            `SELECT MAX(priority) as max_priority FROM assistant_transfer_agents 
+             WHERE assistant_id = ? AND user_id = ?`
+          ).bind(assistantId, effectiveUserId).first() as any;
+          agentPriority = (maxPriority?.max_priority || 0) + 1;
+        }
+
+        await env.DB.prepare(
+          `INSERT INTO assistant_transfer_agents 
+           (id, assistant_id, user_id, phone_number, agent_name, priority, is_active, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)`
+        ).bind(agentId, assistantId, effectiveUserId, normalizedPhone, agent_name || null, agentPriority, timestamp, timestamp).run();
+
+        return jsonResponse({
+          id: agentId,
+          assistant_id: assistantId,
+          phone_number: normalizedPhone,
+          agent_name: agent_name || null,
+          priority: agentPriority,
+          is_active: 1,
+          created_at: timestamp,
+          updated_at: timestamp
+        }, 201);
+      }
+
+      // Update transfer agent
+      if (url.pathname.match(/^\/api\/assistants\/[^/]+\/transfer-agents\/[^/]+$/) && request.method === 'PATCH') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        const pathParts = url.pathname.split('/');
+        const assistantId = pathParts[3];
+        const agentId = pathParts[5];
+
+        const body = await request.json() as any;
+        const { phone_number, agent_name, priority, is_active } = body;
+
+        const { effectiveUserId } = await getEffectiveUserId(env, userId);
+
+        // Verify agent exists and belongs to user
+        const existing = await env.DB.prepare(
+          `SELECT * FROM assistant_transfer_agents WHERE id = ? AND assistant_id = ? AND user_id = ?`
+        ).bind(agentId, assistantId, effectiveUserId).first();
+
+        if (!existing) {
+          return jsonResponse({ error: 'Transfer agent not found' }, 404);
+        }
+
+        // Build dynamic update
+        const updates: string[] = [];
+        const values: any[] = [];
+
+        if (phone_number !== undefined) {
+          updates.push('phone_number = ?');
+          values.push(phone_number.replace(/[\s\-\(\)]/g, ''));
+        }
+        if (agent_name !== undefined) {
+          updates.push('agent_name = ?');
+          values.push(agent_name);
+        }
+        if (priority !== undefined) {
+          updates.push('priority = ?');
+          values.push(priority);
+        }
+        if (is_active !== undefined) {
+          updates.push('is_active = ?');
+          values.push(is_active ? 1 : 0);
+        }
+
+        if (updates.length === 0) {
+          return jsonResponse({ error: 'No fields to update' }, 400);
+        }
+
+        updates.push('updated_at = ?');
+        values.push(now());
+        values.push(agentId);
+
+        await env.DB.prepare(
+          `UPDATE assistant_transfer_agents SET ${updates.join(', ')} WHERE id = ?`
+        ).bind(...values).run();
+
+        // Fetch updated record
+        const updated = await env.DB.prepare(
+          `SELECT * FROM assistant_transfer_agents WHERE id = ?`
+        ).bind(agentId).first();
+
+        return jsonResponse(updated);
+      }
+
+      // Delete transfer agent
+      if (url.pathname.match(/^\/api\/assistants\/[^/]+\/transfer-agents\/[^/]+$/) && request.method === 'DELETE') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        const pathParts = url.pathname.split('/');
+        const assistantId = pathParts[3];
+        const agentId = pathParts[5];
+
+        const { effectiveUserId } = await getEffectiveUserId(env, userId);
+
+        // Verify agent exists and belongs to user
+        const existing = await env.DB.prepare(
+          `SELECT * FROM assistant_transfer_agents WHERE id = ? AND assistant_id = ? AND user_id = ?`
+        ).bind(agentId, assistantId, effectiveUserId).first();
+
+        if (!existing) {
+          return jsonResponse({ error: 'Transfer agent not found' }, 404);
+        }
+
+        await env.DB.prepare(
+          `DELETE FROM assistant_transfer_agents WHERE id = ?`
+        ).bind(agentId).run();
+
+        return jsonResponse({ success: true, message: 'Transfer agent deleted' });
+      }
+
+      // Get transfer settings for assistant
+      if (url.pathname.match(/^\/api\/assistants\/[^/]+\/transfer-settings$/) && request.method === 'GET') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        const pathParts = url.pathname.split('/');
+        const assistantId = pathParts[3];
+
+        const { effectiveUserId } = await getEffectiveUserId(env, userId);
+
+        let settings = await env.DB.prepare(
+          `SELECT * FROM assistant_transfer_settings WHERE assistant_id = ? AND user_id = ?`
+        ).bind(assistantId, effectiveUserId).first() as any;
+
+        // Return defaults if no settings exist
+        if (!settings) {
+          settings = {
+            assistant_id: assistantId,
+            ring_timeout_seconds: 30,
+            max_attempts: 3,
+            enabled: 0,
+            announcement_message: null
+          };
+        }
+
+        return jsonResponse(settings);
+      }
+
+      // Update transfer settings for assistant
+      if (url.pathname.match(/^\/api\/assistants\/[^/]+\/transfer-settings$/) && request.method === 'PUT') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        const pathParts = url.pathname.split('/');
+        const assistantId = pathParts[3];
+
+        const body = await request.json() as any;
+        const { ring_timeout_seconds, max_attempts, enabled, announcement_message, transfer_triggers } = body;
+
+        const { effectiveUserId } = await getEffectiveUserId(env, userId);
+        const timestamp = now();
+
+        // Get current enabled state to detect toggle
+        const currentSettings = await env.DB.prepare(
+          `SELECT id, enabled FROM assistant_transfer_settings WHERE assistant_id = ? AND user_id = ?`
+        ).bind(assistantId, effectiveUserId).first() as any;
+
+        const wasEnabled = currentSettings?.enabled === 1;
+        const willBeEnabled = enabled === true || enabled === 1;
+
+        // If enabling/disabling auto-transfer, update VAPI assistant tools
+        // IMPORTANT: Also update VAPI if enabling (even if already enabled) to ensure tool is present
+        let vapiUpdateError: string | null = null;
+        const shouldUpdateVapi = wasEnabled !== willBeEnabled || willBeEnabled; // Always update when enabling
+        console.log('[Transfer Settings] wasEnabled:', wasEnabled, 'willBeEnabled:', willBeEnabled, 'shouldUpdateVapi:', shouldUpdateVapi);
+        
+        if (shouldUpdateVapi) {
+          try {
+            // Get workspace settings for VAPI API key
+            const wsSettings = await getWorkspaceSettingsForUser(env, effectiveUserId);
+            console.log('[Transfer Settings] Got workspace settings, has private_key:', !!wsSettings?.private_key);
+            
+            if (!wsSettings?.private_key) {
+              vapiUpdateError = 'No VAPI API key configured in workspace settings';
+              console.error('[Transfer Settings]', vapiUpdateError);
+            } else {
+              // Fetch current assistant to get existing tools
+              console.log('[Transfer Settings] Fetching assistant:', assistantId);
+              const vapiGetResponse = await fetch(`https://api.vapi.ai/assistant/${assistantId}`, {
+                method: 'GET',
+                headers: { 'Authorization': `Bearer ${wsSettings.private_key}` }
+              });
+
+              if (!vapiGetResponse.ok) {
+                const errorText = await vapiGetResponse.text();
+                vapiUpdateError = `Failed to fetch assistant: ${vapiGetResponse.status} - ${errorText}`;
+                console.error('[Transfer Settings]', vapiUpdateError);
+              } else {
+                const assistant = await vapiGetResponse.json() as any;
+                let tools = assistant.model?.tools || [];
+                
+                // Get the assistant's webhook URL for tool calls
+                const webhookUrl = assistant.server?.url;
+                console.log('[Transfer Settings] Assistant webhook URL:', webhookUrl);
+                console.log('[Transfer Settings] Current tools:', JSON.stringify(tools));
+                
+                // Define the transfer_to_sales tool with explicit server URL
+                const transferTool: any = {
+                  type: 'function',
+                  function: {
+                    name: 'transfer_to_sales',
+                    description: 'Transfer this call to a sales representative. Call this function when the customer shows buying intent, asks for pricing, wants a quote, requests to speak with a human, or expresses interest in purchasing.',
+                    parameters: {
+                      type: 'object',
+                      properties: {
+                        reason: {
+                          type: 'string',
+                          description: 'Brief reason for transfer (e.g., "Customer wants a quote", "Customer asked for pricing")'
+                        }
+                      },
+                      required: ['reason']
+                    }
+                  },
+                  async: false,
+                  messages: [
+                    {
+                      type: 'request-start',
+                      content: 'Let me connect you with one of our specialists.'
+                    }
+                  ]
+                };
+
+                // Add server URL to tool if webhook is configured
+                if (webhookUrl) {
+                  transferTool.server = { url: webhookUrl };
+                }
+
+                // Transfer instruction marker for system prompt
+                const TRANSFER_INSTRUCTION_MARKER = '\n\n[AUTO-TRANSFER INSTRUCTIONS]';
+                const TRANSFER_INSTRUCTIONS = `${TRANSFER_INSTRUCTION_MARKER}
+IMPORTANT: If the customer asks for pricing, a quote, wants to buy, wants to schedule a demo, or asks to speak to a human or sales representative, you MUST immediately call the transfer_to_sales function with the reason for transfer.
+Examples of when to transfer:
+- "How much does this cost?" → call transfer_to_sales with reason "Customer asking for pricing"
+- "I want to buy" → call transfer_to_sales with reason "Customer wants to purchase"
+- "Can I speak to someone?" → call transfer_to_sales with reason "Customer requested human agent"
+- "I'd like a quote" → call transfer_to_sales with reason "Customer requesting quote"
+[END AUTO-TRANSFER INSTRUCTIONS]`;
+
+                // Get current system prompt
+                let systemPrompt = '';
+                if (assistant.model?.messages && assistant.model.messages.length > 0) {
+                  const systemMessage = assistant.model.messages.find((m: any) => m.role === 'system');
+                  systemPrompt = systemMessage?.content || '';
+                }
+
+                if (willBeEnabled) {
+                  // Add tool if not already present
+                  const hasTransferTool = tools.some((t: any) => 
+                    t.function?.name === 'transfer_to_sales' || t.name === 'transfer_to_sales'
+                  );
+                  if (!hasTransferTool) {
+                    tools = [...tools, transferTool];
+                    console.log('[Transfer Settings] Adding transfer_to_sales tool');
+                  } else {
+                    console.log('[Transfer Settings] Tool already exists, skipping');
+                  }
+
+                  // Add transfer instructions to system prompt if not present
+                  if (!systemPrompt.includes(TRANSFER_INSTRUCTION_MARKER)) {
+                    systemPrompt = systemPrompt + TRANSFER_INSTRUCTIONS;
+                    console.log('[Transfer Settings] Adding transfer instructions to system prompt');
+                  }
+                } else {
+                  // Remove transfer_to_sales tool
+                  tools = tools.filter((t: any) => 
+                    t.function?.name !== 'transfer_to_sales' && t.name !== 'transfer_to_sales'
+                  );
+                  console.log('[Transfer Settings] Removing transfer_to_sales tool');
+
+                  // Remove transfer instructions from system prompt
+                  if (systemPrompt.includes(TRANSFER_INSTRUCTION_MARKER)) {
+                    systemPrompt = systemPrompt.replace(/\n\n\[AUTO-TRANSFER INSTRUCTIONS\][\s\S]*?\[END AUTO-TRANSFER INSTRUCTIONS\]/g, '');
+                    console.log('[Transfer Settings] Removing transfer instructions from system prompt');
+                  }
+                }
+
+                // Build updated messages array
+                let updatedMessages = assistant.model?.messages || [];
+                const systemMessageIndex = updatedMessages.findIndex((m: any) => m.role === 'system');
+                if (systemMessageIndex >= 0) {
+                  updatedMessages = [...updatedMessages];
+                  updatedMessages[systemMessageIndex] = { ...updatedMessages[systemMessageIndex], content: systemPrompt };
+                } else if (systemPrompt) {
+                  updatedMessages = [{ role: 'system', content: systemPrompt }, ...updatedMessages];
+                }
+
+                // Update assistant with modified tools AND system prompt
+                const updatePayload: any = {
+                  model: {
+                    ...assistant.model,
+                    tools: tools.length > 0 ? tools : undefined,
+                    messages: updatedMessages
+                  }
+                };
+                
+                console.log('[Transfer Settings] Update payload tools:', JSON.stringify(updatePayload.model?.tools));
+                console.log('[Transfer Settings] System prompt updated:', systemPrompt.includes(TRANSFER_INSTRUCTION_MARKER) ? 'YES' : 'NO');
+
+                const vapiUpdateResponse = await fetch(`https://api.vapi.ai/assistant/${assistantId}`, {
+                  method: 'PATCH',
+                  headers: {
+                    'Authorization': `Bearer ${wsSettings.private_key}`,
+                    'Content-Type': 'application/json'
+                  },
+                  body: JSON.stringify(updatePayload)
+                });
+
+                if (!vapiUpdateResponse.ok) {
+                  const updateErrorText = await vapiUpdateResponse.text();
+                  vapiUpdateError = `Failed to update assistant: ${vapiUpdateResponse.status} - ${updateErrorText}`;
+                  console.error('[Transfer Settings]', vapiUpdateError);
+                } else {
+                  console.log(`[Transfer Settings] ${willBeEnabled ? 'Added' : 'Removed'} transfer_to_sales tool on assistant ${assistantId}`);
+                  
+                  // Update cache
+                  const updatedAssistant = await vapiUpdateResponse.json() as any;
+                  await env.DB.prepare(
+                    'INSERT OR REPLACE INTO assistants_cache (id, user_id, vapi_data, cached_at, updated_at) VALUES (?, ?, ?, ?, ?)'
+                  ).bind(
+                    updatedAssistant.id,
+                    effectiveUserId,
+                    JSON.stringify(updatedAssistant),
+                    timestamp,
+                    timestamp
+                  ).run();
+                  console.log('[Transfer Settings] Cache updated successfully');
+                }
+              }
+            }
+          } catch (vapiError: any) {
+            vapiUpdateError = `Exception: ${vapiError.message || vapiError}`;
+            console.error('[Transfer Settings] Error updating VAPI assistant:', vapiError);
+          }
+        }
+
+        // Save settings to database
+        if (currentSettings) {
+          // Update existing settings
+          await env.DB.prepare(
+            `UPDATE assistant_transfer_settings 
+             SET ring_timeout_seconds = ?, max_attempts = ?, enabled = ?, announcement_message = ?, updated_at = ?
+             WHERE id = ?`
+          ).bind(
+            ring_timeout_seconds ?? 30,
+            max_attempts ?? 3,
+            willBeEnabled ? 1 : 0,
+            announcement_message || null,
+            timestamp,
+            currentSettings.id
+          ).run();
+        } else {
+          // Create new settings
+          const settingsId = generateId();
+          await env.DB.prepare(
+            `INSERT INTO assistant_transfer_settings 
+             (id, assistant_id, user_id, ring_timeout_seconds, max_attempts, enabled, announcement_message, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          ).bind(
+            settingsId,
+            assistantId,
+            effectiveUserId,
+            ring_timeout_seconds ?? 30,
+            max_attempts ?? 3,
+            willBeEnabled ? 1 : 0,
+            announcement_message || null,
+            timestamp,
+            timestamp
+          ).run();
+        }
+
+        // Fetch updated settings
+        const updated = await env.DB.prepare(
+          `SELECT * FROM assistant_transfer_settings WHERE assistant_id = ? AND user_id = ?`
+        ).bind(assistantId, effectiveUserId).first();
+
+        return jsonResponse({
+          ...updated,
+          vapi_tool_configured: willBeEnabled && !vapiUpdateError,
+          vapi_error: vapiUpdateError || undefined
+        });
+      }
+
+      // Get auto transfer logs
+      if (url.pathname === '/api/auto-transfer-logs' && request.method === 'GET') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        const { effectiveUserId } = await getEffectiveUserId(env, userId);
+
+        const assistantId = url.searchParams.get('assistant_id');
+        const status = url.searchParams.get('status');
+        const limit = parseInt(url.searchParams.get('limit') || '50');
+        const offset = parseInt(url.searchParams.get('offset') || '0');
+
+        // Build query with optional filters
+        let query = `SELECT * FROM auto_transfer_logs WHERE user_id = ?`;
+        const params: any[] = [effectiveUserId];
+
+        if (assistantId) {
+          query += ` AND assistant_id = ?`;
+          params.push(assistantId);
+        }
+        if (status) {
+          query += ` AND status = ?`;
+          params.push(status);
+        }
+
+        query += ` ORDER BY started_at DESC LIMIT ? OFFSET ?`;
+        params.push(limit, offset);
+
+        const { results } = await env.DB.prepare(query).bind(...params).all();
+
+        // Get total count
+        let countQuery = `SELECT COUNT(*) as total FROM auto_transfer_logs WHERE user_id = ?`;
+        const countParams: any[] = [effectiveUserId];
+        if (assistantId) {
+          countQuery += ` AND assistant_id = ?`;
+          countParams.push(assistantId);
+        }
+        if (status) {
+          countQuery += ` AND status = ?`;
+          countParams.push(status);
+        }
+
+        const countResult = await env.DB.prepare(countQuery).bind(...countParams).first() as any;
+
+        return jsonResponse({
+          logs: results || [],
+          total: countResult?.total || 0,
+          limit,
+          offset
+        });
+      }
+
+      // Get specific transfer details (all attempts for one transfer)
+      if (url.pathname.match(/^\/api\/auto-transfer-logs\/[^/]+$/) && request.method === 'GET') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        const pathParts = url.pathname.split('/');
+        const transferId = pathParts[3];
+
+        const { effectiveUserId } = await getEffectiveUserId(env, userId);
+
+        const { results } = await env.DB.prepare(
+          `SELECT * FROM auto_transfer_logs 
+           WHERE transfer_id = ? AND user_id = ? 
+           ORDER BY attempt_number ASC`
+        ).bind(transferId, effectiveUserId).all();
+
+        if (!results || results.length === 0) {
+          return jsonResponse({ error: 'Transfer not found' }, 404);
+        }
+
+        return jsonResponse({
+          transfer_id: transferId,
+          attempts: results
+        });
+      }
+
       // Get intent analysis (supports workspace context)
       if (url.pathname === '/api/intent-analysis' && request.method === 'GET') {
         const userId = await getUserFromToken(request, env);
@@ -8497,6 +9377,57 @@ Need help? Contact our support team anytime!
         });
       }
 
+      // TwiML endpoint for auto-transfer agent announcement
+      // Similar to regular warm transfer but for automated transfers triggered by AI
+      if (url.pathname.startsWith('/twiml/auto-transfer-announcement/') && (request.method === 'POST' || request.method === 'GET')) {
+        const transferId = url.pathname.split('/')[3];
+        const announcement = url.searchParams.get('announcement') || 'You have an incoming call. Please stay on the line.';
+        const attemptNumber = url.searchParams.get('attempt') || '1';
+        
+        console.log('[TwiML] Auto-transfer announcement:', {
+          transferId,
+          attemptNumber,
+          announcement
+        });
+        
+        const twiml = generateAgentAnnouncementTwiML(announcement);
+        
+        return new Response(twiml, {
+          status: 200,
+          headers: {
+            'Content-Type': 'text/xml',
+            ...corsHeaders,
+          },
+        });
+      }
+
+      // Webhook for auto-transfer status updates (logging purposes)
+      if (url.pathname.startsWith('/webhook/auto-transfer-status/') && request.method === 'POST') {
+        const transferId = url.pathname.split('/').pop();
+        
+        try {
+          const formData = await request.formData();
+          const callSid = formData.get('CallSid') as string;
+          const callStatus = formData.get('CallStatus') as string;
+          const from = formData.get('From') as string;
+          const to = formData.get('To') as string;
+          
+          console.log('[Auto Transfer Webhook] Status update:', {
+            transferId,
+            callSid,
+            callStatus,
+            from,
+            to
+          });
+          
+          // Just log it - the polling in autoDialAgentLoop handles the logic
+        } catch (error) {
+          console.error('[Auto Transfer Webhook] Error processing status:', error);
+        }
+        
+        return new Response('OK', { status: 200 });
+      }
+
       // TwiML endpoint for conference (kept for potential future use)
       if (url.pathname.startsWith('/twiml/join-conference/') && (request.method === 'POST' || request.method === 'GET')) {
         const conferenceName = url.pathname.split('/').pop();
@@ -9086,6 +10017,144 @@ Need help? Contact our support team anytime!
                   result: 'No existing customer record found for this phone number. This appears to be a new customer.'
                 });
               }
+            } else if (toolName === 'transfer_to_sales') {
+              // Auto warm transfer - AI detected sales opportunity
+              console.log('[Tool Call] TRANSFER TO SALES triggered');
+
+              // Parse arguments
+              let args: { reason?: string } = {};
+              try {
+                args = typeof toolCall.function?.arguments === 'string'
+                  ? JSON.parse(toolCall.function.arguments)
+                  : toolCall.function?.arguments || {};
+              } catch (e) {
+                console.error('[Tool Call] Error parsing transfer arguments:', e);
+              }
+
+              const transferReason = args.reason || 'Customer showed buying intent';
+              const assistantId = call.assistantId || call.assistant?.id;
+
+              console.log('[Tool Call] Transfer reason:', transferReason);
+              console.log('[Tool Call] Assistant ID:', assistantId);
+
+              if (!assistantId) {
+                console.log('[Tool Call] ERROR: No assistant ID available');
+                results.push({
+                  toolCallId,
+                  result: 'I apologize, but I cannot transfer you at this time. Let me continue to assist you.'
+                });
+                continue;
+              }
+
+              // Get effective user ID for the webhook owner
+              const { effectiveUserId } = await getEffectiveUserId(env, webhook.user_id);
+
+              // Check if auto-transfer is enabled for this assistant
+              const transferSettings = await env.DB.prepare(
+                `SELECT * FROM assistant_transfer_settings WHERE assistant_id = ? AND user_id = ?`
+              ).bind(assistantId, effectiveUserId).first() as any;
+
+              if (!transferSettings || !transferSettings.enabled) {
+                console.log('[Tool Call] Auto-transfer not enabled for assistant:', assistantId);
+                results.push({
+                  toolCallId,
+                  result: 'Auto-transfer is not enabled. I will continue to assist you directly.'
+                });
+                continue;
+              }
+
+              // Get agent list for this assistant
+              const { results: agents } = await env.DB.prepare(
+                `SELECT * FROM assistant_transfer_agents 
+                 WHERE assistant_id = ? AND user_id = ? AND is_active = 1
+                 ORDER BY priority ASC`
+              ).bind(assistantId, effectiveUserId).all() as any;
+
+              if (!agents || agents.length === 0) {
+                console.log('[Tool Call] No agents configured for assistant:', assistantId);
+                results.push({
+                  toolCallId,
+                  result: 'No specialists are available at this time. Let me continue to help you and I can have someone call you back.'
+                });
+                continue;
+              }
+
+              console.log('[Tool Call] Found', agents.length, 'agents for transfer');
+
+              // Get workspace settings for Twilio/VAPI credentials
+              const wsSettings = await getWorkspaceSettingsForUser(env, effectiveUserId);
+
+              if (!wsSettings?.private_key || !wsSettings?.twilio_account_sid || !wsSettings?.twilio_auth_token) {
+                console.log('[Tool Call] Missing credentials for auto-transfer');
+                results.push({
+                  toolCallId,
+                  result: 'I cannot connect you to a specialist right now. Let me continue to assist you.'
+                });
+                continue;
+              }
+
+              // Get a Twilio phone number from the user's account
+              let twilioPhoneNumber: string | null = null;
+              try {
+                const twilioResponse = await fetch(
+                  `https://api.twilio.com/2010-04-01/Accounts/${wsSettings.twilio_account_sid}/IncomingPhoneNumbers.json?PageSize=1`,
+                  {
+                    method: 'GET',
+                    headers: {
+                      'Authorization': 'Basic ' + btoa(`${wsSettings.twilio_account_sid}:${wsSettings.twilio_auth_token}`)
+                    }
+                  }
+                );
+                if (twilioResponse.ok) {
+                  const data = await twilioResponse.json() as any;
+                  if (data.incoming_phone_numbers?.length > 0) {
+                    twilioPhoneNumber = data.incoming_phone_numbers[0].phone_number;
+                  }
+                }
+              } catch (e) {
+                console.error('[Tool Call] Failed to get Twilio number:', e);
+              }
+
+              if (!twilioPhoneNumber) {
+                console.log('[Tool Call] No Twilio phone number available');
+                results.push({
+                  toolCallId,
+                  result: 'I cannot transfer you at this moment. Let me continue to assist you directly.'
+                });
+                continue;
+              }
+
+              // Generate transfer ID for tracking
+              const transferId = generateId();
+              const timestamp = now();
+
+              // Start auto-dial loop in background (don't block the response)
+              ctx.waitUntil(
+                autoDialAgentLoop(env, {
+                  transferId,
+                  vapiCallId: vapiCallId!,
+                  assistantId,
+                  userId: effectiveUserId,
+                  agents,
+                  transferSettings,
+                  twilioConfig: {
+                    accountSid: wsSettings.twilio_account_sid,
+                    authToken: wsSettings.twilio_auth_token,
+                    workerUrl: url.origin,
+                    twilioPhoneNumber
+                  },
+                  vapiPrivateKey: wsSettings.private_key,
+                  reason: transferReason
+                })
+              );
+
+              console.log('[Tool Call] Auto-dial loop started in background, transfer ID:', transferId);
+
+              // Return immediate response for AI to say
+              results.push({
+                toolCallId,
+                result: 'Great! Let me connect you with one of our specialists who can help you further. One moment please while I find someone available.'
+              });
             } else {
               // Unknown tool - return empty result
               console.log('[Tool Call] Unknown tool:', toolName);
