@@ -58,8 +58,10 @@ export function LiveCallFeed() {
   const [isRecording, setIsRecording] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [warmTransferCallId, setWarmTransferCallId] = useState<string | null>(null);
+  const [wsConnected, setWsConnected] = useState(false);
   const audioContextRef = useRef<AudioContext | null>(null);
   const websocketRef = useRef<WebSocket | null>(null);
+  const activeCallsWsRef = useRef<WebSocket | null>(null);
   const audioQueueRef = useRef<AudioBufferSourceNode[]>([]);
   const animationFrameRef = useRef<number | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -68,6 +70,9 @@ export function LiveCallFeed() {
 
   // Monitor voice activity for all active calls (can be disabled)
   const voiceActivity = useVoiceActivityMonitor(activeCalls, voiceMonitorEnabled);
+  const reconnectAttemptRef = useRef(0);
+  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const pingIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   // Play notification sound for new calls
   const playNotificationSound = () => {
@@ -237,6 +242,139 @@ export function LiveCallFeed() {
     }
   };
 
+  // Connect to WebSocket for real-time updates
+  const connectWebSocket = () => {
+    const token = localStorage.getItem('auth_token');
+    if (!token) {
+      console.log('[LiveCallFeed] No auth token, falling back to polling');
+      return false;
+    }
+
+    // Build WebSocket URL (convert http to ws, pass token as query param)
+    const wsUrl = API_URL.replace(/^http/, 'ws') + '/api/active-calls/ws?token=' + encodeURIComponent(token);
+    
+    try {
+      const ws = new WebSocket(wsUrl);
+      activeCallsWsRef.current = ws;
+
+      ws.onopen = () => {
+        console.log('✅ [LiveCallFeed] WebSocket connected for real-time updates');
+        setWsConnected(true);
+        reconnectAttemptRef.current = 0;
+
+        // Start ping interval to keep connection alive
+        pingIntervalRef.current = setInterval(() => {
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'ping' }));
+          }
+        }, 30000);
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          
+          switch (data.type) {
+            case 'init':
+              // Initial state from server
+              console.log('[LiveCallFeed] Received initial state:', data.calls?.length || 0, 'calls');
+              setActiveCalls(data.calls || []);
+              setPreviousCallIds(new Set(data.calls?.map((c: ActiveCall) => c.vapi_call_id) || []));
+              setIsInitialLoad(false);
+              setLoading(false);
+              break;
+
+            case 'add':
+              // New call added
+              console.log('[LiveCallFeed] New call:', data.call?.vapi_call_id);
+              if (data.call) {
+                setActiveCalls(prev => {
+                  // Check if already exists (avoid duplicates)
+                  if (prev.some(c => c.vapi_call_id === data.call.vapi_call_id)) {
+                    return prev.map(c => c.vapi_call_id === data.call.vapi_call_id ? data.call : c);
+                  }
+                  return [data.call, ...prev];
+                });
+
+                // Play notification for ringing calls
+                if (data.call.status === 'ringing') {
+                  playNotificationSound();
+                  if ('Notification' in window && Notification.permission === 'granted') {
+                    new Notification('Incoming Call', {
+                      body: data.call.caller_name || data.call.customer_number || 'Unknown Caller',
+                      icon: '/favicon.ico',
+                      tag: data.call.vapi_call_id
+                    });
+                  }
+                }
+              }
+              break;
+
+            case 'update':
+              // Call updated
+              console.log('[LiveCallFeed] Call updated:', data.call?.vapi_call_id, data.call?.status);
+              if (data.call) {
+                setActiveCalls(prev => 
+                  prev.map(c => c.vapi_call_id === data.call.vapi_call_id ? data.call : c)
+                );
+              }
+              break;
+
+            case 'remove':
+              // Call ended/removed
+              console.log('[LiveCallFeed] Call removed:', data.callId);
+              if (data.callId) {
+                setActiveCalls(prev => prev.filter(c => c.vapi_call_id !== data.callId));
+              }
+              break;
+
+            case 'pong':
+              // Keep-alive response
+              break;
+
+            default:
+              console.log('[LiveCallFeed] Unknown message type:', data.type);
+          }
+        } catch (error) {
+          console.error('[LiveCallFeed] Error parsing WebSocket message:', error);
+        }
+      };
+
+      ws.onerror = (error) => {
+        console.error('[LiveCallFeed] WebSocket error:', error);
+        setWsConnected(false);
+      };
+
+      ws.onclose = (event) => {
+        console.log('[LiveCallFeed] WebSocket closed:', event.code, event.reason);
+        setWsConnected(false);
+        activeCallsWsRef.current = null;
+
+        // Clear ping interval
+        if (pingIntervalRef.current) {
+          clearInterval(pingIntervalRef.current);
+          pingIntervalRef.current = null;
+        }
+
+        // Reconnect with exponential backoff (max 30 seconds)
+        const delay = Math.min(1000 * Math.pow(2, reconnectAttemptRef.current), 30000);
+        reconnectAttemptRef.current++;
+        
+        console.log(`[LiveCallFeed] Reconnecting in ${delay}ms (attempt ${reconnectAttemptRef.current})`);
+        reconnectTimeoutRef.current = setTimeout(() => {
+          if (!activeCallsWsRef.current) {
+            connectWebSocket();
+          }
+        }, delay);
+      };
+
+      return true;
+    } catch (error) {
+      console.error('[LiveCallFeed] Failed to create WebSocket:', error);
+      return false;
+    }
+  };
+
   useEffect(() => {
     // Request notification permission on mount
     if ('Notification' in window && Notification.permission === 'default') {
@@ -245,13 +383,30 @@ export function LiveCallFeed() {
       });
     }
 
-    // Initial fetch
-    fetchActiveCalls();
+    // Try WebSocket connection first
+    const wsConnected = connectWebSocket();
+    
+    // If WebSocket fails immediately, fall back to polling
+    if (!wsConnected) {
+      console.log('[LiveCallFeed] WebSocket not available, using polling fallback');
+      fetchActiveCalls();
+      const interval = setInterval(fetchActiveCalls, 5000); // Slower polling as fallback
+      return () => clearInterval(interval);
+    }
 
-    // Poll every 2 seconds for updates (faster polling for better real-time feel)
-    const interval = setInterval(fetchActiveCalls, 2000);
-
-    return () => clearInterval(interval);
+    // Cleanup on unmount
+    return () => {
+      if (activeCallsWsRef.current) {
+        activeCallsWsRef.current.close();
+        activeCallsWsRef.current = null;
+      }
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+      }
+      if (pingIntervalRef.current) {
+        clearInterval(pingIntervalRef.current);
+      }
+    };
   }, []);
 
   const handleEndCall = async (callId: string) => {
@@ -829,9 +984,9 @@ export function LiveCallFeed() {
             </button>
           )}
           <div className="flex items-center gap-3 text-xs text-gray-500 dark:text-gray-400">
-            <div className="flex items-center gap-1.5">
-              <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-              Live
+            <div className="flex items-center gap-1.5" title={wsConnected ? 'Real-time WebSocket connection' : 'Using polling fallback'}>
+              <div className={`w-2 h-2 rounded-full animate-pulse ${wsConnected ? 'bg-green-500' : 'bg-yellow-500'}`}></div>
+              {wsConnected ? 'Live' : 'Polling'}
             </div>
             <div className="flex items-center gap-1.5" title="Sound alerts enabled for new calls">
               <Volume2 className="w-3.5 h-3.5" />

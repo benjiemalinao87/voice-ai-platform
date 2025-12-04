@@ -47,6 +47,9 @@ import {
   dialAgentWithAnnouncement
 } from './twilio-conference';
 
+// Export Durable Object class
+export { ActiveCallsRoom } from './active-calls-do';
+
 // Cloudflare Worker types
 interface D1Database {
   prepare(query: string): D1PreparedStatement;
@@ -98,10 +101,25 @@ interface ScheduledEvent {
   cron: string;
 }
 
+// Durable Object namespace type
+interface DurableObjectNamespace {
+  idFromName(name: string): DurableObjectId;
+  get(id: DurableObjectId): DurableObjectStub;
+}
+
+interface DurableObjectId {
+  toString(): string;
+}
+
+interface DurableObjectStub {
+  fetch(request: Request): Promise<Response>;
+}
+
 export interface Env {
   DB: D1Database;
   CACHE: KVNamespace;
   RECORDINGS: R2Bucket;
+  ACTIVE_CALLS: DurableObjectNamespace; // Durable Object for real-time active calls
   JWT_SECRET: string; // Set this in wrangler.toml as a secret
   SALESFORCE_CLIENT_ID: string;
   SALESFORCE_CLIENT_SECRET: string;
@@ -4681,8 +4699,51 @@ export default {
         return jsonResponse(response);
       }
 
-      // Get intent analysis with caching
-      // Get active calls
+      // WebSocket endpoint for real-time active calls
+      if (url.pathname === '/api/active-calls/ws' && request.method === 'GET') {
+        // Check for WebSocket upgrade
+        const upgradeHeader = request.headers.get('Upgrade');
+        if (upgradeHeader !== 'websocket') {
+          return jsonResponse({ error: 'Expected WebSocket upgrade' }, 426);
+        }
+
+        // For WebSocket, browsers can't send Authorization header
+        // So we accept token as query parameter
+        let userId = await getUserFromToken(request, env);
+        
+        if (!userId) {
+          // Try query parameter for WebSocket connections
+          const tokenFromQuery = url.searchParams.get('token');
+          if (tokenFromQuery) {
+            const secret = env.JWT_SECRET || 'default-secret-change-me';
+            const decoded = await verifyToken(tokenFromQuery, secret);
+            if (decoded) {
+              userId = decoded.userId;
+            }
+          }
+        }
+        
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        // Get effective user ID for workspace context
+        const { effectiveUserId } = await getEffectiveUserId(env, userId);
+
+        // Get the Durable Object instance for this user
+        const doId = env.ACTIVE_CALLS.idFromName(effectiveUserId);
+        const stub = env.ACTIVE_CALLS.get(doId);
+
+        // Forward the WebSocket upgrade request to the Durable Object
+        const doUrl = new URL(request.url);
+        doUrl.searchParams.set('userId', effectiveUserId);
+
+        return stub.fetch(new Request(doUrl.toString(), {
+          headers: request.headers,
+        }));
+      }
+
+      // Get active calls (REST fallback)
       // Get active calls (supports workspace context)
       if (url.pathname === '/api/active-calls' && request.method === 'GET') {
         const userId = await getUserFromToken(request, env);
@@ -8764,6 +8825,29 @@ Need help? Contact our support team anytime!
 
             console.log('[Webhook Debug] Active call inserted/updated:', vapiCallId, 'Status:', callStatus, 'Caller:', twilioData?.callerName || 'Unknown');
 
+            // Notify Durable Object for real-time WebSocket updates
+            try {
+              const doId = env.ACTIVE_CALLS.idFromName(webhook.user_id);
+              const stub = env.ACTIVE_CALLS.get(doId);
+              await stub.fetch(new Request('https://internal/internal/update-call', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  id: vapiCallId,
+                  vapi_call_id: vapiCallId,
+                  customer_number: customerNumber,
+                  caller_name: twilioData?.callerName || null,
+                  carrier_name: twilioData?.carrierName || null,
+                  line_type: twilioData?.lineType || null,
+                  status: callStatus,
+                  started_at: timestamp,
+                  updated_at: timestamp
+                })
+              }));
+            } catch (doError) {
+              console.error('[Webhook] Error notifying Durable Object:', doError);
+            }
+
             // Invalidate cache
             const cache = new VoiceAICache(env.CACHE);
             await cache.invalidateUserCache(webhook.user_id);
@@ -8796,6 +8880,19 @@ Need help? Contact our support team anytime!
             await env.DB.prepare(
               'DELETE FROM active_calls WHERE vapi_call_id = ? AND user_id = ?'
             ).bind(vapiCallId, webhook.user_id).run();
+
+            // Notify Durable Object for real-time WebSocket updates
+            try {
+              const doId = env.ACTIVE_CALLS.idFromName(webhook.user_id);
+              const stub = env.ACTIVE_CALLS.get(doId);
+              await stub.fetch(new Request('https://internal/internal/remove-call', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ callId: vapiCallId })
+              }));
+            } catch (doError) {
+              console.error('[Webhook] Error notifying Durable Object (remove):', doError);
+            }
 
             // Invalidate cache
             const cache = new VoiceAICache(env.CACHE);

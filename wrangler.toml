@@ -28,6 +28,16 @@ binding = "RECORDINGS"
 bucket_name = "voice-ai-recordings"
 preview_bucket_name = "voice-ai-recordings"
 
+# Durable Objects for real-time active calls
+[durable_objects]
+bindings = [
+  { name = "ACTIVE_CALLS", class_name = "ActiveCallsRoom" }
+]
+
+[[migrations]]
+tag = "v1"
+new_classes = ["ActiveCallsRoom"]
+
 # Environment variables
 [vars]
 JWT_SECRET = "change-this-to-a-secure-random-string-in-production"

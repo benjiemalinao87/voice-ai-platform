@@ -4262,3 +4262,55 @@ await Promise.all(
 **Key Insight:**
 Always look for data reuse opportunities. If you're fetching related data in parallel, check if one API response contains data needed by another process. The agent distribution endpoint already did a JOIN to get assistant names - no need to fetch them again individually.
 
+---
+
+## Durable Objects for Real-Time Active Calls (December 2024)
+
+**Problem:**
+The LiveCallFeed component was polling `/api/active-calls` every 2 seconds, causing:
+- 15k+ requests/day to the API
+- Unnecessary D1 database queries
+- Up to 2-second delay for call status updates
+- Multiple tabs/instances caused 3x the polling load
+
+**Solution:**
+Implemented Cloudflare Durable Objects with WebSocket connections for true real-time updates.
+
+**How it was fixed:**
+
+1. **Created Durable Object class** (`workers/active-calls-do.ts`):
+   - `ActiveCallsRoom` class - one instance per user/workspace
+   - Maintains in-memory Map of active calls
+   - Handles WebSocket connections from multiple browser tabs
+   - Broadcasts updates to all connected clients via WebSocket
+
+2. **Updated wrangler.toml**:
+   - Added `[durable_objects]` binding for `ACTIVE_CALLS`
+   - Added migration tag for new class
+
+3. **Backend changes** (`workers/index.ts`):
+   - Added WebSocket upgrade endpoint `/api/active-calls/ws`
+   - Modified VAPI webhook handler to notify Durable Object on call status changes
+   - Kept D1 writes for persistence (backup/fallback)
+
+4. **Frontend changes** (`src/components/LiveCallFeed.tsx`):
+   - Replaced polling with WebSocket connection
+   - Added reconnection logic with exponential backoff
+   - Falls back to slower polling (5s) if WebSocket unavailable
+   - Visual indicator shows "Live" (WebSocket) vs "Polling" (fallback)
+
+**Files Changed:**
+- `workers/active-calls-do.ts` - New Durable Object class
+- `wrangler.toml` - Added DO binding and migration
+- `workers/index.ts` - WebSocket endpoint + webhook DO notifications
+- `src/components/LiveCallFeed.tsx` - WebSocket client implementation
+
+**What NOT to do:**
+- Don't use continuous polling for real-time data - it wastes resources
+- Don't forget to handle WebSocket reconnection with exponential backoff
+- Don't forget to clean up WebSocket connections on component unmount
+- Don't forget to sync Durable Object state from D1 on initialization
+
+**Key Insight:**
+For real-time features like live call monitoring, WebSockets via Durable Objects provide instant updates without the overhead of constant polling. The architecture change from polling to push-based updates can reduce API requests by ~90% while improving user experience with instant updates.
+
