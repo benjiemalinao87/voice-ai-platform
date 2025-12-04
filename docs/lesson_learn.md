@@ -4314,3 +4314,44 @@ Implemented Cloudflare Durable Objects with WebSocket connections for true real-
 **Key Insight:**
 For real-time features like live call monitoring, WebSockets via Durable Objects provide instant updates without the overhead of constant polling. The architecture change from polling to push-based updates can reduce API requests by ~90% while improving user experience with instant updates.
 
+---
+
+## 2024-12-04: VAPI Webhook Event Type Filtering - Preventing Inflated Call Metrics
+
+**Issue:**
+VAPI sends multiple event types to a webhook for a single call:
+- `status-update` (ringing, in-progress, ended)
+- `tool-calls` (function calls during the call)
+- `speech-update` (multiple per call)
+- `conversation-update` (multiple per call)
+- `assistant.started`
+- `hang`
+- `end-of-call-report` (final call summary)
+
+The webhook handler was only explicitly filtering `status-update` and `tool-calls` with early returns. All other event types (speech-update, conversation-update, etc.) would fall through to the `end-of-call-report` handler and potentially INSERT into `webhook_calls` table - inflating call metrics!
+
+**How it was fixed:**
+Added explicit check before the end-of-call-report handler:
+
+```typescript
+// IMPORTANT: Only process end-of-call-report events for call records
+// Other event types (speech-update, conversation-update, assistant.started, hang, etc.)
+// should NOT create call records - they are mid-call events that would inflate metrics
+if (messageType !== 'end-of-call-report') {
+  console.log(`[Webhook] Ignoring non-end-of-call event: ${messageType} for call ${call.id || 'unknown'}`);
+  return jsonResponse({ success: true, message: `Event type ${messageType} acknowledged` });
+}
+```
+
+**Files Changed:**
+- `workers/index.ts` - Added explicit messageType check around line 9105
+
+**What NOT to do:**
+- Don't assume all webhook events should create database records
+- Don't rely on implicit fall-through logic for webhook handlers
+- Don't assume data structure differences (like missing customer.number) will filter events
+- Don't ignore the multiple event types that VAPI sends per call
+
+**Key Insight:**
+When integrating with third-party webhook providers (like VAPI), always explicitly handle or reject each event type. A single phone call can generate 10+ webhook events. If all are counted as separate calls, metrics become meaningless. The safest approach is to whitelist specific event types rather than blacklist unwanted ones.
+

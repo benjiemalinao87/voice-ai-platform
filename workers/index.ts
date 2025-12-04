@@ -8826,10 +8826,12 @@ Need help? Contact our support team anytime!
             console.log('[Webhook Debug] Active call inserted/updated:', vapiCallId, 'Status:', callStatus, 'Caller:', twilioData?.callerName || 'Unknown');
 
             // Notify Durable Object for real-time WebSocket updates
+            // Use effectiveUserId (workspace owner) to match the WebSocket connection
             try {
-              const doId = env.ACTIVE_CALLS.idFromName(webhook.user_id);
+              const { effectiveUserId } = await getEffectiveUserId(env, webhook.user_id);
+              const doId = env.ACTIVE_CALLS.idFromName(effectiveUserId);
               const stub = env.ACTIVE_CALLS.get(doId);
-              await stub.fetch(new Request('https://internal/internal/update-call', {
+              await stub.fetch(new Request('http://do/internal/update-call', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -8844,6 +8846,7 @@ Need help? Contact our support team anytime!
                   updated_at: timestamp
                 })
               }));
+              console.log('[Webhook] Notified Durable Object for user:', effectiveUserId, 'call:', vapiCallId);
             } catch (doError) {
               console.error('[Webhook] Error notifying Durable Object:', doError);
             }
@@ -8882,14 +8885,17 @@ Need help? Contact our support team anytime!
             ).bind(vapiCallId, webhook.user_id).run();
 
             // Notify Durable Object for real-time WebSocket updates
+            // Use effectiveUserId (workspace owner) to match the WebSocket connection
             try {
-              const doId = env.ACTIVE_CALLS.idFromName(webhook.user_id);
+              const { effectiveUserId } = await getEffectiveUserId(env, webhook.user_id);
+              const doId = env.ACTIVE_CALLS.idFromName(effectiveUserId);
               const stub = env.ACTIVE_CALLS.get(doId);
-              await stub.fetch(new Request('https://internal/internal/remove-call', {
+              await stub.fetch(new Request('http://do/internal/remove-call', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ callId: vapiCallId })
               }));
+              console.log('[Webhook] Notified Durable Object (remove) for user:', effectiveUserId, 'call:', vapiCallId);
             } catch (doError) {
               console.error('[Webhook] Error notifying Durable Object (remove):', doError);
             }
@@ -9094,6 +9100,14 @@ Need help? Contact our support team anytime!
 
           // Return results to VAPI
           return jsonResponse({ results });
+        }
+
+        // IMPORTANT: Only process end-of-call-report events for call records
+        // Other event types (speech-update, conversation-update, assistant.started, hang, etc.)
+        // should NOT create call records - they are mid-call events that would inflate metrics
+        if (messageType !== 'end-of-call-report') {
+          console.log(`[Webhook] Ignoring non-end-of-call event: ${messageType} for call ${call.id || 'unknown'}`);
+          return jsonResponse({ success: true, message: `Event type ${messageType} acknowledged` });
         }
 
         // Handle end-of-call-report (existing logic)

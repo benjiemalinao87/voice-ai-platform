@@ -26,13 +26,18 @@ interface WebSocketMessage {
 export class ActiveCallsRoom {
   private state: DurableObjectState;
   private env: any;
-  private sessions: Map<WebSocket, { userId: string }> = new Map();
   private activeCalls: Map<string, ActiveCall> = new Map();
   private initialized: boolean = false;
 
   constructor(state: DurableObjectState, env: any) {
     this.state = state;
     this.env = env;
+    
+    // Restore hibernated WebSockets and reload state
+    this.state.getWebSockets().forEach(ws => {
+      // WebSockets are automatically restored by the runtime
+      console.log('[ActiveCallsRoom] Restored hibernated WebSocket');
+    });
   }
 
   /**
@@ -105,11 +110,11 @@ export class ActiveCallsRoom {
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair);
 
-    // Accept the WebSocket
-    this.state.acceptWebSocket(server);
-
-    // Store session info
-    this.sessions.set(server, { userId });
+    // Accept the WebSocket with hibernation API and store userId as attachment
+    this.state.acceptWebSocket(server, ['active-calls']);
+    
+    // Store user info in WebSocket attachment (persists through hibernation)
+    server.serializeAttachment({ userId });
 
     // Send initial state
     const initMessage: WebSocketMessage = {
@@ -119,7 +124,8 @@ export class ActiveCallsRoom {
 
     server.send(JSON.stringify(initMessage));
 
-    console.log(`[ActiveCallsRoom] WebSocket connected for user ${userId}, total sessions: ${this.sessions.size}`);
+    const totalSessions = this.state.getWebSockets().length;
+    console.log(`[ActiveCallsRoom] WebSocket connected for user ${userId}, total sessions: ${totalSessions}`);
 
     return new Response(null, { status: 101, webSocket: client });
   }
@@ -144,18 +150,17 @@ export class ActiveCallsRoom {
    * Handle WebSocket close
    */
   async webSocketClose(ws: WebSocket, code: number, reason: string): Promise<void> {
-    const session = this.sessions.get(ws);
-    this.sessions.delete(ws);
-    console.log(`[ActiveCallsRoom] WebSocket closed for user ${session?.userId}, code: ${code}, remaining: ${this.sessions.size}`);
+    const attachment = ws.deserializeAttachment() as { userId: string } | null;
+    const remaining = this.state.getWebSockets().length;
+    console.log(`[ActiveCallsRoom] WebSocket closed for user ${attachment?.userId}, code: ${code}, remaining: ${remaining}`);
   }
 
   /**
    * Handle WebSocket error
    */
   async webSocketError(ws: WebSocket, error: unknown): Promise<void> {
-    const session = this.sessions.get(ws);
-    this.sessions.delete(ws);
-    console.error(`[ActiveCallsRoom] WebSocket error for user ${session?.userId}:`, error);
+    const attachment = ws.deserializeAttachment() as { userId: string } | null;
+    console.error(`[ActiveCallsRoom] WebSocket error for user ${attachment?.userId}:`, error);
   }
 
   /**
@@ -164,12 +169,24 @@ export class ActiveCallsRoom {
   private broadcast(message: WebSocketMessage): void {
     const messageStr = JSON.stringify(message);
     
-    for (const ws of this.sessions.keys()) {
+    // Use hibernation API to get all connected WebSockets
+    const webSockets = this.state.getWebSockets();
+    const sessionCount = webSockets.length;
+    
+    console.log(`[ActiveCallsRoom] Broadcasting ${message.type} to ${sessionCount} session(s)`);
+    
+    if (sessionCount === 0) {
+      console.log('[ActiveCallsRoom] No WebSocket sessions connected to receive broadcast');
+      return;
+    }
+    
+    for (const ws of webSockets) {
       try {
         ws.send(messageStr);
+        console.log('[ActiveCallsRoom] Message sent to WebSocket client');
       } catch (error) {
         console.error('[ActiveCallsRoom] Error broadcasting to WebSocket:', error);
-        this.sessions.delete(ws);
+        // WebSocket will be cleaned up by the runtime
       }
     }
   }
