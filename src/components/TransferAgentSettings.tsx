@@ -39,7 +39,7 @@ interface TransferSettings {
   max_attempts: number;
   enabled: number;
   announcement_message: string | null;
-  vapi_tool_configured?: boolean;
+  tool_configured?: boolean;
 }
 
 interface TransferAgentSettingsProps {
@@ -200,12 +200,12 @@ export function TransferAgentSettings({ assistantId, assistantName }: TransferAg
         max_attempts: maxAttempts,
         enabled: newEnabled ? 1 : 0,
         announcement_message: announcement || null,
-        vapi_tool_configured: result.vapi_tool_configured
+        tool_configured: result.tool_configured
       });
 
-      // Show success or error message based on VAPI update result
-      if (result.vapi_error) {
-        setError(`Settings saved, but VAPI update failed: ${result.vapi_error}`);
+      // Show success or error message based on assistant update result
+      if (result.error) {
+        setError(`Settings saved, but assistant update failed: ${result.error}`);
       } else if (newEnabled) {
         setSuccessMessage('✅ Auto-transfer enabled! The transfer_to_sales() function has been added to this assistant.');
       } else {

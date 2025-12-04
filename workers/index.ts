@@ -6720,7 +6720,7 @@ export default {
             console.log('[Transfer Settings] Got workspace settings, has private_key:', !!wsSettings?.private_key);
             
             if (!wsSettings?.private_key) {
-              vapiUpdateError = 'No VAPI API key configured in workspace settings';
+              vapiUpdateError = 'No API key configured in workspace settings';
               console.error('[Transfer Settings]', vapiUpdateError);
             } else {
               // Fetch current assistant to get existing tools
@@ -6877,8 +6877,11 @@ Examples of when to transfer:
               }
             }
           } catch (vapiError: any) {
-            vapiUpdateError = `Exception: ${vapiError.message || vapiError}`;
-            console.error('[Transfer Settings] Error updating VAPI assistant:', vapiError);
+            // Sanitize error message to remove any VAPI branding
+            let errorMsg = vapiError.message || String(vapiError);
+            errorMsg = errorMsg.replace(/vapi/gi, 'Voice Engine');
+            vapiUpdateError = `Exception: ${errorMsg}`;
+            console.error('[Transfer Settings] Error updating assistant:', vapiError);
           }
         }
 
@@ -6922,10 +6925,18 @@ Examples of when to transfer:
           `SELECT * FROM assistant_transfer_settings WHERE assistant_id = ? AND user_id = ?`
         ).bind(assistantId, effectiveUserId).first();
 
+        // Sanitize any VAPI mentions from error messages before returning to frontend
+        let sanitizedError = vapiUpdateError;
+        if (sanitizedError) {
+          sanitizedError = sanitizedError.replace(/vapi/gi, 'Voice Engine');
+          sanitizedError = sanitizedError.replace(/Vapi/gi, 'Voice Engine');
+          sanitizedError = sanitizedError.replace(/VAPI/gi, 'Voice Engine');
+        }
+
         return jsonResponse({
           ...updated,
-          vapi_tool_configured: willBeEnabled && !vapiUpdateError,
-          vapi_error: vapiUpdateError || undefined
+          tool_configured: willBeEnabled && !vapiUpdateError,
+          error: sanitizedError || undefined
         });
       }
 

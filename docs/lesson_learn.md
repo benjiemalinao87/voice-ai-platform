@@ -4415,3 +4415,57 @@ Extended the existing manual warm transfer (triggered via UI) to support automat
 **Key Insight:**
 When extending a manual UI feature to automation, the key is finding the right trigger point. For VAPI, the `tool-calls` webhook is perfect - the AI can call a function when it detects the right conditions, and the backend can execute complex logic in response. This pattern (AI triggers → Backend executes) is powerful for building intelligent automation.
 
+---
+
+## 2024-12-04: White-Label Branding - Removing Third-Party Mentions
+
+**Problem:**
+Error messages and logs were exposing "VAPI" branding to end users, which breaks the white-label experience.
+
+**Root Cause:**
+1. Error messages directly mentioned "VAPI" (e.g., "VAPI update failed", "No VAPI API key")
+2. Console logs included "VAPI" references
+3. API response field names used `vapi_` prefix
+
+**How It Should Be Done:**
+```typescript
+// ✅ CORRECT - Sanitize all third-party mentions before returning to frontend
+let sanitizedError = vapiUpdateError;
+if (sanitizedError) {
+  sanitizedError = sanitizedError.replace(/vapi/gi, 'Voice Engine');
+  sanitizedError = sanitizedError.replace(/Vapi/gi, 'Voice Engine');
+  sanitizedError = sanitizedError.replace(/VAPI/gi, 'Voice Engine');
+}
+
+return jsonResponse({
+  ...updated,
+  tool_configured: willBeEnabled && !vapiUpdateError, // Generic field name
+  error: sanitizedError || undefined                   // Sanitized error
+});
+```
+
+**How It Should NOT Be Done:**
+```typescript
+// ❌ WRONG - Exposes third-party branding
+return jsonResponse({
+  ...updated,
+  vapi_tool_configured: willBeEnabled,  // Exposes VAPI in field name
+  vapi_error: vapiUpdateError           // Raw error with VAPI mentions
+});
+```
+
+**What NOT to do:**
+- Don't use third-party names in API field names (use generic names like `tool_configured`)
+- Don't return raw error messages from third-party APIs without sanitization
+- Don't log third-party names in user-facing console errors
+- Don't assume error messages are only seen by developers
+
+**Key Insight:**
+For white-label products, sanitization must happen at EVERY layer:
+1. **API field names** - Use generic names
+2. **Error messages** - Replace all third-party mentions with your brand
+3. **Console logs** - Consider what's visible in browser dev tools
+4. **UI text** - Never reference the underlying technology
+
+Always search the entire codebase for third-party brand names (`grep -r "vapi" --include="*.tsx" --include="*.ts"`) before release.
+

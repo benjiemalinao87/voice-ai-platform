@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Phone,
   PhoneIncoming,
@@ -299,9 +299,8 @@ export function AutoTransferLogs({ assistantId }: AutoTransferLogsProps) {
               </thead>
               <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
                 {uniqueTransfers.map((log) => (
-                  <>
+                  <React.Fragment key={log.id}>
                     <tr
-                      key={log.id}
                       className="hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer"
                       onClick={() => loadTransferDetails(log.transfer_id)}
                     >
@@ -377,7 +376,7 @@ export function AutoTransferLogs({ assistantId }: AutoTransferLogsProps) {
                         </td>
                       </tr>
                     )}
-                  </>
+                  </React.Fragment>
                 ))}
               </tbody>
             </table>
