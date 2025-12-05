@@ -4019,25 +4019,30 @@ export default {
           return jsonResponse({ assistants: [] });
         }
 
+        // Check for nocache parameter
+        const noCache = url.searchParams.get('nocache') === 'true';
+
         try {
-          // Check cache first - get ALL assistants for this user
-          const allCached = await env.DB.prepare(
-            'SELECT id, vapi_data, cached_at, updated_at FROM assistants_cache WHERE user_id = ? ORDER BY cached_at DESC'
-          ).bind(effectiveUserId).all();
+          // Check cache first (unless nocache is requested)
+          if (!noCache) {
+            const allCached = await env.DB.prepare(
+              'SELECT id, vapi_data, cached_at, updated_at FROM assistants_cache WHERE user_id = ? ORDER BY cached_at DESC'
+            ).bind(effectiveUserId).all();
 
-          // Check if we have fresh cache data (any assistant cached within last 5 minutes means full list is fresh)
-          if (allCached && allCached.results && allCached.results.length > 0) {
-            const cacheAgeLimit = now() - (5 * 60); // 5 minutes ago
-            const mostRecentCache = allCached.results[0] as any;
+            // Check if we have fresh cache data (any assistant cached within last 5 minutes means full list is fresh)
+            if (allCached && allCached.results && allCached.results.length > 0) {
+              const cacheAgeLimit = now() - (5 * 60); // 5 minutes ago
+              const mostRecentCache = allCached.results[0] as any;
 
-            // If the most recently cached assistant is still fresh, return ALL cached assistants
-            if (mostRecentCache.cached_at > cacheAgeLimit) {
-              const assistants = allCached.results.map((row: any) => JSON.parse(row.vapi_data));
-              return jsonResponse({ assistants, cached: true });
+              // If the most recently cached assistant is still fresh, return ALL cached assistants
+              if (mostRecentCache.cached_at > cacheAgeLimit) {
+                const assistants = allCached.results.map((row: any) => JSON.parse(row.vapi_data));
+                return jsonResponse({ assistants, cached: true });
+              }
             }
           }
 
-          // Cache miss or stale - fetch from Vapi
+          // Cache miss, stale, or nocache requested - fetch from Vapi
           const vapiUrl = 'https://api.vapi.ai/assistant';
           const vapiResponse = await fetch(vapiUrl, {
             method: 'GET',
@@ -4057,6 +4062,11 @@ export default {
 
           const assistants = await vapiResponse.json() as any[];
           const timestamp = now();
+
+          // Clear old cache for this user first (remove deleted assistants)
+          await env.DB.prepare(
+            'DELETE FROM assistants_cache WHERE user_id = ?'
+          ).bind(effectiveUserId).run();
 
           // Update cache using effective user ID (workspace owner if applicable)
           for (const assistant of assistants) {

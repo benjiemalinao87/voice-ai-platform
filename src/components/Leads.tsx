@@ -182,7 +182,8 @@ export function Leads() {
   const loadAssistantsAndPhones = async () => {
     try {
       const [assistantsRes, phonesRes] = await Promise.all([
-        d1Client.getAssistants(),
+        // Force fresh fetch from VAPI (bypass cache) for campaigns
+        d1Client.request('/api/assistants?nocache=true', { method: 'GET' }),
         d1Client.request('/api/vapi/phone-numbers', { method: 'GET' }).catch(() => ({ phoneNumbers: [] }))
       ]);
       setAssistants(assistantsRes.assistants || []);
@@ -1135,7 +1136,7 @@ export function Leads() {
                 >
                   <option value="">Select an agent...</option>
                   {assistants.map((a) => (
-                    <option key={a.id} value={a.id}>{a.name}</option>
+                    <option key={a.id} value={a.vapi_assistant_id || a.id}>{a.name}</option>
                   ))}
                 </select>
               </div>

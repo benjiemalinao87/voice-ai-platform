@@ -24,3 +24,8 @@ dist-ssr
 
 # Wrangler temporary files
 .wrangler/
+
+# Temporary/IDE files
+.cursor/
+funnel-experiment/
+assets/image-*.png
