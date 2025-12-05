@@ -10292,6 +10292,33 @@ Need help? Contact our support team anytime!
           const cache = new VoiceAICache(env.CACHE);
           await cache.invalidateUserCache(webhook.user_id);
 
+          // IMPORTANT: Clean up active_calls as a safety net
+          // Sometimes the status-update:ended event may not be received or processed
+          // This ensures the call is removed from active calls when end-of-call-report is received
+          const vapiCallId = call.id;
+          if (vapiCallId) {
+            try {
+              await env.DB.prepare(
+                'DELETE FROM active_calls WHERE vapi_call_id = ? AND user_id = ?'
+              ).bind(vapiCallId, webhook.user_id).run();
+              console.log('[Webhook] Cleaned up active call (end-of-call-report):', vapiCallId);
+
+              // Notify Durable Object for real-time WebSocket updates
+              const { effectiveUserId } = await getEffectiveUserId(env, webhook.user_id);
+              const doId = env.ACTIVE_CALLS.idFromName(effectiveUserId);
+              const stub = env.ACTIVE_CALLS.get(doId);
+              await stub.fetch(new Request('http://do/internal/remove-call', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ callId: vapiCallId })
+              }));
+              console.log('[Webhook] Notified Durable Object (remove via end-of-call-report) for user:', effectiveUserId);
+            } catch (cleanupError) {
+              console.error('[Webhook] Error cleaning up active call:', cleanupError);
+              // Don't fail the webhook for cleanup errors
+            }
+          }
+
           // Dispatch to outbound webhooks in the background (call.ended event)
           ctx.waitUntil(
             dispatchToOutboundWebhooks(env, webhook.user_id, 'call.ended', {

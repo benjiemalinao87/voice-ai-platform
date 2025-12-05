@@ -4469,3 +4469,82 @@ For white-label products, sanitization must happen at EVERY layer:
 
 Always search the entire codebase for third-party brand names (`grep -r "vapi" --include="*.tsx" --include="*.ts"`) before release.
 
+## 2024-12-05: Active Calls Getting Stuck - Missing Cleanup in end-of-call-report Handler
+
+**Problem:**
+Active calls were getting stuck in the UI showing "in-progress" even after the call had ended. The timer kept running (155+ minutes) despite the call being only 56 seconds.
+
+**Root Cause:**
+The system relied ONLY on receiving a `status-update` webhook with `status: ended` to clean up the `active_calls` table. However, VAPI sometimes:
+1. Doesn't send the `status-update: ended` event
+2. The event might fail to process due to race conditions
+3. The `end-of-call-report` comes before or without the `status-update: ended`
+
+The `end-of-call-report` handler saved the call record to `webhook_calls` but did NOT clean up `active_calls`.
+
+**How It Should Be Done:**
+```typescript
+// ✅ CORRECT - Clean up active_calls in BOTH handlers for redundancy
+
+// In end-of-call-report handler (as safety net):
+const vapiCallId = call.id;
+if (vapiCallId) {
+  try {
+    await env.DB.prepare(
+      'DELETE FROM active_calls WHERE vapi_call_id = ? AND user_id = ?'
+    ).bind(vapiCallId, webhook.user_id).run();
+    
+    // Also notify WebSocket clients
+    const { effectiveUserId } = await getEffectiveUserId(env, webhook.user_id);
+    const doId = env.ACTIVE_CALLS.idFromName(effectiveUserId);
+    const stub = env.ACTIVE_CALLS.get(doId);
+    await stub.fetch(new Request('http://do/internal/remove-call', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ callId: vapiCallId })
+    }));
+  } catch (cleanupError) {
+    console.error('[Webhook] Error cleaning up active call:', cleanupError);
+    // Don't fail the webhook for cleanup errors
+  }
+}
+```
+
+**How It Should NOT Be Done:**
+```typescript
+// ❌ WRONG - Only clean up in status-update:ended handler
+// This creates a single point of failure
+
+if (messageType === 'status-update' && callStatus === 'ended') {
+  await env.DB.prepare('DELETE FROM active_calls...').run();
+}
+
+// end-of-call-report handler does NOT clean up - BUG!
+if (messageType === 'end-of-call-report') {
+  await env.DB.prepare('INSERT INTO webhook_calls...').run();
+  // Missing: DELETE FROM active_calls
+}
+```
+
+**What NOT to do:**
+- Don't rely on a single webhook event type for critical cleanup operations
+- Don't assume webhook events will always arrive in order or at all
+- Don't forget to update WebSocket clients (Durable Objects) when cleaning up
+- Don't fail the entire webhook handler if cleanup fails (use try-catch)
+
+**Key Insight:**
+For real-time state management with external webhook providers:
+1. **Redundant cleanup** - Clean up in multiple handlers as safety nets
+2. **Idempotent operations** - DELETE is naturally idempotent, so calling it multiple times is safe
+3. **Don't block on cleanup** - Use try-catch so webhook processing continues even if cleanup fails
+4. **Notify all consumers** - Both database AND real-time WebSocket clients need to be updated
+
+**Manual Fix for Stuck Calls:**
+```sql
+-- Query to find stuck calls
+SELECT * FROM active_calls WHERE customer_number LIKE '%PHONE%';
+
+-- Delete stuck call manually
+DELETE FROM active_calls WHERE vapi_call_id = 'CALL_ID';
+```
+
