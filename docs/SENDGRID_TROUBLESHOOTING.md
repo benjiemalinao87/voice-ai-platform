@@ -108,3 +108,4 @@ wrangler secret get SENDGRID_API_KEY
 3. Ask recipient to check spam folder if not delivered
 4. Monitor Cloudflare Worker logs for any errors
 
+

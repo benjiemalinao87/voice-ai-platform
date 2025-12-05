@@ -19,17 +19,27 @@ import { VoiceTest, type VapiCallEvent } from '../VoiceTest';
 
 // Voice options matching existing components
 const VOICE_OPTIONS = [
-  { id: 'Paige', name: 'Paige', description: '26 year old white female - Deeper tone, Calming, Professional' },
-  { id: 'Rohan', name: 'Rohan', description: '24 years old male - Indian american, Bright, Optimistic, Cheerful, Energetic' },
+  // Female Voices
+  { id: 'Paige', name: 'Paige', description: '26 year old female - Deeper tone, Calming, Professional' },
   { id: 'Hana', name: 'Hana', description: '22 year old female - Asian, Soft, Soothing, Gentle' },
-  { id: 'Elliot', name: 'Elliot', description: '25 years old male - Canadian, Soothing, Friendly, Professional' },
-  { id: 'Cole', name: 'Cole', description: '22 year old white male - Deeper tone, Calming, Professional' },
-  { id: 'Harry', name: 'Harry', description: '24 year old white male - Clear, Energetic, Professional' },
-  { id: 'Spencer', name: 'Spencer', description: '26 year old female - Energetic, Quirky, Lighthearted, Cheeky, Amused' },
-  { id: 'Kylie', name: 'Kylie', description: 'Age 23, Female - American' },
+  { id: 'Kylie', name: 'Kylie', description: '23 year old female - American' },
+  { id: 'Savannah', name: 'Savannah', description: '25 year old female - American, Southern accent' },
+  { id: 'Spencer', name: 'Spencer', description: '26 year old female - Energetic, Quirky, Lighthearted, Cheeky' },
+  { id: 'Leah', name: 'Leah', description: 'Female - Warm, Gentle' },
+  { id: 'Tara', name: 'Tara', description: 'Female - Conversational, Clear' },
+  { id: 'Jess', name: 'Jess', description: 'Female - Energetic, Youthful' },
+  { id: 'Mia', name: 'Mia', description: 'Female - Professional, Articulate' },
+  { id: 'Zoe', name: 'Zoe', description: 'Female - Calm, Soothing' },
   { id: 'Lily', name: 'Lily', description: 'Female voice' },
   { id: 'Neha', name: 'Neha', description: 'Female voice' },
-  { id: 'Savannah', name: 'Savannah', description: '25 years old female - American' },
+  // Male Voices
+  { id: 'Rohan', name: 'Rohan', description: '24 year old male - Indian American, Optimistic, Cheerful, Energetic' },
+  { id: 'Elliot', name: 'Elliot', description: '25 year old male - Canadian, Soothing, Friendly, Professional' },
+  { id: 'Cole', name: 'Cole', description: '22 year old male - Deeper tone, Calming, Professional' },
+  { id: 'Harry', name: 'Harry', description: '24 year old male - Clear, Energetic, Professional' },
+  { id: 'Leo', name: 'Leo', description: 'Male - Authoritative, Deep' },
+  { id: 'Zac', name: 'Zac', description: 'Male - Enthusiastic, Dynamic' },
+  { id: 'Dan', name: 'Dan', description: 'Male - Friendly, Casual' },
 ];
 
 const MODEL_OPTIONS = [
