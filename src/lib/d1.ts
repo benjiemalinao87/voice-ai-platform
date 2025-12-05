@@ -23,7 +23,7 @@ class D1Client {
     this.baseUrl = baseUrl;
   }
 
-  private async request<T>(endpoint: string, options?: RequestInit): Promise<T> {
+  async request<T>(endpoint: string, options?: RequestInit): Promise<T> {
     // Get auth token from localStorage
     const token = localStorage.getItem('auth_token');
     
@@ -1057,6 +1057,346 @@ class D1Client {
     attempts: Array<any>;
   }> {
     return this.request(`/api/auto-transfer-logs/${transferId}`, {
+      method: 'GET',
+    });
+  }
+
+  // ============================================
+  // API KEYS METHODS
+  // ============================================
+
+  /**
+   * List API keys for the current user
+   */
+  async getApiKeys(): Promise<{
+    apiKeys: Array<{
+      id: string;
+      name: string;
+      key_prefix: string;
+      workspace_id: string | null;
+      last_used_at: number | null;
+      expires_at: number | null;
+      created_at: number;
+    }>;
+  }> {
+    return this.request('/api/api-keys', { method: 'GET' });
+  }
+
+  /**
+   * Create a new API key
+   */
+  async createApiKey(data: {
+    name: string;
+    expires_in_days?: number;
+  }): Promise<{
+    success: boolean;
+    apiKey: string;
+    keyPrefix: string;
+    message: string;
+  }> {
+    return this.request('/api/api-keys', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  /**
+   * Revoke an API key
+   */
+  async revokeApiKey(keyId: string): Promise<{ success: boolean; message: string }> {
+    return this.request(`/api/api-keys/${keyId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  // ============================================
+  // CAMPAIGNS METHODS
+  // ============================================
+
+  /**
+   * List campaigns for the current workspace
+   */
+  async getCampaigns(): Promise<{
+    campaigns: Array<{
+      id: string;
+      workspace_id: string;
+      name: string;
+      assistant_id: string;
+      phone_number_id: string;
+      status: string;
+      scheduled_at: number | null;
+      started_at: number | null;
+      completed_at: number | null;
+      total_leads: number;
+      calls_completed: number;
+      calls_answered: number;
+      calls_failed: number;
+      created_at: number;
+      updated_at: number;
+    }>;
+  }> {
+    return this.request('/api/campaigns', { method: 'GET' });
+  }
+
+  /**
+   * Create a new campaign
+   */
+  async createCampaign(data: {
+    name: string;
+    assistant_id: string;
+    phone_number_id: string;
+    scheduled_at?: number;
+  }): Promise<{ success: boolean; id: string; message: string }> {
+    return this.request('/api/campaigns', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  /**
+   * Get campaign details
+   */
+  async getCampaign(campaignId: string): Promise<{
+    campaign: {
+      id: string;
+      workspace_id: string;
+      name: string;
+      assistant_id: string;
+      phone_number_id: string;
+      status: string;
+      scheduled_at: number | null;
+      started_at: number | null;
+      completed_at: number | null;
+      total_leads: number;
+      calls_completed: number;
+      calls_answered: number;
+      calls_failed: number;
+      created_at: number;
+      updated_at: number;
+    };
+  }> {
+    return this.request(`/api/campaigns/${campaignId}`, { method: 'GET' });
+  }
+
+  /**
+   * Update a campaign
+   */
+  async updateCampaign(campaignId: string, updates: {
+    name?: string;
+    scheduled_at?: number | null;
+  }): Promise<{ success: boolean; message: string }> {
+    return this.request(`/api/campaigns/${campaignId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(updates),
+    });
+  }
+
+  /**
+   * Delete a campaign
+   */
+  async deleteCampaign(campaignId: string): Promise<{ success: boolean; message: string }> {
+    return this.request(`/api/campaigns/${campaignId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  /**
+   * Add leads to a campaign
+   */
+  async addLeadsToCampaign(campaignId: string, leadIds: string[]): Promise<{
+    success: boolean;
+    added: number;
+    message: string;
+  }> {
+    return this.request(`/api/campaigns/${campaignId}/leads`, {
+      method: 'POST',
+      body: JSON.stringify({ lead_ids: leadIds }),
+    });
+  }
+
+  /**
+   * Get campaign leads with call status
+   */
+  async getCampaignLeads(campaignId: string): Promise<{
+    leads: Array<{
+      id: string;
+      campaign_id: string;
+      lead_id: string;
+      call_status: string;
+      vapi_call_id: string | null;
+      call_duration: number | null;
+      call_outcome: string | null;
+      called_at: number | null;
+      firstname: string | null;
+      lastname: string | null;
+      phone: string;
+      email: string | null;
+      lead_source: string | null;
+      product: string | null;
+    }>;
+  }> {
+    return this.request(`/api/campaigns/${campaignId}/leads`, { method: 'GET' });
+  }
+
+  /**
+   * Start a campaign
+   */
+  async startCampaign(campaignId: string): Promise<{
+    success: boolean;
+    message: string;
+    status: string;
+  }> {
+    return this.request(`/api/campaigns/${campaignId}/start`, {
+      method: 'POST',
+    });
+  }
+
+  /**
+   * Pause a campaign
+   */
+  async pauseCampaign(campaignId: string): Promise<{
+    success: boolean;
+    message: string;
+    status: string;
+  }> {
+    return this.request(`/api/campaigns/${campaignId}/pause`, {
+      method: 'POST',
+    });
+  }
+
+  /**
+   * Cancel a campaign
+   */
+  async cancelCampaign(campaignId: string): Promise<{
+    success: boolean;
+    message: string;
+    status: string;
+  }> {
+    return this.request(`/api/campaigns/${campaignId}/cancel`, {
+      method: 'POST',
+    });
+  }
+
+  // ============================================
+  // LEADS METHODS
+  // ============================================
+
+  /**
+   * List leads for the current workspace
+   */
+  async getLeads(params?: {
+    limit?: number;
+    offset?: number;
+    status?: string;
+  }): Promise<{
+    leads: Array<{
+      id: string;
+      workspace_id: string;
+      firstname: string | null;
+      lastname: string | null;
+      phone: string;
+      email: string | null;
+      lead_source: string | null;
+      product: string | null;
+      notes: string | null;
+      status: string;
+      created_at: number;
+      updated_at: number;
+    }>;
+    total: number;
+    limit: number;
+    offset: number;
+  }> {
+    const queryParams = new URLSearchParams();
+    if (params?.limit) queryParams.set('limit', params.limit.toString());
+    if (params?.offset) queryParams.set('offset', params.offset.toString());
+    if (params?.status) queryParams.set('status', params.status);
+
+    const url = `/api/leads${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
+    return this.request(url, { method: 'GET' });
+  }
+
+  /**
+   * Create a single lead
+   */
+  async createLead(lead: {
+    firstname?: string;
+    lastname?: string;
+    phone: string;
+    email?: string;
+    lead_source?: string;
+    product?: string;
+    notes?: string;
+  }): Promise<{ success: boolean; id: string; message: string }> {
+    return this.request('/api/leads', {
+      method: 'POST',
+      body: JSON.stringify(lead),
+    });
+  }
+
+  /**
+   * Bulk upload leads
+   */
+  async uploadLeads(leads: Array<{
+    firstname?: string;
+    lastname?: string;
+    phone: string;
+    email?: string;
+    lead_source?: string;
+    product?: string;
+    notes?: string;
+  }>): Promise<{
+    success: boolean;
+    imported: number;
+    failed: number;
+    errors: string[];
+    message: string;
+  }> {
+    return this.request('/api/leads/upload', {
+      method: 'POST',
+      body: JSON.stringify({ leads }),
+    });
+  }
+
+  /**
+   * Delete a lead
+   */
+  async deleteLead(leadId: string): Promise<{ success: boolean; message: string }> {
+    return this.request(`/api/leads/${leadId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  /**
+   * Update a lead
+   */
+  async updateLead(leadId: string, updates: {
+    firstname?: string;
+    lastname?: string;
+    phone?: string;
+    email?: string;
+    lead_source?: string;
+    product?: string;
+    notes?: string;
+    status?: string;
+  }): Promise<{ success: boolean; message: string }> {
+    return this.request(`/api/leads/${leadId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(updates),
+    });
+  }
+
+  /**
+   * Get/create leads webhook URL for the workspace
+   */
+  async getLeadsWebhook(): Promise<{
+    id: string;
+    webhookUrl: string;
+    token: string;
+    isActive: boolean;
+    createdAt: number;
+  }> {
+    return this.request('/api/leads/webhook', {
       method: 'GET',
     });
   }

@@ -227,39 +227,34 @@ export function Integration({ onNavigateToApiConfig }: IntegrationProps = {}) {
 
   const loadIntegrationStatus = async () => {
     try {
-      const settings = await d1Client.getUserSettings();
+      // Fetch all integration statuses in PARALLEL for better performance
+      const [settings, sfStatus, hsStatus, dynamicsStatus] = await Promise.all([
+        d1Client.getUserSettings(),
+        d1Client.getSalesforceStatus().catch((error) => {
+          console.error('Error loading Salesforce status:', error);
+          return { connected: false, instanceUrl: null };
+        }),
+        d1Client.getHubSpotStatus().catch((error) => {
+          console.error('Error loading HubSpot status:', error);
+          return { connected: false };
+        }),
+        d1Client.getDynamicsStatus().catch((error) => {
+          console.error('Error loading Dynamics 365 status:', error);
+          return { connected: false, instanceUrl: null };
+        })
+      ]);
 
-      // Load Salesforce status
-      let sfConnected = false;
-      try {
-        const sfStatus = await d1Client.getSalesforceStatus();
-        sfConnected = sfStatus.connected;
-        setSalesforceConnected(sfStatus.connected);
-        setSalesforceInstanceUrl(sfStatus.instanceUrl);
-      } catch (error) {
-        console.error('Error loading Salesforce status:', error);
-      }
+      // Update local state for connected services
+      const sfConnected = sfStatus.connected;
+      setSalesforceConnected(sfConnected);
+      setSalesforceInstanceUrl(sfStatus.instanceUrl);
 
-      // Load HubSpot status
-      let hsConnected = false;
-      try {
-        const hsStatus = await d1Client.getHubSpotStatus();
-        hsConnected = hsStatus.connected;
-        setHubspotConnected(hsStatus.connected);
-      } catch (error) {
-        console.error('Error loading HubSpot status:', error);
-      }
+      const hsConnected = hsStatus.connected;
+      setHubspotConnected(hsConnected);
 
-      // Load Dynamics 365 status
-      let dynamicsConnected = false;
-      try {
-        const dynamicsStatus = await d1Client.getDynamicsStatus();
-        dynamicsConnected = dynamicsStatus.connected;
-        setDynamicsConnected(dynamicsStatus.connected);
-        setDynamicsInstanceUrl(dynamicsStatus.instanceUrl);
-      } catch (error) {
-        console.error('Error loading Dynamics 365 status:', error);
-      }
+      const dynConnected = dynamicsStatus.connected;
+      setDynamicsConnected(dynConnected);
+      setDynamicsInstanceUrl(dynamicsStatus.instanceUrl);
 
       // Update integration status based on stored credentials
       setIntegrations(prev => prev.map(integration => {
@@ -294,8 +289,8 @@ export function Integration({ onNavigateToApiConfig }: IntegrationProps = {}) {
         if (integration.id === 'dynamics') {
           return {
             ...integration,
-            status: dynamicsConnected ? 'connected' : 'disconnected',
-            lastSync: dynamicsConnected ? 'Active' : undefined
+            status: dynConnected ? 'connected' : 'disconnected',
+            lastSync: dynConnected ? 'Active' : undefined
           };
         }
         return integration;

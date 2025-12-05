@@ -1,15 +1,24 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense, lazy } from 'react';
 import { Key, Save, Eye, EyeOff, AlertCircle, CheckCircle, Trash2, RefreshCw, LogOut, User, Settings as SettingsIcon, Plug, Webhook, Maximize2, Zap, Calendar, PhoneForwarded, Phone, Users, UserSearch, Activity } from 'lucide-react';
 import { VapiClient } from '../lib/vapi';
 import { useAuth } from '../contexts/AuthContext';
 import { d1Client } from '../lib/d1';
-import { Integration } from './Integration';
-import { WebhookConfig } from './WebhookConfig';
-import { Addons } from './Addons';
-import { SchedulingTriggers } from './SchedulingTriggers';
-import { PhoneNumbers } from './PhoneNumbers';
-import { TeamMembers } from './TeamMembers';
-import { ToolCallLogs } from './ToolCallLogs';
+import { 
+  SettingsSkeleton, 
+  UserProfileSkeleton, 
+  ResourcesLoadingSkeleton,
+  TabContentSkeleton 
+} from './SettingsSkeleton';
+
+// Lazy load heavy tab components for better initial load
+const Integration = lazy(() => import('./Integration').then(m => ({ default: m.Integration })));
+const WebhookConfig = lazy(() => import('./WebhookConfig').then(m => ({ default: m.WebhookConfig })));
+const Addons = lazy(() => import('./Addons').then(m => ({ default: m.Addons })));
+const SchedulingTriggers = lazy(() => import('./SchedulingTriggers').then(m => ({ default: m.SchedulingTriggers })));
+const PhoneNumbers = lazy(() => import('./PhoneNumbers').then(m => ({ default: m.PhoneNumbers })));
+const TeamMembers = lazy(() => import('./TeamMembers').then(m => ({ default: m.TeamMembers })));
+const ToolCallLogs = lazy(() => import('./ToolCallLogs').then(m => ({ default: m.ToolCallLogs })));
+const ApiKeys = lazy(() => import('./ApiKeys').then(m => ({ default: m.ApiKeys })));
 
 interface VapiCredentials {
   privateKey: string;
@@ -50,7 +59,7 @@ interface SettingsProps {
 
 export function Settings({ wideView = false, onWideViewChange }: SettingsProps = {}) {
   const { user, token, logout } = useAuth();
-  const [activeTab, setActiveTab] = useState<'api' | 'integrations' | 'webhooks' | 'addons' | 'scheduling' | 'phoneNumbers' | 'logs' | 'team' | 'preferences'>('api');
+  const [activeTab, setActiveTab] = useState<'api' | 'apiKeys' | 'integrations' | 'webhooks' | 'addons' | 'scheduling' | 'phoneNumbers' | 'logs' | 'team' | 'preferences'>('api');
   const [credentials, setCredentials] = useState<VapiCredentials>({
     privateKey: '',
     publicKey: ''
@@ -119,8 +128,9 @@ export function Settings({ wideView = false, onWideViewChange }: SettingsProps =
           privateKey: settings.privateKey,
           publicKey: settings.publicKey || ''
         });
-        // Auto-load resources
-        await loadVapiResources(settings.privateKey);
+        // Load resources in background - don't block main UI
+        // This allows the Settings page to render immediately while resources load
+        loadVapiResources(settings.privateKey);
       }
     } catch (error: any) {
       console.error('Error loading settings:', error);
@@ -140,30 +150,34 @@ export function Settings({ wideView = false, onWideViewChange }: SettingsProps =
     try {
       const tempClient = new VapiClient(privateKey);
 
-      // Fetch assistants (use cached endpoint if available, otherwise direct)
-      try {
-        const { assistants } = await d1Client.getAssistants();
-        setAssistants(assistants.map((a: any) => ({
-          id: a.id,
-          name: a.name || 'Unnamed Assistant'
-        })));
-      } catch {
-        // Fallback to direct Vapi call if cached endpoint fails
-        const assistantsData = await tempClient.listAssistants();
-        setAssistants(assistantsData.map((a: any) => ({
-          id: a.id,
-          name: a.name || 'Unnamed Assistant'
-        })));
-      }
+      // Fetch assistants and phone numbers in PARALLEL for better performance
+      const [assistantsResult, phonesResult] = await Promise.all([
+        // Fetch assistants (use cached endpoint if available, otherwise direct)
+        d1Client.getAssistants()
+          .then(({ assistants }) => assistants.map((a: any) => ({
+            id: a.id,
+            name: a.name || 'Unnamed Assistant'
+          })))
+          .catch(async () => {
+            // Fallback to direct Vapi call if cached endpoint fails
+            const assistantsData = await tempClient.listAssistants();
+            return assistantsData.map((a: any) => ({
+              id: a.id,
+              name: a.name || 'Unnamed Assistant'
+            }));
+          }),
+        // Fetch phone numbers
+        tempClient.listPhoneNumbers()
+          .then((phonesData) => phonesData.map((p: any) => ({
+            id: p.id,
+            number: p.number || p.phoneNumber || 'Unknown',
+            name: p.name
+          })))
+          .catch(() => [])
+      ]);
 
-      // Fetch phone numbers
-      const phonesData = await tempClient.listPhoneNumbers();
-      setPhoneNumbers(phonesData.map((p: any) => ({
-        id: p.id,
-        number: p.number || p.phoneNumber || 'Unknown',
-        name: p.name
-      })));
-
+      setAssistants(assistantsResult);
+      setPhoneNumbers(phonesResult);
       setStatus('success');
     } catch (error: any) {
       console.error('Error loading resources:', error);
@@ -266,12 +280,9 @@ export function Settings({ wideView = false, onWideViewChange }: SettingsProps =
     }
   };
 
+  // Show skeleton loading instead of blocking spinner for better UX
   if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 dark:border-blue-400"></div>
-      </div>
-    );
+    return <SettingsSkeleton />;
   }
 
   return (
@@ -321,6 +332,18 @@ export function Settings({ wideView = false, onWideViewChange }: SettingsProps =
             )}
             {isWorkspaceOwner && (
               <>
+                <button
+                  onClick={() => setActiveTab('apiKeys')}
+                  className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${activeTab === 'apiKeys'
+                    ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                    : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+                    }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <Key className="w-4 h-4" />
+                    API Keys
+                  </div>
+                </button>
                 <button
                   onClick={() => setActiveTab('integrations')}
                   className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${activeTab === 'integrations'
@@ -575,9 +598,7 @@ export function Settings({ wideView = false, onWideViewChange }: SettingsProps =
                   </div>
                   <div className="p-6 space-y-4">
                     {loadingResources ? (
-                      <div className="flex items-center justify-center py-8">
-                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 dark:border-blue-400"></div>
-                      </div>
+                      <ResourcesLoadingSkeleton />
                     ) : (
                       <>
                         <div>
@@ -728,32 +749,52 @@ export function Settings({ wideView = false, onWideViewChange }: SettingsProps =
             </div>
           )}
 
+          {activeTab === 'apiKeys' && (
+            <Suspense fallback={<TabContentSkeleton />}>
+              <ApiKeys />
+            </Suspense>
+          )}
+
           {activeTab === 'integrations' && (
-            <Integration onNavigateToApiConfig={() => setActiveTab('api')} />
+            <Suspense fallback={<TabContentSkeleton />}>
+              <Integration onNavigateToApiConfig={() => setActiveTab('api')} />
+            </Suspense>
           )}
 
           {activeTab === 'webhooks' && (
-            <WebhookConfig />
+            <Suspense fallback={<TabContentSkeleton />}>
+              <WebhookConfig />
+            </Suspense>
           )}
 
           {activeTab === 'addons' && (
-            <Addons />
+            <Suspense fallback={<TabContentSkeleton />}>
+              <Addons />
+            </Suspense>
           )}
 
           {activeTab === 'scheduling' && (
-            <SchedulingTriggers />
+            <Suspense fallback={<TabContentSkeleton />}>
+              <SchedulingTriggers />
+            </Suspense>
           )}
 
           {activeTab === 'phoneNumbers' && (
-            <PhoneNumbers />
+            <Suspense fallback={<TabContentSkeleton />}>
+              <PhoneNumbers />
+            </Suspense>
           )}
 
           {activeTab === 'logs' && (
-            <ToolCallLogs />
+            <Suspense fallback={<TabContentSkeleton />}>
+              <ToolCallLogs />
+            </Suspense>
           )}
 
           {activeTab === 'team' && (
-            <TeamMembers />
+            <Suspense fallback={<TabContentSkeleton />}>
+              <TeamMembers />
+            </Suspense>
           )}
 
           {activeTab === 'preferences' && (

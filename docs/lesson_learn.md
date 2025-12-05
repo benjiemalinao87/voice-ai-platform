@@ -1,5 +1,89 @@
 # Lessons Learned
 
+## Settings Page Performance Optimization (December 2024)
+
+### Problem
+Settings page was loading slowly (4-6 seconds) due to sequential API calls creating a waterfall loading pattern.
+
+### Root Cause
+1. Sequential API calls: `loadSettings()` waited for settings, then sequentially called `loadVapiResources()`
+2. `loadVapiResources()` fetched assistants first, then phone numbers sequentially
+3. Integration component made 4 sequential API calls
+4. Blocking spinner prevented UI from rendering until ALL data loaded
+
+### How It Should Be Done
+
+**✅ CORRECT - Parallel API calls with Promise.all:**
+```typescript
+// Fetch multiple resources in PARALLEL
+const [assistantsResult, phonesResult] = await Promise.all([
+  d1Client.getAssistants().catch(() => ({ assistants: [] })),
+  tempClient.listPhoneNumbers().catch(() => [])
+]);
+```
+
+**✅ CORRECT - Non-blocking background loading:**
+```typescript
+// Load settings first (fast), then trigger resources in background
+const loadSettings = async () => {
+  const settings = await fetch(`${API_URL}/api/settings`, ...);
+  setUserSettings(settings);
+  setLoading(false); // UI renders immediately
+  
+  // Load resources in background - don't block main UI
+  if (settings.privateKey) {
+    loadVapiResources(settings.privateKey); // No await!
+  }
+};
+```
+
+**✅ CORRECT - Skeleton loading instead of blocking spinner:**
+```typescript
+if (loading) {
+  return <SettingsSkeleton />; // Shows UI structure immediately
+}
+```
+
+### How It Should NOT Be Done
+
+**❌ WRONG - Sequential waterfall pattern:**
+```typescript
+// BAD: Each call waits for the previous one
+const settings = await fetch(`${API_URL}/api/settings`, ...);
+const sfStatus = await d1Client.getSalesforceStatus();
+const hsStatus = await d1Client.getHubSpotStatus();
+const dynamicsStatus = await d1Client.getDynamicsStatus();
+```
+
+**❌ WRONG - Blocking await on non-critical data:**
+```typescript
+// BAD: Blocks entire UI until resources load
+if (settings.privateKey) {
+  await loadVapiResources(settings.privateKey); // UI frozen!
+}
+setLoading(false); // Only now can UI render
+```
+
+**❌ WRONG - Full-page blocking spinner:**
+```typescript
+if (loading) {
+  return <div className="spinner"></div>; // User sees nothing!
+}
+```
+
+### Key Takeaways
+
+1. **Parallelize independent API calls** using `Promise.all()` - reduces total wait time from sum of all calls to max of all calls
+2. **Don't block UI on non-critical data** - render UI immediately, load secondary data in background
+3. **Use skeleton loading** instead of blocking spinners - gives immediate visual feedback
+4. **Lazy load heavy components** with React `lazy()` and `Suspense` - improves initial bundle size
+
+### Performance Impact
+- **Before:** ~4-6 seconds (sequential waterfall)
+- **After:** ~1-2 seconds (parallel + progressive)
+
+---
+
 ## Workspace Context & Team Management (January 2025)
 
 ### Feature Implementation
@@ -4546,5 +4630,154 @@ SELECT * FROM active_calls WHERE customer_number LIKE '%PHONE%';
 
 -- Delete stuck call manually
 DELETE FROM active_calls WHERE vapi_call_id = 'CALL_ID';
+```
+
+
+---
+
+## Leads Upload Feature Implementation - December 5, 2024
+
+**Feature:** Implemented a Leads management system with CSV upload and public inbound webhook
+
+**What was done:**
+1. Created database migration (`0028_create_leads_table.sql`) with:
+   - `leads` table for storing contacts with standardized columns (firstname, lastname, phone, email, lead_source, product, notes, status)
+   - `lead_webhooks` table for workspace-specific public webhook tokens
+   - Proper indexes for efficient querying
+
+2. Added API endpoints in `workers/index.ts`:
+   - `GET /api/leads` - List leads (workspace-scoped, paginated)
+   - `POST /api/leads` - Create single lead
+   - `POST /api/leads/upload` - Bulk CSV upload
+   - `DELETE /api/leads/:id` - Delete lead
+   - `PATCH /api/leads/:id` - Update lead
+   - `GET /api/leads/webhook` - Get/create workspace webhook URL
+   - `POST /webhook/leads/:token` - Public inbound webhook (no auth)
+
+3. Added D1 client methods in `src/lib/d1.ts`
+
+4. Created `Leads.tsx` component with:
+   - Table displaying leads with pagination
+   - CSV upload modal with drag-and-drop
+   - Webhook URL modal for external integrations
+   - Search functionality
+
+5. Added "Leads" navigation tab in `App.tsx`
+
+**Key Implementation Details:**
+- Public webhook uses unique token per workspace (no auth required for external systems)
+- CSV parsing done client-side before sending to API
+- Webhook accepts both single lead object and array of leads
+- Supports field aliases (e.g., `first_name` → `firstname`, `source` → `lead_source`)
+
+**What NOT to do:**
+- Don't require authentication for inbound webhooks from external systems (use unique tokens instead)
+- Don't parse CSV on the server (browsers can handle it, reduces server load)
+- Don't forget to handle both single objects and arrays in webhook payloads
+- Don't hardcode workspace IDs - always derive from user context
+
+**CSV Format Expected:**
+```csv
+firstname,lastname,phone,email,lead_source,product,notes
+John,Doe,+14151234567,john@example.com,Website,Product A,Interested in demo
+```
+
+**Webhook Payload Format:**
+```json
+{
+  "firstname": "John",
+  "lastname": "Doe", 
+  "phone": "+14151234567",
+  "email": "john@example.com",
+  "lead_source": "Website",
+  "product": "Product A",
+  "notes": "Interested in demo"
+}
+```
+
+---
+
+## Real Outbound Campaign Feature - December 5, 2024
+
+**Feature:** Extended Leads management to support AI-powered outbound calling campaigns using VAPI
+
+**What was done:**
+
+1. Created database migration (`0029_create_campaigns_table.sql`) with:
+   - `campaigns` table for storing campaign metadata (name, assistant_id, phone_number_id, status, stats)
+   - `campaign_leads` junction table linking leads to campaigns with call status tracking
+   - Status flow: draft → scheduled → running → paused → completed/cancelled
+   - Call status tracking: pending → calling → completed/failed/no_answer
+
+2. Added API endpoints in `workers/index.ts`:
+   - `GET /api/campaigns` - List campaigns (workspace-scoped)
+   - `POST /api/campaigns` - Create new campaign
+   - `GET /api/campaigns/:id` - Get campaign details
+   - `PATCH /api/campaigns/:id` - Update campaign name/schedule
+   - `DELETE /api/campaigns/:id` - Delete campaign
+   - `POST /api/campaigns/:id/leads` - Add leads to campaign
+   - `GET /api/campaigns/:id/leads` - Get campaign leads with call status
+   - `POST /api/campaigns/:id/start` - Start/resume campaign
+   - `POST /api/campaigns/:id/pause` - Pause running campaign
+   - `POST /api/campaigns/:id/cancel` - Cancel campaign
+   - `GET /api/vapi/phone-numbers` - List VAPI phone numbers
+
+3. Implemented `executeCampaignCalls()` function for VAPI integration:
+   - Uses `ctx.waitUntil()` for background execution
+   - Calls VAPI's `/call/phone` endpoint for each lead
+   - Passes customer info and dynamic variables to assistant
+   - 2-second delay between calls to avoid rate limiting
+   - Checks campaign status before each call (respects pause/cancel)
+   - Updates campaign stats in real-time
+
+4. Added D1 client methods in `src/lib/d1.ts`:
+   - getCampaigns, createCampaign, getCampaign, updateCampaign, deleteCampaign
+   - addLeadsToCampaign, getCampaignLeads
+   - startCampaign, pauseCampaign, cancelCampaign
+   - Made `request` method public for custom endpoint calls
+
+5. Transformed `Leads.tsx` into tabbed interface:
+   - **Leads Tab:** Original lead management with added checkbox selection
+   - **Campaigns Tab:** Campaign cards with stats, progress bars, and controls
+   - Create Campaign modal with assistant/phone selection
+   - Real-time campaign status display
+
+**Key Implementation Details:**
+- Background execution using `ctx.waitUntil()` - doesn't block API response
+- Campaign status checks between calls allow pause/cancel to work mid-execution
+- Lead selection from Leads tab flows into campaign creation
+- Dynamic variables passed to VAPI assistant (customerName, email, product, leadSource)
+
+**What NOT to do:**
+- Don't call leads synchronously in the request handler (use ctx.waitUntil for background)
+- Don't forget to check campaign status between calls (allows pause/cancel)
+- Don't call too fast - use delays between calls to avoid rate limits
+- Don't block on VAPI errors - log and continue to next lead
+
+**VAPI Outbound Call Payload:**
+```json
+{
+  "assistantId": "assistant-id",
+  "phoneNumberId": "phone-number-id",
+  "customer": {
+    "number": "+14151234567",
+    "name": "John Doe"
+  },
+  "assistantOverrides": {
+    "variableValues": {
+      "customerName": "John",
+      "customerEmail": "john@example.com",
+      "product": "Product A",
+      "leadSource": "Website"
+    }
+  }
+}
+```
+
+**Campaign Status Flow:**
+```
+draft → (start) → running → (pause) → paused → (start) → running → (all done) → completed
+                     ↓                                         ↓
+               (cancel) → cancelled                    (cancel) → cancelled
 ```
 

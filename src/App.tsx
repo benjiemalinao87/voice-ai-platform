@@ -1,11 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
-import { BarChart3, Settings as SettingsIcon, Calendar, Moon, Sun, Mic, Brain, Bot, CalendarCheck, Globe } from 'lucide-react';
+import { BarChart3, Settings as SettingsIcon, Calendar, Moon, Sun, Mic, Brain, Bot, CalendarCheck, Globe, Users } from 'lucide-react';
 import { PerformanceDashboard } from './components/PerformanceDashboard';
 import { AgentConfig } from './components/AgentConfig';
 import { Recordings } from './components/Recordings';
 import { FlowBuilder } from './components/FlowBuilder';
 import { Settings } from './components/Settings';
 import { Login } from './components/Login';
+import { LandingPage } from './components/LandingPage';
 import { IntentDashboard } from './components/IntentDashboard';
 import { LiveChat } from './components/LiveChat';
 import { BoardView } from './components/BoardView';
@@ -17,19 +18,21 @@ import { AppointmentsByAI } from './components/AppointmentsByAI';
 import { EmbeddingModal } from './components/EmbeddingModal';
 import { StandaloneDashboard } from './components/StandaloneDashboard';
 import { AgentFlowCreator } from './components/AgentFlowCreator';
+import { Leads } from './components/Leads';
 import { useAuth } from './contexts/AuthContext';
 import { useVapi } from './contexts/VapiContext';
 import { agentApi } from './lib/api';
 import { d1Client } from './lib/d1';
 import type { Agent, AgentCreateData } from './types';
 
-type View = 'dashboard' | 'config' | 'recordings' | 'settings' | 'flow' | 'intent' | 'livechat' | 'board' | 'appointments' | 'standalone_dashboard';
+type View = 'dashboard' | 'config' | 'recordings' | 'settings' | 'flow' | 'intent' | 'livechat' | 'board' | 'appointments' | 'standalone_dashboard' | 'leads';
 
 function App() {
   const { isAuthenticated, isLoading } = useAuth();
   const { vapiClient, selectedOrgId, selectedWorkspaceId, setSelectedWorkspaceId } = useVapi();
 
   // Check URL for special routes
+  const isLandingPage = window.location.pathname === '/landing';
   const isFlowBuilder = window.location.pathname === '/flow-builder';
   const isAgentCreator = window.location.pathname === '/agents/create';
   const isAgentEditor = window.location.pathname.startsWith('/agents/edit/');
@@ -124,7 +127,7 @@ function App() {
         if (hadTokenOnMount.current) {
           // Page refresh scenario - restore saved view if exists
           const savedView = localStorage.getItem('currentView');
-          if (savedView && ['dashboard', 'config', 'recordings', 'settings', 'intent', 'livechat', 'board', 'appointments', 'standalone_dashboard'].includes(savedView) && currentView !== savedView) {
+          if (savedView && ['dashboard', 'config', 'recordings', 'settings', 'intent', 'livechat', 'board', 'appointments', 'standalone_dashboard', 'leads'].includes(savedView) && currentView !== savedView) {
             setCurrentView(savedView as View);
           }
         } else {
@@ -229,6 +232,11 @@ function App() {
     );
   }
 
+  // Landing page is public - render without auth check
+  if (isLandingPage) {
+    return <LandingPage />;
+  }
+
   // Show login if not authenticated
   if (!isAuthenticated) {
     return <Login />;
@@ -266,7 +274,7 @@ function App() {
             window.location.href = '/';
           }}
         />
-        
+
         {/* Floating Dark Mode Toggle */}
         <button
           onClick={toggleDarkMode}
@@ -294,7 +302,7 @@ function App() {
             window.location.href = '/';
           }}
         />
-        
+
         {/* Floating Dark Mode Toggle */}
         <button
           onClick={toggleDarkMode}
@@ -332,8 +340,8 @@ function App() {
                 <button
                   onClick={() => setCurrentView('dashboard')}
                   className={`flex items-center gap-2 px-4 py-2 rounded-md font-medium transition-colors ${currentView === 'dashboard'
-                      ? 'bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 shadow-sm'
-                      : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100'
+                    ? 'bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 shadow-sm'
+                    : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100'
                     }`}
                 >
                   <BarChart3 className="w-4 h-4" />
@@ -354,8 +362,8 @@ function App() {
                 <button
                   onClick={() => setCurrentView('appointments')}
                   className={`flex items-center gap-2 px-4 py-2 rounded-md font-medium transition-colors ${currentView === 'appointments'
-                      ? 'bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 shadow-sm'
-                      : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100'
+                    ? 'bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 shadow-sm'
+                    : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100'
                     }`}
                 >
                   <CalendarCheck className="w-4 h-4" />
@@ -375,8 +383,8 @@ function App() {
                 <button
                   onClick={() => setCurrentView('recordings')}
                   className={`flex items-center gap-2 px-4 py-2 rounded-md font-medium transition-colors ${currentView === 'recordings'
-                      ? 'bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 shadow-sm'
-                      : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100'
+                    ? 'bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 shadow-sm'
+                    : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100'
                     }`}
                 >
                   <Mic className="w-4 h-4" />
@@ -385,12 +393,22 @@ function App() {
                 <button
                   onClick={() => setCurrentView('intent')}
                   className={`flex items-center gap-2 px-4 py-2 rounded-md font-medium transition-colors ${currentView === 'intent'
-                      ? 'bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 shadow-sm'
-                      : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100'
+                    ? 'bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 shadow-sm'
+                    : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100'
                     }`}
                 >
                   <Brain className="w-4 h-4" />
                   Intent Analysis
+                </button>
+                <button
+                  onClick={() => setCurrentView('leads')}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-md font-medium transition-colors ${currentView === 'leads'
+                    ? 'bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 shadow-sm'
+                    : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100'
+                    }`}
+                >
+                  <Users className="w-4 h-4" />
+                  Outbound Campaign
                 </button>
                 {/* <button
                       onClick={() => setCurrentView('livechat')}
@@ -410,8 +428,8 @@ function App() {
                     setSelectedAgentId(undefined);
                   }}
                   className={`flex items-center gap-2 px-4 py-2 rounded-md font-medium transition-colors ${currentView === 'config'
-                      ? 'bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 shadow-sm'
-                      : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100'
+                    ? 'bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 shadow-sm'
+                    : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100'
                     }`}
                 >
                   <Bot className="w-4 h-4" />
@@ -420,8 +438,8 @@ function App() {
                 <button
                   onClick={() => setCurrentView('settings')}
                   className={`flex items-center gap-2 px-4 py-2 rounded-md font-medium transition-colors ${currentView === 'settings'
-                      ? 'bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 shadow-sm'
-                      : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100'
+                    ? 'bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 shadow-sm'
+                    : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100'
                     }`}
                 >
                   <SettingsIcon className="w-4 h-4" />
@@ -495,6 +513,10 @@ function App() {
             <div className="space-y-6">
               <IntentDashboard />
             </div>
+          )}
+
+          {currentView === 'leads' && (
+            <Leads />
           )}
 
           {currentView === 'livechat' && (

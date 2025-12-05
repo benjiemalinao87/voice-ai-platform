@@ -753,7 +753,28 @@ async function triggerSchedulingWebhook(env: Env, userId: string, callId: string
   }
 }
 
-// Helper: Extract user from Authorization header
+// Helper: Hash API key using SHA-256
+async function hashApiKey(key: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(key);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+// Helper: Generate a secure random API key
+function generateApiKey(): string {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  const randomBytes = new Uint8Array(32);
+  crypto.getRandomValues(randomBytes);
+  let key = 'sk_live_';
+  for (let i = 0; i < 32; i++) {
+    key += chars[randomBytes[i] % chars.length];
+  }
+  return key;
+}
+
+// Helper: Extract user from Authorization header (supports both JWT and API keys)
 async function getUserFromToken(request: Request, env: Env): Promise<string | null> {
   const authHeader = request.headers.get('Authorization');
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -761,6 +782,26 @@ async function getUserFromToken(request: Request, env: Env): Promise<string | nu
   }
 
   const token = authHeader.substring(7);
+  
+  // Check if it's an API key (starts with sk_live_)
+  if (token.startsWith('sk_live_')) {
+    const keyHash = await hashApiKey(token);
+    const apiKey = await env.DB.prepare(
+      'SELECT user_id, workspace_id FROM api_keys WHERE key_hash = ? AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > ?)'
+    ).bind(keyHash, now()).first() as any;
+    
+    if (apiKey) {
+      // Update last_used_at
+      await env.DB.prepare(
+        'UPDATE api_keys SET last_used_at = ? WHERE key_hash = ?'
+      ).bind(now(), keyHash).run();
+      
+      return apiKey.user_id;
+    }
+    return null;
+  }
+  
+  // Otherwise treat as JWT token
   const secret = env.JWT_SECRET || 'default-secret-change-me';
   const decoded = await verifyToken(token, secret);
 
@@ -769,6 +810,35 @@ async function getUserFromToken(request: Request, env: Env): Promise<string | nu
   }
 
   return decoded.userId;
+}
+
+// Helper: Get workspace ID for user
+// Returns the user's selected workspace ID, or their owned workspace if no selection
+async function getWorkspaceIdForUser(env: Env, userId: string): Promise<string | null> {
+  // Check for selected workspace
+  const userSettings = await env.DB.prepare(
+    'SELECT selected_workspace_id FROM user_settings WHERE user_id = ?'
+  ).bind(userId).first() as any;
+
+  if (userSettings?.selected_workspace_id) {
+    return userSettings.selected_workspace_id;
+  }
+
+  // Fall back to owned workspace
+  const ownedWorkspace = await env.DB.prepare(
+    'SELECT id FROM workspaces WHERE owner_user_id = ?'
+  ).bind(userId).first() as any;
+
+  if (ownedWorkspace) {
+    return ownedWorkspace.id;
+  }
+
+  // Check if user is a member of any workspace
+  const membership = await env.DB.prepare(
+    'SELECT workspace_id FROM workspace_members WHERE user_id = ? AND status = "active" LIMIT 1'
+  ).bind(userId).first() as any;
+
+  return membership?.workspace_id || null;
 }
 
 // Helper: Get effective user ID for workspace context
@@ -1519,6 +1589,167 @@ async function processAddonsForCall(
   }
 }
 
+// Helper: Execute campaign calls via VAPI
+async function executeCampaignCalls(env: Env, campaignId: string, vapiKey: string): Promise<void> {
+  console.log(`[Campaign ${campaignId}] Starting campaign execution`);
+  
+  try {
+    // Get campaign details
+    const campaign = await env.DB.prepare(
+      'SELECT * FROM campaigns WHERE id = ?'
+    ).bind(campaignId).first() as any;
+    
+    if (!campaign) {
+      console.error(`[Campaign ${campaignId}] Campaign not found`);
+      return;
+    }
+    
+    // Get pending leads
+    const pendingLeads = await env.DB.prepare(
+      `SELECT cl.*, l.firstname, l.lastname, l.phone, l.email, l.product, l.lead_source
+       FROM campaign_leads cl
+       JOIN leads l ON cl.lead_id = l.id
+       WHERE cl.campaign_id = ? AND cl.call_status = 'pending'
+       ORDER BY cl.created_at ASC`
+    ).bind(campaignId).all();
+    
+    if (!pendingLeads.results || pendingLeads.results.length === 0) {
+      console.log(`[Campaign ${campaignId}] No pending leads, marking as completed`);
+      await env.DB.prepare(
+        'UPDATE campaigns SET status = ?, completed_at = ?, updated_at = ? WHERE id = ?'
+      ).bind('completed', now(), now(), campaignId).run();
+      return;
+    }
+    
+    console.log(`[Campaign ${campaignId}] Processing ${pendingLeads.results.length} pending leads`);
+    
+    // Process leads one at a time
+    for (const lead of pendingLeads.results as any[]) {
+      // Check if campaign is still running (might have been paused/cancelled)
+      const currentCampaign = await env.DB.prepare(
+        'SELECT status FROM campaigns WHERE id = ?'
+      ).bind(campaignId).first() as any;
+      
+      if (currentCampaign?.status !== 'running') {
+        console.log(`[Campaign ${campaignId}] Campaign is no longer running (status: ${currentCampaign?.status}), stopping`);
+        return;
+      }
+      
+      // Update lead status to calling
+      await env.DB.prepare(
+        'UPDATE campaign_leads SET call_status = ?, called_at = ? WHERE id = ?'
+      ).bind('calling', now(), lead.id).run();
+      
+      try {
+        // Make outbound call via VAPI
+        const customerName = [lead.firstname, lead.lastname].filter(Boolean).join(' ') || 'Customer';
+        
+        const callPayload = {
+          assistantId: campaign.assistant_id,
+          phoneNumberId: campaign.phone_number_id,
+          customer: {
+            number: lead.phone,
+            name: customerName
+          },
+          assistantOverrides: {
+            variableValues: {
+              customerName: lead.firstname || customerName,
+              customerEmail: lead.email || '',
+              product: lead.product || '',
+              leadSource: lead.lead_source || ''
+            }
+          }
+        };
+        
+        console.log(`[Campaign ${campaignId}] Calling ${lead.phone} (${customerName})`);
+        console.log(`[Campaign ${campaignId}] Using VAPI key: ${vapiKey.substring(0, 10)}...`);
+        
+        const response = await fetch('https://api.vapi.ai/call/phone', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${vapiKey}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(callPayload)
+        });
+        
+        // Check response status first
+        const responseText = await response.text();
+        let result: any;
+        
+        try {
+          result = JSON.parse(responseText);
+        } catch (parseError) {
+          // VAPI returned non-JSON (likely HTML error page)
+          console.error(`[Campaign ${campaignId}] VAPI returned non-JSON response:`, response.status, responseText.substring(0, 200));
+          throw new Error(`VAPI API error (${response.status}): Invalid response - check VAPI API key`);
+        }
+        
+        if (response.ok && result.id) {
+          // Call initiated successfully
+          await env.DB.prepare(
+            'UPDATE campaign_leads SET vapi_call_id = ? WHERE id = ?'
+          ).bind(result.id, lead.id).run();
+          
+          console.log(`[Campaign ${campaignId}] Call initiated: ${result.id}`);
+          
+          // Update campaign stats
+          await env.DB.prepare(
+            'UPDATE campaigns SET calls_completed = calls_completed + 1, updated_at = ? WHERE id = ?'
+          ).bind(now(), campaignId).run();
+          
+          // Mark as completed (actual outcome will be updated by webhook)
+          await env.DB.prepare(
+            'UPDATE campaign_leads SET call_status = ? WHERE id = ?'
+          ).bind('completed', lead.id).run();
+          
+        } else {
+          // Call failed to initiate
+          console.error(`[Campaign ${campaignId}] Call failed:`, result);
+          
+          await env.DB.prepare(
+            'UPDATE campaign_leads SET call_status = ?, call_outcome = ? WHERE id = ?'
+          ).bind('failed', JSON.stringify(result), lead.id).run();
+          
+          await env.DB.prepare(
+            'UPDATE campaigns SET calls_failed = calls_failed + 1, updated_at = ? WHERE id = ?'
+          ).bind(now(), campaignId).run();
+        }
+        
+      } catch (error: any) {
+        console.error(`[Campaign ${campaignId}] Error calling ${lead.phone}:`, error);
+        
+        await env.DB.prepare(
+          'UPDATE campaign_leads SET call_status = ?, call_outcome = ? WHERE id = ?'
+        ).bind('failed', error.message || 'Unknown error', lead.id).run();
+        
+        await env.DB.prepare(
+          'UPDATE campaigns SET calls_failed = calls_failed + 1, updated_at = ? WHERE id = ?'
+        ).bind(now(), campaignId).run();
+      }
+      
+      // Small delay between calls to avoid rate limiting
+      await new Promise(resolve => setTimeout(resolve, 2000));
+    }
+    
+    // Check if all leads have been processed
+    const remainingLeads = await env.DB.prepare(
+      `SELECT COUNT(*) as count FROM campaign_leads WHERE campaign_id = ? AND call_status = 'pending'`
+    ).bind(campaignId).first() as any;
+    
+    if (!remainingLeads || remainingLeads.count === 0) {
+      console.log(`[Campaign ${campaignId}] All leads processed, marking as completed`);
+      await env.DB.prepare(
+        'UPDATE campaigns SET status = ?, completed_at = ?, updated_at = ? WHERE id = ?'
+      ).bind('completed', now(), now(), campaignId).run();
+    }
+    
+  } catch (error) {
+    console.error(`[Campaign ${campaignId}] Execution error:`, error);
+    // Don't mark as failed - might be a temporary issue
+  }
+}
+
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
@@ -1760,6 +1991,99 @@ export default {
           duration: `${duration}ms`,
           cached: duration < 100 // If very fast, likely from cache
         });
+      }
+
+      // ============================================
+      // API KEYS ENDPOINTS (Protected)
+      // ============================================
+
+      // List API keys for user
+      if (url.pathname === '/api/api-keys' && request.method === 'GET') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        const results = await env.DB.prepare(
+          `SELECT id, name, key_prefix, workspace_id, last_used_at, expires_at, created_at
+           FROM api_keys 
+           WHERE user_id = ? AND revoked_at IS NULL 
+           ORDER BY created_at DESC`
+        ).bind(userId).all();
+
+        return jsonResponse({ apiKeys: results.results || [] });
+      }
+
+      // Create new API key
+      if (url.pathname === '/api/api-keys' && request.method === 'POST') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        const body = await request.json() as any;
+        const name = body.name || 'API Key';
+        const expiresInDays = body.expires_in_days; // Optional: null = never expires
+
+        // Generate the API key
+        const apiKey = generateApiKey();
+        const keyHash = await hashApiKey(apiKey);
+        const keyPrefix = apiKey.substring(0, 12) + '...'; // sk_live_XXXX...
+
+        // Get user's selected workspace
+        const workspaceId = await getWorkspaceIdForUser(env, userId);
+
+        const timestamp = now();
+        const expiresAt = expiresInDays 
+          ? timestamp + (expiresInDays * 24 * 60 * 60)
+          : null;
+
+        await env.DB.prepare(
+          `INSERT INTO api_keys (id, user_id, workspace_id, name, key_prefix, key_hash, expires_at, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+        ).bind(
+          generateId(),
+          userId,
+          workspaceId,
+          name,
+          keyPrefix,
+          keyHash,
+          expiresAt,
+          timestamp
+        ).run();
+
+        // Return the full key only once - user must save it
+        return jsonResponse({
+          success: true,
+          apiKey: apiKey,
+          keyPrefix: keyPrefix,
+          message: 'Save this API key now - you won\'t be able to see it again!'
+        }, 201);
+      }
+
+      // Revoke API key
+      if (url.pathname.match(/^\/api\/api-keys\/[^/]+$/) && request.method === 'DELETE') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        const keyId = url.pathname.split('/').pop();
+
+        // Verify key belongs to user
+        const apiKey = await env.DB.prepare(
+          'SELECT id FROM api_keys WHERE id = ? AND user_id = ?'
+        ).bind(keyId, userId).first();
+
+        if (!apiKey) {
+          return jsonResponse({ error: 'API key not found' }, 404);
+        }
+
+        await env.DB.prepare(
+          'UPDATE api_keys SET revoked_at = ? WHERE id = ?'
+        ).bind(now(), keyId).run();
+
+        return jsonResponse({ success: true, message: 'API key revoked' });
       }
 
       // ============================================
@@ -3351,6 +3675,49 @@ export default {
         }
       }
 
+      // Get all phone numbers from VAPI
+      if (url.pathname === '/api/vapi/phone-numbers' && request.method === 'GET') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        const settings = await getWorkspaceSettingsForUser(env, userId);
+        if (!settings?.private_key) {
+          return jsonResponse({ error: 'VAPI API key not configured' }, 400);
+        }
+
+        try {
+          const response = await fetch('https://api.vapi.ai/phone-number', {
+            method: 'GET',
+            headers: {
+              'Authorization': `Bearer ${settings.private_key}`,
+              'Content-Type': 'application/json'
+            }
+          });
+
+          const data = await response.json() as any;
+
+          if (!response.ok) {
+            return jsonResponse({ error: data.message || 'Failed to fetch phone numbers' }, response.status);
+          }
+
+          // Format phone numbers for frontend
+          const phoneNumbers = (Array.isArray(data) ? data : []).map((p: any) => ({
+            id: p.id,
+            number: p.number || p.phoneNumber || 'Unknown',
+            name: p.name || p.friendlyName || '',
+            provider: p.provider || 'unknown',
+            assignedAssistantId: p.assistantId || null
+          }));
+
+          return jsonResponse({ phoneNumbers });
+        } catch (error: any) {
+          console.error('Error fetching VAPI phone numbers:', error);
+          return jsonResponse({ error: `Failed to fetch phone numbers: ${error.message}` }, 500);
+        }
+      }
+
       // Create free CHAU Voice Engine phone number
       if (url.pathname === '/api/vapi/phone-number' && request.method === 'POST') {
         const userId = await getUserFromToken(request, env);
@@ -4925,6 +5292,801 @@ export default {
         }
         const webhookId = url.pathname.split('/')[3];
         return await getOutboundWebhookLogs(env, userId, webhookId);
+      }
+
+      // ============================================
+      // LEADS ENDPOINTS (Protected)
+      // ============================================
+
+      // List leads for workspace
+      if (url.pathname === '/api/leads' && request.method === 'GET') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        const workspaceId = await getWorkspaceIdForUser(env, userId);
+        if (!workspaceId) {
+          return jsonResponse({ error: 'No workspace found' }, 404);
+        }
+
+        const limit = parseInt(url.searchParams.get('limit') || '50');
+        const offset = parseInt(url.searchParams.get('offset') || '0');
+        const status = url.searchParams.get('status');
+
+        let query = `SELECT * FROM leads WHERE workspace_id = ?`;
+        const params: any[] = [workspaceId];
+
+        if (status) {
+          query += ` AND status = ?`;
+          params.push(status);
+        }
+
+        query += ` ORDER BY created_at DESC LIMIT ? OFFSET ?`;
+        params.push(limit, offset);
+
+        const results = await env.DB.prepare(query).bind(...params).all();
+        
+        // Get total count
+        let countQuery = `SELECT COUNT(*) as total FROM leads WHERE workspace_id = ?`;
+        const countParams: any[] = [workspaceId];
+        if (status) {
+          countQuery += ` AND status = ?`;
+          countParams.push(status);
+        }
+        const countResult = await env.DB.prepare(countQuery).bind(...countParams).first() as any;
+
+        return jsonResponse({
+          leads: results.results || [],
+          total: countResult?.total || 0,
+          limit,
+          offset
+        });
+      }
+
+      // Create single lead
+      if (url.pathname === '/api/leads' && request.method === 'POST') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        const workspaceId = await getWorkspaceIdForUser(env, userId);
+        if (!workspaceId) {
+          return jsonResponse({ error: 'No workspace found' }, 404);
+        }
+
+        const body = await request.json() as any;
+        
+        if (!body.phone) {
+          return jsonResponse({ error: 'Phone number is required' }, 400);
+        }
+
+        const timestamp = now();
+        const leadId = generateId();
+
+        await env.DB.prepare(
+          `INSERT INTO leads (id, workspace_id, firstname, lastname, phone, email, lead_source, product, notes, status, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        ).bind(
+          leadId,
+          workspaceId,
+          body.firstname || null,
+          body.lastname || null,
+          body.phone,
+          body.email || null,
+          body.lead_source || null,
+          body.product || null,
+          body.notes || null,
+          body.status || 'new',
+          timestamp,
+          timestamp
+        ).run();
+
+        return jsonResponse({
+          success: true,
+          id: leadId,
+          message: 'Lead created successfully'
+        }, 201);
+      }
+
+      // Bulk upload leads (CSV)
+      if (url.pathname === '/api/leads/upload' && request.method === 'POST') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        const workspaceId = await getWorkspaceIdForUser(env, userId);
+        if (!workspaceId) {
+          return jsonResponse({ error: 'No workspace found' }, 404);
+        }
+
+        const body = await request.json() as any;
+        const leads = body.leads as any[];
+
+        if (!leads || !Array.isArray(leads) || leads.length === 0) {
+          return jsonResponse({ error: 'No leads provided' }, 400);
+        }
+
+        const timestamp = now();
+        let successCount = 0;
+        let errorCount = 0;
+        const errors: string[] = [];
+
+        for (let i = 0; i < leads.length; i++) {
+          const lead = leads[i];
+          
+          if (!lead.phone) {
+            errorCount++;
+            errors.push(`Row ${i + 1}: Phone number is required`);
+            continue;
+          }
+
+          try {
+            const leadId = generateId();
+            await env.DB.prepare(
+              `INSERT INTO leads (id, workspace_id, firstname, lastname, phone, email, lead_source, product, notes, status, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+            ).bind(
+              leadId,
+              workspaceId,
+              lead.firstname || null,
+              lead.lastname || null,
+              lead.phone,
+              lead.email || null,
+              lead.lead_source || null,
+              lead.product || null,
+              lead.notes || null,
+              'new',
+              timestamp,
+              timestamp
+            ).run();
+            successCount++;
+          } catch (error: any) {
+            errorCount++;
+            errors.push(`Row ${i + 1}: ${error.message || 'Unknown error'}`);
+          }
+        }
+
+        return jsonResponse({
+          success: true,
+          imported: successCount,
+          failed: errorCount,
+          errors: errors.slice(0, 10), // Return first 10 errors
+          message: `Imported ${successCount} leads${errorCount > 0 ? `, ${errorCount} failed` : ''}`
+        });
+      }
+
+      // Delete lead
+      if (url.pathname.match(/^\/api\/leads\/[^/]+$/) && request.method === 'DELETE') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        const workspaceId = await getWorkspaceIdForUser(env, userId);
+        if (!workspaceId) {
+          return jsonResponse({ error: 'No workspace found' }, 404);
+        }
+
+        const leadId = url.pathname.split('/').pop();
+
+        // Verify lead belongs to workspace
+        const lead = await env.DB.prepare(
+          'SELECT id FROM leads WHERE id = ? AND workspace_id = ?'
+        ).bind(leadId, workspaceId).first();
+
+        if (!lead) {
+          return jsonResponse({ error: 'Lead not found' }, 404);
+        }
+
+        await env.DB.prepare('DELETE FROM leads WHERE id = ?').bind(leadId).run();
+
+        return jsonResponse({ success: true, message: 'Lead deleted' });
+      }
+
+      // Update lead status
+      if (url.pathname.match(/^\/api\/leads\/[^/]+$/) && request.method === 'PATCH') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        const workspaceId = await getWorkspaceIdForUser(env, userId);
+        if (!workspaceId) {
+          return jsonResponse({ error: 'No workspace found' }, 404);
+        }
+
+        const leadId = url.pathname.split('/').pop();
+        const body = await request.json() as any;
+
+        // Verify lead belongs to workspace
+        const lead = await env.DB.prepare(
+          'SELECT id FROM leads WHERE id = ? AND workspace_id = ?'
+        ).bind(leadId, workspaceId).first();
+
+        if (!lead) {
+          return jsonResponse({ error: 'Lead not found' }, 404);
+        }
+
+        const updates: string[] = [];
+        const params: any[] = [];
+
+        if (body.status !== undefined) {
+          updates.push('status = ?');
+          params.push(body.status);
+        }
+        if (body.firstname !== undefined) {
+          updates.push('firstname = ?');
+          params.push(body.firstname);
+        }
+        if (body.lastname !== undefined) {
+          updates.push('lastname = ?');
+          params.push(body.lastname);
+        }
+        if (body.email !== undefined) {
+          updates.push('email = ?');
+          params.push(body.email);
+        }
+        if (body.phone !== undefined) {
+          updates.push('phone = ?');
+          params.push(body.phone);
+        }
+        if (body.lead_source !== undefined) {
+          updates.push('lead_source = ?');
+          params.push(body.lead_source);
+        }
+        if (body.product !== undefined) {
+          updates.push('product = ?');
+          params.push(body.product);
+        }
+        if (body.notes !== undefined) {
+          updates.push('notes = ?');
+          params.push(body.notes);
+        }
+
+        if (updates.length === 0) {
+          return jsonResponse({ error: 'No fields to update' }, 400);
+        }
+
+        updates.push('updated_at = ?');
+        params.push(now());
+        params.push(leadId);
+
+        await env.DB.prepare(
+          `UPDATE leads SET ${updates.join(', ')} WHERE id = ?`
+        ).bind(...params).run();
+
+        return jsonResponse({ success: true, message: 'Lead updated' });
+      }
+
+      // Get/Create leads webhook for workspace
+      if (url.pathname === '/api/leads/webhook' && request.method === 'GET') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        const workspaceId = await getWorkspaceIdForUser(env, userId);
+        if (!workspaceId) {
+          return jsonResponse({ error: 'No workspace found' }, 404);
+        }
+
+        // Check if webhook exists
+        let webhook = await env.DB.prepare(
+          'SELECT * FROM lead_webhooks WHERE workspace_id = ?'
+        ).bind(workspaceId).first() as any;
+
+        // Create if doesn't exist
+        if (!webhook) {
+          const webhookId = generateId();
+          const webhookToken = generateId() + generateId(); // Longer token for security
+          const timestamp = now();
+
+          await env.DB.prepare(
+            'INSERT INTO lead_webhooks (id, workspace_id, webhook_token, is_active, created_at) VALUES (?, ?, ?, 1, ?)'
+          ).bind(webhookId, workspaceId, webhookToken, timestamp).run();
+
+          webhook = {
+            id: webhookId,
+            workspace_id: workspaceId,
+            webhook_token: webhookToken,
+            is_active: 1,
+            created_at: timestamp
+          };
+        }
+
+        // Build webhook URL
+        const baseUrl = url.origin;
+        const webhookUrl = `${baseUrl}/webhook/leads/${webhook.webhook_token}`;
+
+        return jsonResponse({
+          id: webhook.id,
+          webhookUrl,
+          token: webhook.webhook_token,
+          isActive: webhook.is_active === 1,
+          createdAt: webhook.created_at
+        });
+      }
+
+      // ============================================
+      // CAMPAIGNS ENDPOINTS (Protected)
+      // ============================================
+
+      // List campaigns for workspace
+      if (url.pathname === '/api/campaigns' && request.method === 'GET') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        const workspaceId = await getWorkspaceIdForUser(env, userId);
+        if (!workspaceId) {
+          return jsonResponse({ error: 'No workspace found' }, 404);
+        }
+
+        const results = await env.DB.prepare(
+          `SELECT * FROM campaigns WHERE workspace_id = ? ORDER BY created_at DESC`
+        ).bind(workspaceId).all();
+
+        return jsonResponse({ campaigns: results.results || [] });
+      }
+
+      // Create campaign
+      if (url.pathname === '/api/campaigns' && request.method === 'POST') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        const workspaceId = await getWorkspaceIdForUser(env, userId);
+        if (!workspaceId) {
+          return jsonResponse({ error: 'No workspace found' }, 404);
+        }
+
+        const body = await request.json() as any;
+
+        if (!body.name || !body.assistant_id || !body.phone_number_id) {
+          return jsonResponse({ error: 'Name, assistant_id, and phone_number_id are required' }, 400);
+        }
+
+        const timestamp = now();
+        const campaignId = generateId();
+
+        await env.DB.prepare(
+          `INSERT INTO campaigns (id, workspace_id, name, assistant_id, phone_number_id, status, scheduled_at, total_leads, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`
+        ).bind(
+          campaignId,
+          workspaceId,
+          body.name,
+          body.assistant_id,
+          body.phone_number_id,
+          body.scheduled_at ? 'scheduled' : 'draft',
+          body.scheduled_at || null,
+          timestamp,
+          timestamp
+        ).run();
+
+        return jsonResponse({
+          success: true,
+          id: campaignId,
+          message: 'Campaign created'
+        }, 201);
+      }
+
+      // Get campaign details
+      if (url.pathname.match(/^\/api\/campaigns\/[^/]+$/) && request.method === 'GET') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        const workspaceId = await getWorkspaceIdForUser(env, userId);
+        if (!workspaceId) {
+          return jsonResponse({ error: 'No workspace found' }, 404);
+        }
+
+        const campaignId = url.pathname.split('/').pop();
+
+        const campaign = await env.DB.prepare(
+          'SELECT * FROM campaigns WHERE id = ? AND workspace_id = ?'
+        ).bind(campaignId, workspaceId).first();
+
+        if (!campaign) {
+          return jsonResponse({ error: 'Campaign not found' }, 404);
+        }
+
+        return jsonResponse({ campaign });
+      }
+
+      // Update campaign
+      if (url.pathname.match(/^\/api\/campaigns\/[^/]+$/) && request.method === 'PATCH') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        const workspaceId = await getWorkspaceIdForUser(env, userId);
+        if (!workspaceId) {
+          return jsonResponse({ error: 'No workspace found' }, 404);
+        }
+
+        const campaignId = url.pathname.split('/').pop();
+        const body = await request.json() as any;
+
+        // Verify campaign belongs to workspace
+        const campaign = await env.DB.prepare(
+          'SELECT id, status FROM campaigns WHERE id = ? AND workspace_id = ?'
+        ).bind(campaignId, workspaceId).first() as any;
+
+        if (!campaign) {
+          return jsonResponse({ error: 'Campaign not found' }, 404);
+        }
+
+        const updates: string[] = [];
+        const params: any[] = [];
+
+        if (body.name !== undefined) {
+          updates.push('name = ?');
+          params.push(body.name);
+        }
+        if (body.scheduled_at !== undefined) {
+          updates.push('scheduled_at = ?');
+          params.push(body.scheduled_at);
+          if (body.scheduled_at && campaign.status === 'draft') {
+            updates.push('status = ?');
+            params.push('scheduled');
+          }
+        }
+
+        if (updates.length === 0) {
+          return jsonResponse({ error: 'No fields to update' }, 400);
+        }
+
+        updates.push('updated_at = ?');
+        params.push(now());
+        params.push(campaignId);
+
+        await env.DB.prepare(
+          `UPDATE campaigns SET ${updates.join(', ')} WHERE id = ?`
+        ).bind(...params).run();
+
+        return jsonResponse({ success: true, message: 'Campaign updated' });
+      }
+
+      // Delete campaign
+      if (url.pathname.match(/^\/api\/campaigns\/[^/]+$/) && request.method === 'DELETE') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        const workspaceId = await getWorkspaceIdForUser(env, userId);
+        if (!workspaceId) {
+          return jsonResponse({ error: 'No workspace found' }, 404);
+        }
+
+        const campaignId = url.pathname.split('/').pop();
+
+        // Verify campaign belongs to workspace
+        const campaign = await env.DB.prepare(
+          'SELECT id FROM campaigns WHERE id = ? AND workspace_id = ?'
+        ).bind(campaignId, workspaceId).first();
+
+        if (!campaign) {
+          return jsonResponse({ error: 'Campaign not found' }, 404);
+        }
+
+        await env.DB.prepare('DELETE FROM campaigns WHERE id = ?').bind(campaignId).run();
+
+        return jsonResponse({ success: true, message: 'Campaign deleted' });
+      }
+
+      // Add leads to campaign
+      if (url.pathname.match(/^\/api\/campaigns\/[^/]+\/leads$/) && request.method === 'POST') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        const workspaceId = await getWorkspaceIdForUser(env, userId);
+        if (!workspaceId) {
+          return jsonResponse({ error: 'No workspace found' }, 404);
+        }
+
+        const pathParts = url.pathname.split('/');
+        const campaignId = pathParts[pathParts.length - 2];
+        const body = await request.json() as any;
+
+        // Verify campaign belongs to workspace
+        const campaign = await env.DB.prepare(
+          'SELECT id FROM campaigns WHERE id = ? AND workspace_id = ?'
+        ).bind(campaignId, workspaceId).first();
+
+        if (!campaign) {
+          return jsonResponse({ error: 'Campaign not found' }, 404);
+        }
+
+        const leadIds = body.lead_ids as string[];
+        if (!leadIds || !Array.isArray(leadIds) || leadIds.length === 0) {
+          return jsonResponse({ error: 'lead_ids array is required' }, 400);
+        }
+
+        const timestamp = now();
+        let addedCount = 0;
+
+        for (const leadId of leadIds) {
+          try {
+            // Verify lead belongs to workspace
+            const lead = await env.DB.prepare(
+              'SELECT id FROM leads WHERE id = ? AND workspace_id = ?'
+            ).bind(leadId, workspaceId).first();
+
+            if (lead) {
+              await env.DB.prepare(
+                `INSERT OR IGNORE INTO campaign_leads (id, campaign_id, lead_id, call_status, created_at)
+                 VALUES (?, ?, ?, 'pending', ?)`
+              ).bind(generateId(), campaignId, leadId, timestamp).run();
+              addedCount++;
+            }
+          } catch (error) {
+            // Ignore duplicates
+          }
+        }
+
+        // Update total leads count
+        const countResult = await env.DB.prepare(
+          'SELECT COUNT(*) as count FROM campaign_leads WHERE campaign_id = ?'
+        ).bind(campaignId).first() as any;
+
+        await env.DB.prepare(
+          'UPDATE campaigns SET total_leads = ?, updated_at = ? WHERE id = ?'
+        ).bind(countResult?.count || 0, now(), campaignId).run();
+
+        return jsonResponse({
+          success: true,
+          added: addedCount,
+          message: `Added ${addedCount} leads to campaign`
+        });
+      }
+
+      // Get campaign leads
+      if (url.pathname.match(/^\/api\/campaigns\/[^/]+\/leads$/) && request.method === 'GET') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        const workspaceId = await getWorkspaceIdForUser(env, userId);
+        if (!workspaceId) {
+          return jsonResponse({ error: 'No workspace found' }, 404);
+        }
+
+        const pathParts = url.pathname.split('/');
+        const campaignId = pathParts[pathParts.length - 2];
+
+        // Verify campaign belongs to workspace
+        const campaign = await env.DB.prepare(
+          'SELECT id FROM campaigns WHERE id = ? AND workspace_id = ?'
+        ).bind(campaignId, workspaceId).first();
+
+        if (!campaign) {
+          return jsonResponse({ error: 'Campaign not found' }, 404);
+        }
+
+        const results = await env.DB.prepare(
+          `SELECT cl.*, l.firstname, l.lastname, l.phone, l.email, l.lead_source, l.product
+           FROM campaign_leads cl
+           JOIN leads l ON cl.lead_id = l.id
+           WHERE cl.campaign_id = ?
+           ORDER BY cl.created_at DESC`
+        ).bind(campaignId).all();
+
+        return jsonResponse({ leads: results.results || [] });
+      }
+
+      // Start campaign
+      if (url.pathname.match(/^\/api\/campaigns\/[^/]+\/start$/) && request.method === 'POST') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        const workspaceId = await getWorkspaceIdForUser(env, userId);
+        if (!workspaceId) {
+          return jsonResponse({ error: 'No workspace found' }, 404);
+        }
+
+        const pathParts = url.pathname.split('/');
+        const campaignId = pathParts[pathParts.length - 2];
+
+        // Verify campaign belongs to workspace
+        const campaign = await env.DB.prepare(
+          'SELECT * FROM campaigns WHERE id = ? AND workspace_id = ?'
+        ).bind(campaignId, workspaceId).first() as any;
+
+        if (!campaign) {
+          return jsonResponse({ error: 'Campaign not found' }, 404);
+        }
+
+        if (campaign.status === 'running') {
+          return jsonResponse({ error: 'Campaign is already running' }, 400);
+        }
+
+        if (campaign.status === 'completed') {
+          return jsonResponse({ error: 'Campaign is already completed' }, 400);
+        }
+
+        // Get workspace settings for VAPI key
+        console.log(`[Campaign Start] User ID: ${userId}`);
+        const settings = await getWorkspaceSettingsForUser(env, userId);
+        console.log(`[Campaign Start] VAPI key found: ${settings?.private_key ? settings.private_key.substring(0, 10) + '...' : 'NONE'}`);
+        
+        if (!settings?.private_key) {
+          return jsonResponse({ error: 'VAPI API key not configured' }, 400);
+        }
+
+        // Check if there are leads to call
+        const leadsCount = await env.DB.prepare(
+          `SELECT COUNT(*) as count FROM campaign_leads WHERE campaign_id = ? AND call_status = 'pending'`
+        ).bind(campaignId).first() as any;
+
+        if (!leadsCount || leadsCount.count === 0) {
+          return jsonResponse({ error: 'No pending leads in campaign' }, 400);
+        }
+
+        // Update campaign status to running
+        const timestamp = now();
+        await env.DB.prepare(
+          `UPDATE campaigns SET status = 'running', started_at = COALESCE(started_at, ?), updated_at = ? WHERE id = ?`
+        ).bind(timestamp, timestamp, campaignId).run();
+
+        // Start calling leads in background
+        ctx.waitUntil(executeCampaignCalls(env, campaignId, settings.private_key));
+
+        return jsonResponse({
+          success: true,
+          message: 'Campaign started',
+          status: 'running'
+        });
+      }
+
+      // Pause campaign
+      if (url.pathname.match(/^\/api\/campaigns\/[^/]+\/pause$/) && request.method === 'POST') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        const workspaceId = await getWorkspaceIdForUser(env, userId);
+        if (!workspaceId) {
+          return jsonResponse({ error: 'No workspace found' }, 404);
+        }
+
+        const pathParts = url.pathname.split('/');
+        const campaignId = pathParts[pathParts.length - 2];
+
+        // Verify campaign belongs to workspace
+        const campaign = await env.DB.prepare(
+          'SELECT id, status FROM campaigns WHERE id = ? AND workspace_id = ?'
+        ).bind(campaignId, workspaceId).first() as any;
+
+        if (!campaign) {
+          return jsonResponse({ error: 'Campaign not found' }, 404);
+        }
+
+        if (campaign.status !== 'running') {
+          return jsonResponse({ error: 'Campaign is not running' }, 400);
+        }
+
+        await env.DB.prepare(
+          'UPDATE campaigns SET status = ?, updated_at = ? WHERE id = ?'
+        ).bind('paused', now(), campaignId).run();
+
+        return jsonResponse({
+          success: true,
+          message: 'Campaign paused',
+          status: 'paused'
+        });
+      }
+
+      // Cancel campaign
+      if (url.pathname.match(/^\/api\/campaigns\/[^/]+\/cancel$/) && request.method === 'POST') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        const workspaceId = await getWorkspaceIdForUser(env, userId);
+        if (!workspaceId) {
+          return jsonResponse({ error: 'No workspace found' }, 404);
+        }
+
+        const pathParts = url.pathname.split('/');
+        const campaignId = pathParts[pathParts.length - 2];
+
+        // Verify campaign belongs to workspace
+        const campaign = await env.DB.prepare(
+          'SELECT id, status FROM campaigns WHERE id = ? AND workspace_id = ?'
+        ).bind(campaignId, workspaceId).first() as any;
+
+        if (!campaign) {
+          return jsonResponse({ error: 'Campaign not found' }, 404);
+        }
+
+        if (campaign.status === 'completed' || campaign.status === 'cancelled') {
+          return jsonResponse({ error: 'Campaign is already finished' }, 400);
+        }
+
+        await env.DB.prepare(
+          'UPDATE campaigns SET status = ?, completed_at = ?, updated_at = ? WHERE id = ?'
+        ).bind('cancelled', now(), now(), campaignId).run();
+
+        return jsonResponse({
+          success: true,
+          message: 'Campaign cancelled',
+          status: 'cancelled'
+        });
+      }
+
+      // Retry failed leads in campaign
+      if (url.pathname.match(/^\/api\/campaigns\/[^/]+\/retry-failed$/) && request.method === 'POST') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        const workspaceId = await getWorkspaceIdForUser(env, userId);
+        if (!workspaceId) {
+          return jsonResponse({ error: 'No workspace found' }, 404);
+        }
+
+        const pathParts = url.pathname.split('/');
+        const campaignId = pathParts[pathParts.length - 2];
+
+        // Verify campaign belongs to workspace
+        const campaign = await env.DB.prepare(
+          'SELECT id, status FROM campaigns WHERE id = ? AND workspace_id = ?'
+        ).bind(campaignId, workspaceId).first() as any;
+
+        if (!campaign) {
+          return jsonResponse({ error: 'Campaign not found' }, 404);
+        }
+
+        // Reset failed leads to pending
+        const result = await env.DB.prepare(
+          `UPDATE campaign_leads 
+           SET call_status = 'pending', vapi_call_id = NULL, call_outcome = NULL, call_duration = NULL, call_summary = NULL, called_at = NULL
+           WHERE campaign_id = ? AND call_status = 'failed'`
+        ).bind(campaignId).run();
+
+        // Update campaign status to draft/paused if it was completed
+        if (campaign.status === 'completed' || campaign.status === 'running') {
+          await env.DB.prepare(
+            'UPDATE campaigns SET status = ?, updated_at = ? WHERE id = ?'
+          ).bind('paused', now(), campaignId).run();
+        }
+
+        // Recalculate campaign stats
+        const stats = await env.DB.prepare(
+          `SELECT 
+             COUNT(*) as total,
+             SUM(CASE WHEN call_status = 'failed' THEN 1 ELSE 0 END) as failed,
+             SUM(CASE WHEN call_status IN ('completed') THEN 1 ELSE 0 END) as completed
+           FROM campaign_leads WHERE campaign_id = ?`
+        ).bind(campaignId).first() as any;
+
+        await env.DB.prepare(
+          'UPDATE campaigns SET calls_failed = ?, updated_at = ? WHERE id = ?'
+        ).bind(stats?.failed || 0, now(), campaignId).run();
+
+        return jsonResponse({
+          success: true,
+          message: 'Failed leads reset to pending',
+          resetCount: result.meta?.changes || 0
+        });
       }
 
       // ============================================
@@ -9671,6 +10833,86 @@ Need help? Contact our support team anytime!
         }
       }
 
+      // ============================================
+      // PUBLIC LEADS WEBHOOK (No Auth Required)
+      // ============================================
+      
+      // Receive leads from external systems via public webhook
+      if (url.pathname.startsWith('/webhook/leads/') && request.method === 'POST') {
+        const webhookToken = url.pathname.split('/').pop();
+
+        // Validate webhook token exists and is active
+        const webhook = await env.DB.prepare(
+          'SELECT * FROM lead_webhooks WHERE webhook_token = ? AND is_active = 1'
+        ).bind(webhookToken).first() as any;
+
+        if (!webhook) {
+          return jsonResponse({ error: 'Invalid or inactive webhook' }, 404);
+        }
+
+        // Parse payload
+        let payload: any;
+        try {
+          payload = await request.json();
+        } catch (error) {
+          return jsonResponse({ error: 'Invalid JSON payload' }, 400);
+        }
+
+        const timestamp = now();
+        
+        // Support both single lead and array of leads
+        const leads = Array.isArray(payload) ? payload : [payload];
+        
+        let successCount = 0;
+        let errorCount = 0;
+        const errors: string[] = [];
+
+        for (let i = 0; i < leads.length; i++) {
+          const lead = leads[i];
+          
+          if (!lead.phone) {
+            errorCount++;
+            errors.push(`Item ${i + 1}: Phone number is required`);
+            continue;
+          }
+
+          try {
+            const leadId = generateId();
+            await env.DB.prepare(
+              `INSERT INTO leads (id, workspace_id, firstname, lastname, phone, email, lead_source, product, notes, status, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+            ).bind(
+              leadId,
+              webhook.workspace_id,
+              lead.firstname || lead.first_name || null,
+              lead.lastname || lead.last_name || null,
+              lead.phone,
+              lead.email || null,
+              lead.lead_source || lead.source || null,
+              lead.product || null,
+              lead.notes || null,
+              'new',
+              timestamp,
+              timestamp
+            ).run();
+            successCount++;
+          } catch (error: any) {
+            errorCount++;
+            errors.push(`Item ${i + 1}: ${error.message || 'Unknown error'}`);
+          }
+        }
+
+        console.log(`[Leads Webhook] Received ${leads.length} leads for workspace ${webhook.workspace_id}. Success: ${successCount}, Failed: ${errorCount}`);
+
+        return jsonResponse({
+          success: true,
+          received: leads.length,
+          imported: successCount,
+          failed: errorCount,
+          errors: errors.length > 0 ? errors.slice(0, 5) : undefined
+        });
+      }
+
       // Receive VAPI webhook data
       if (url.pathname.startsWith('/webhook/') && request.method === 'POST') {
         const webhookId = url.pathname.split('/').pop();
@@ -10333,6 +11575,51 @@ Need help? Contact our support team anytime!
               recordingUrl: message.recordingUrl || artifact.recordingUrl || null,
             })
           );
+
+          // Update campaign stats if this call was part of a campaign
+          if (vapiCallId) {
+            try {
+              // Check if this call was from a campaign
+              const campaignLead = await env.DB.prepare(
+                'SELECT cl.id, cl.campaign_id FROM campaign_leads cl WHERE cl.vapi_call_id = ?'
+              ).bind(vapiCallId).first() as any;
+
+              if (campaignLead) {
+                console.log(`[Campaign] Call ${vapiCallId} is from campaign ${campaignLead.campaign_id}`);
+                
+                // Determine call outcome based on duration and ended reason
+                const endedReason = message.endedReason || call.endedReason || 'unknown';
+                const wasAnswered = durationSeconds > 0 && !['no-answer', 'busy', 'failed', 'canceled'].includes(endedReason);
+                const callOutcome = wasAnswered ? 'answered' : endedReason;
+
+                // Update campaign_leads with call outcome
+                await env.DB.prepare(
+                  `UPDATE campaign_leads 
+                   SET call_status = 'completed', 
+                       call_duration = ?, 
+                       call_outcome = ?,
+                       call_summary = ?
+                   WHERE id = ?`
+                ).bind(
+                  durationSeconds,
+                  callOutcome,
+                  analysis.summary || message.summary || null,
+                  campaignLead.id
+                ).run();
+
+                // Update campaign stats
+                if (wasAnswered) {
+                  await env.DB.prepare(
+                    'UPDATE campaigns SET calls_answered = calls_answered + 1, updated_at = ? WHERE id = ?'
+                  ).bind(now(), campaignLead.campaign_id).run();
+                  console.log(`[Campaign] Updated calls_answered for campaign ${campaignLead.campaign_id}`);
+                }
+              }
+            } catch (campaignError) {
+              console.error('[Campaign] Error updating campaign stats:', campaignError);
+              // Don't fail webhook for campaign tracking errors
+            }
+          }
 
           // Trigger OpenAI analysis and addons in the background (don't wait for them)
           ctx.waitUntil(
