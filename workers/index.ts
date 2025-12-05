@@ -1589,6 +1589,18 @@ async function processAddonsForCall(
   }
 }
 
+// Helper: Replace lead placeholders in template strings
+function replaceLeadPlaceholders(template: string, lead: any): string {
+  return template
+    .replace(/\{firstname\}/gi, lead.firstname || '')
+    .replace(/\{lastname\}/gi, lead.lastname || '')
+    .replace(/\{product\}/gi, lead.product || '')
+    .replace(/\{notes\}/gi, lead.notes || '')
+    .replace(/\{lead_source\}/gi, lead.lead_source || '')
+    .replace(/\{email\}/gi, lead.email || '')
+    .replace(/\{phone\}/gi, lead.phone || '');
+}
+
 // Helper: Execute campaign calls via VAPI
 async function executeCampaignCalls(env: Env, campaignId: string, vapiKey: string): Promise<void> {
   console.log(`[Campaign ${campaignId}] Starting campaign execution`);
@@ -1598,15 +1610,23 @@ async function executeCampaignCalls(env: Env, campaignId: string, vapiKey: strin
     const campaign = await env.DB.prepare(
       'SELECT * FROM campaigns WHERE id = ?'
     ).bind(campaignId).first() as any;
-    
+
     if (!campaign) {
       console.error(`[Campaign ${campaignId}] Campaign not found`);
       return;
     }
+
+    // Debug: Log campaign template settings
+    console.log(`[Campaign ${campaignId}] Campaign data:`, JSON.stringify({
+      name: campaign.name,
+      assistant_id: campaign.assistant_id,
+      first_message_template: campaign.first_message_template,
+      prompt_template: campaign.prompt_template
+    }))
     
-    // Get pending leads
+    // Get pending leads (including notes for template personalization)
     const pendingLeads = await env.DB.prepare(
-      `SELECT cl.*, l.firstname, l.lastname, l.phone, l.email, l.product, l.lead_source
+      `SELECT cl.*, l.firstname, l.lastname, l.phone, l.email, l.product, l.lead_source, l.notes
        FROM campaign_leads cl
        JOIN leads l ON cl.lead_id = l.id
        WHERE cl.campaign_id = ? AND cl.call_status = 'pending'
@@ -1644,6 +1664,28 @@ async function executeCampaignCalls(env: Env, campaignId: string, vapiKey: strin
         // Make outbound call via VAPI
         const customerName = [lead.firstname, lead.lastname].filter(Boolean).join(' ') || 'Customer';
         
+        // Build assistant overrides with template personalization
+        const assistantOverrides: any = {
+          variableValues: {
+            customerName: lead.firstname || customerName,
+            customerEmail: lead.email || '',
+            product: lead.product || '',
+            leadSource: lead.lead_source || '',
+            notes: lead.notes || ''
+          }
+        };
+        
+        // Add personalized first message if template exists
+        if (campaign.first_message_template) {
+          assistantOverrides.firstMessage = replaceLeadPlaceholders(campaign.first_message_template, lead);
+          console.log(`[Campaign ${campaignId}] Using personalized first message: "${assistantOverrides.firstMessage.substring(0, 50)}..."`);
+        }
+        
+        // Note: We no longer override the system prompt to preserve the assistant's original instructions
+        // Lead data is passed via variableValues which the assistant can use if its prompt has placeholders
+        // The first message is still personalized via firstMessage override above
+        console.log(`[Campaign ${campaignId}] Lead context passed via variableValues (assistant prompt preserved)`);
+        
         const callPayload = {
           assistantId: campaign.assistant_id,
           phoneNumberId: campaign.phone_number_id,
@@ -1651,14 +1693,7 @@ async function executeCampaignCalls(env: Env, campaignId: string, vapiKey: strin
             number: lead.phone,
             name: customerName
           },
-          assistantOverrides: {
-            variableValues: {
-              customerName: lead.firstname || customerName,
-              customerEmail: lead.email || '',
-              product: lead.product || '',
-              leadSource: lead.lead_source || ''
-            }
-          }
+          assistantOverrides
         };
         
         console.log(`[Campaign ${campaignId}] Calling ${lead.phone} (${customerName})`);
@@ -5665,8 +5700,8 @@ export default {
         const campaignId = generateId();
 
         await env.DB.prepare(
-          `INSERT INTO campaigns (id, workspace_id, name, assistant_id, phone_number_id, status, scheduled_at, total_leads, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`
+          `INSERT INTO campaigns (id, workspace_id, name, assistant_id, phone_number_id, status, scheduled_at, total_leads, prompt_template, first_message_template, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)`
         ).bind(
           campaignId,
           workspaceId,
@@ -5675,6 +5710,8 @@ export default {
           body.phone_number_id,
           body.scheduled_at ? 'scheduled' : 'draft',
           body.scheduled_at || null,
+          body.prompt_template || null,
+          body.first_message_template || null,
           timestamp,
           timestamp
         ).run();
@@ -5741,6 +5778,22 @@ export default {
         if (body.name !== undefined) {
           updates.push('name = ?');
           params.push(body.name);
+        }
+        if (body.assistant_id !== undefined) {
+          updates.push('assistant_id = ?');
+          params.push(body.assistant_id);
+        }
+        if (body.phone_number_id !== undefined) {
+          updates.push('phone_number_id = ?');
+          params.push(body.phone_number_id);
+        }
+        if (body.prompt_template !== undefined) {
+          updates.push('prompt_template = ?');
+          params.push(body.prompt_template || null);
+        }
+        if (body.first_message_template !== undefined) {
+          updates.push('first_message_template = ?');
+          params.push(body.first_message_template || null);
         }
         if (body.scheduled_at !== undefined) {
           updates.push('scheduled_at = ?');

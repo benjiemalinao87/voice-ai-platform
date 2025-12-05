@@ -884,3 +884,114 @@ Users can now create and manage API keys for programmatic access to the API inst
 - Support for key expiration
 - Tracks last used timestamp
 
+---
+
+### API Documentation Page (December 5, 2024)
+✅ **Created beautiful, modern API documentation page for all worker-based endpoints**
+
+**Feature Description:**
+A comprehensive, developer-friendly API documentation page that documents all available REST API endpoints with the base URL `api.voice-config.channelautomation.com`.
+
+**Key Features:**
+
+1. **Modern UI Design:**
+   - Dark gradient background with glassmorphism effects
+   - Collapsible sections organized by category
+   - Method badges color-coded (GET=green, POST=blue, PUT=amber, PATCH=purple, DELETE=red)
+   - Search functionality across all endpoints
+   - Quick navigation buttons to jump to sections
+   - Copy-to-clipboard for full endpoint URLs
+
+2. **API Categories Documented:**
+   - **Authentication** (4 endpoints) - Register, login, logout, get current user
+   - **Voice Assistants** (5 endpoints) - CRUD operations for AI assistants
+   - **Call Management** (7 endpoints) - Active calls, control, transfers, warm transfers
+   - **Outbound Campaigns** (7 endpoints) - Create, start, pause, cancel campaigns
+   - **Leads** (5 endpoints) - Lead management with CSV upload
+   - **Webhooks** (8 endpoints) - Incoming and outbound webhook configuration
+   - **Analytics** (8 endpoints) - Dashboard, keywords, intents, reports
+   - **Phone Numbers** (4 endpoints) - Twilio and VAPI phone management
+   - **CRM Integrations** (9 endpoints) - Salesforce, HubSpot, Dynamics 365
+   - **Workspaces & Teams** (4 endpoints) - Team member management
+   - **Settings** (5 endpoints) - Workspace settings and API keys
+   - **Agent Flows** (4 endpoints) - Visual flow builder API
+   - **Knowledge Base** (3 endpoints) - Document upload for AI
+   - **Scheduling Triggers** (4 endpoints) - Automated call scheduling
+   - **Add-ons** (3 endpoints) - Feature toggles and embedding
+   - **Public Webhooks** (2 endpoints) - VAPI and leads inbound webhooks
+
+3. **Endpoint Documentation Includes:**
+   - HTTP method and path
+   - Description
+   - Authentication requirement badge
+   - Query parameters table (name, type, required, description)
+   - Request body table (name, type, required, description)
+   - Example response JSON
+
+4. **Accessibility:**
+   - Public route at `/api-docs` (no authentication required)
+   - Responsive design for all screen sizes
+
+**Files Added:**
+- `src/components/ApiDocs.tsx` - Complete API documentation component (1000+ lines)
+
+**Files Modified:**
+- `src/App.tsx` - Added `/api-docs` route
+
+**Technical Implementation:**
+- TypeScript interfaces for type safety
+- React hooks for state management (search, collapsed sections)
+- Tailwind CSS for styling with dark theme
+- No external dependencies added
+- Follows existing code patterns
+
+---
+
+### Dynamic Lead Context for Outbound Campaigns (December 5, 2024)
+✅ **Enable personalized AI calls by injecting lead data into prompts**
+
+**Feature Description:**
+Campaigns can now store prompt templates with placeholders (`{firstname}`, `{product}`, `{notes}`, etc.) that get replaced with actual lead data before each outbound call, creating personalized AI interactions.
+
+**Key Features:**
+
+1. **Template Placeholders:**
+   - `{firstname}` - Lead's first name
+   - `{lastname}` - Lead's last name
+   - `{product}` - Product interest
+   - `{notes}` - Lead notes
+   - `{lead_source}` - Where lead came from
+   - `{email}` - Lead's email
+   - `{phone}` - Lead's phone number
+
+2. **First Message Template:**
+   - Personalize the AI's opening line
+   - Example: "Hello, is this {firstname}?"
+
+3. **Prompt Template:**
+   - Override the entire system prompt per-campaign
+   - Include lead context for optimized conversations
+   - If empty, uses the assistant's default prompt
+
+**Database Changes:**
+- Migration: `0031_add_campaign_templates.sql`
+- Added `prompt_template` and `first_message_template` columns to `campaigns` table
+
+**Backend Changes (workers/index.ts):**
+- `replaceLeadPlaceholders()` helper function for template substitution
+- Updated `executeCampaignCalls()` to use `assistantOverrides` with personalized content
+- Campaign create/update endpoints now accept template fields
+
+**Frontend Changes (src/components/Leads.tsx):**
+- Updated Campaign interface with template fields
+- Added template input fields to Create Campaign modal
+- Added template input fields to Edit Campaign modal
+- Placeholder hints shown in UI
+
+**How It Works:**
+1. Create a campaign with First Message Template and/or Prompt Template
+2. Add leads with data (firstname, product, notes, etc.)
+3. Start the campaign
+4. Each call automatically personalizes the prompt with that lead's data
+5. AI says: "Hello, is this John?" instead of generic greeting
+

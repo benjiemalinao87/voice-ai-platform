@@ -1,136 +1,84 @@
 <!-- 96ecfc1e-f51d-4c5e-a5e8-ab7c85b0afc9 76ce4cec-c424-4f51-9b62-e80a73ea4cb7 -->
-# Real Outbound Campaign Implementation
+# Dynamic Lead Context for Outbound Campaigns
 
 ## Overview
+Enable campaigns to store prompt templates with placeholders (`{firstname}`, `{product}`, `{notes}`, `{lead_source}`) that get replaced with actual lead data before each call, creating personalized AI interactions.
 
-Extend the existing Leads feature to support actual outbound calling campaigns using VAPI's outbound call API. Users can create campaigns, assign leads, select a Voice Agent, and execute calls immediately or on a schedule.
+## Database Changes
 
-## Database Schema Changes
-
-New migration: `workers/migrations/0029_create_campaigns_table.sql`
-
+Add new columns to `campaigns` table:
 ```sql
--- Campaigns table
-CREATE TABLE IF NOT EXISTS campaigns (
-  id TEXT PRIMARY KEY,
-  workspace_id TEXT NOT NULL,
-  name TEXT NOT NULL,
-  assistant_id TEXT NOT NULL,        -- VAPI assistant to use
-  phone_number_id TEXT NOT NULL,     -- VAPI phone number to call from
-  status TEXT DEFAULT 'draft',       -- draft, scheduled, running, paused, completed, cancelled
-  scheduled_at INTEGER,              -- NULL = immediate, otherwise Unix timestamp
-  started_at INTEGER,
-  completed_at INTEGER,
-  total_leads INTEGER DEFAULT 0,
-  calls_completed INTEGER DEFAULT 0,
-  calls_answered INTEGER DEFAULT 0,
-  calls_failed INTEGER DEFAULT 0,
-  created_at INTEGER NOT NULL,
-  updated_at INTEGER NOT NULL,
-  FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
-);
-
--- Campaign Leads junction table (links leads to campaigns)
-CREATE TABLE IF NOT EXISTS campaign_leads (
-  id TEXT PRIMARY KEY,
-  campaign_id TEXT NOT NULL,
-  lead_id TEXT NOT NULL,
-  call_status TEXT DEFAULT 'pending', -- pending, calling, completed, failed, no_answer, voicemail
-  vapi_call_id TEXT,
-  call_duration INTEGER,
-  call_outcome TEXT,
-  called_at INTEGER,
-  FOREIGN KEY (campaign_id) REFERENCES campaigns(id) ON DELETE CASCADE,
-  FOREIGN KEY (lead_id) REFERENCES leads(id) ON DELETE CASCADE
-);
+ALTER TABLE campaigns ADD COLUMN prompt_template TEXT;
+ALTER TABLE campaigns ADD COLUMN first_message_template TEXT;
 ```
 
-## API Endpoints
+Migration file: `workers/migrations/0031_add_campaign_templates.sql`
 
-| Method | Endpoint | Description |
+## Backend Changes
 
-|--------|----------|-------------|
+### 1. Update Campaign Create/Update Endpoints
+File: `workers/index.ts`
 
-| GET | `/api/campaigns` | List all campaigns |
+- Accept `prompt_template` and `first_message_template` in POST/PATCH `/api/campaigns`
+- Store templates in database
 
-| POST | `/api/campaigns` | Create new campaign |
+### 2. Update `executeCampaignCalls` Function
+File: `workers/index.ts` (~line 1644)
 
-| GET | `/api/campaigns/:id` | Get campaign details with stats |
-
-| PATCH | `/api/campaigns/:id` | Update campaign (name, schedule) |
-
-| DELETE | `/api/campaigns/:id` | Delete campaign |
-
-| POST | `/api/campaigns/:id/start` | Start/resume campaign |
-
-| POST | `/api/campaigns/:id/pause` | Pause running campaign |
-
-| POST | `/api/campaigns/:id/cancel` | Cancel campaign |
-
-| POST | `/api/campaigns/:id/leads` | Add leads to campaign |
-
-| GET | `/api/campaigns/:id/leads` | Get campaign leads with call status |
-
-## VAPI Outbound Call Integration
-
-Use VAPI's existing outbound call API:
-
+Replace placeholders before each call:
 ```typescript
-// Make outbound call via VAPI
-POST https://api.vapi.ai/call/phone
-{
-  "assistantId": "assistant-id",
-  "phoneNumberId": "phone-number-id", 
-  "customer": {
-    "number": "+14151234567",
-    "name": "John Doe"
-  },
-  "assistantOverrides": {
-    "variableValues": {
-      "customerName": "John",
-      "product": "Voice AI Platform"
-    }
-  }
+function replaceLeadPlaceholders(template: string, lead: any): string {
+  return template
+    .replace(/\{firstname\}/gi, lead.firstname || '')
+    .replace(/\{lastname\}/gi, lead.lastname || '')
+    .replace(/\{product\}/gi, lead.product || '')
+    .replace(/\{notes\}/gi, lead.notes || '')
+    .replace(/\{lead_source\}/gi, lead.lead_source || '')
+    .replace(/\{email\}/gi, lead.email || '')
+    .replace(/\{phone\}/gi, lead.phone || '');
 }
 ```
 
-## Campaign Execution Logic
+Update call payload to include overrides:
+```typescript
+assistantOverrides: {
+  firstMessage: campaign.first_message_template 
+    ? replaceLeadPlaceholders(campaign.first_message_template, lead)
+    : undefined,
+  model: campaign.prompt_template ? {
+    messages: [{
+      role: 'system',
+      content: replaceLeadPlaceholders(campaign.prompt_template, lead)
+    }]
+  } : undefined,
+  variableValues: { ... }
+}
+```
 
-1. **Immediate Start**: When campaign starts, begin calling leads sequentially
-2. **Scheduled**: Cron job checks for scheduled campaigns and starts them
-3. **Concurrency**: Respect VAPI concurrency limits (call one at a time or configurable)
-4. **Call Completion**: Webhook receives call results, updates campaign_leads status
+## Frontend Changes
 
-## UI Changes to Leads.tsx
+### 1. Update Create Campaign Modal
+File: `src/components/Leads.tsx`
 
-Transform into a two-tab interface:
+Add two new fields:
+- **First Message Template** - Text input with placeholder hints
+- **Prompt Template** - Large textarea for full system prompt
 
-- **Tab 1: Leads** - Current lead management (upload, webhook, list)
-- **Tab 2: Campaigns** - Campaign management with:
-  - Campaign list with status badges
-  - "Create Campaign" modal (name, select assistant, select phone, pick leads, schedule)
-  - Campaign detail view with progress and call logs
-  - Start/Pause/Cancel controls
+Show available placeholders: `{firstname}`, `{lastname}`, `{product}`, `{notes}`, `{lead_source}`, `{email}`, `{phone}`
 
-## Files to Create/Modify
+### 2. Update Edit Campaign Modal
+File: `src/components/Leads.tsx`
 
-### New Files
+Same fields as create modal, pre-populated with existing templates.
 
-- `workers/migrations/0029_create_campaigns_table.sql`
+### 3. Update Campaign State
+File: `src/components/Leads.tsx`
 
-### Files to Modify  
-
-- `workers/index.ts` - Campaign API endpoints + VAPI outbound call logic
-- `src/lib/d1.ts` - Campaign D1 client methods
-- `src/components/Leads.tsx` - Add Campaigns tab and campaign management UI
-
-## Key Features
-
-1. **Campaign Creation**: Name, select assistant, select phone number, add leads
-2. **Scheduling**: Run immediately or schedule for later
-3. **Progress Tracking**: Real-time stats (calls made, answered, failed)
-4. **Lead Status**: Track each lead's call outcome
-5. **Controls**: Start, pause, resume, cancel campaigns
+Add to campaign interfaces and state:
+```typescript
+interface Campaign {
+  // existing fields...
+  prompt_template?:
 
 ### To-dos
 

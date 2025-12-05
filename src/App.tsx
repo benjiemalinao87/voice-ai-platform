@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { BarChart3, Settings as SettingsIcon, Calendar, Moon, Sun, Mic, Brain, Bot, CalendarCheck, Globe, Users } from 'lucide-react';
+import { Moon, Sun, Calendar } from 'lucide-react';
 import { PerformanceDashboard } from './components/PerformanceDashboard';
 import { AgentConfig } from './components/AgentConfig';
 import { Recordings } from './components/Recordings';
@@ -19,13 +19,13 @@ import { EmbeddingModal } from './components/EmbeddingModal';
 import { StandaloneDashboard } from './components/StandaloneDashboard';
 import { AgentFlowCreator } from './components/AgentFlowCreator';
 import { Leads } from './components/Leads';
+import { Sidebar, View } from './components/Sidebar';
+import ApiDocs from './components/ApiDocs';
 import { useAuth } from './contexts/AuthContext';
 import { useVapi } from './contexts/VapiContext';
 import { agentApi } from './lib/api';
 import { d1Client } from './lib/d1';
 import type { Agent, AgentCreateData } from './types';
-
-type View = 'dashboard' | 'config' | 'recordings' | 'settings' | 'flow' | 'intent' | 'livechat' | 'board' | 'appointments' | 'standalone_dashboard' | 'leads';
 
 function App() {
   const { isAuthenticated, isLoading } = useAuth();
@@ -33,6 +33,7 @@ function App() {
 
   // Check URL for special routes
   const isLandingPage = window.location.pathname === '/landing';
+  const isApiDocs = window.location.pathname === '/api-docs';
   const isFlowBuilder = window.location.pathname === '/flow-builder';
   const isAgentCreator = window.location.pathname === '/agents/create';
   const isAgentEditor = window.location.pathname.startsWith('/agents/edit/');
@@ -237,6 +238,11 @@ function App() {
     return <LandingPage />;
   }
 
+  // API docs page is public - render without auth check
+  if (isApiDocs) {
+    return <ApiDocs />;
+  }
+
   // Show login if not authenticated
   if (!isAuthenticated) {
     return <Login />;
@@ -317,154 +323,27 @@ function App() {
   }
 
   return (
-    <div className="h-screen flex flex-col bg-gray-50 dark:bg-gray-900 overflow-hidden">
+    <div className="h-screen flex bg-gray-50 dark:bg-gray-900 overflow-hidden">
       {/* What's New Announcement */}
       <WhatsNew />
 
-      {/* Fixed Header */}
-      <nav className="flex-shrink-0 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 shadow-sm z-10">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between h-16">
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-2">
-                <img
-                  src="https://channelautomation.com/wp-content/uploads/2022/11/logofooter2.png"
-                  alt="Channel Automation"
-                  className="h-8 w-auto object-contain"
-                />
-              </div>
-            </div>
+      {/* Sidebar */}
+      <Sidebar 
+        currentView={currentView}
+        setCurrentView={setCurrentView}
+        darkMode={darkMode}
+        toggleDarkMode={toggleDarkMode}
+        embeddingSettings={embeddingSettings}
+        setShowEmbeddingModal={setShowEmbeddingModal}
+        setSelectedAgentId={setSelectedAgentId}
+      />
 
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-2 bg-gray-100 dark:bg-gray-700 rounded-lg p-1">
-                <button
-                  onClick={() => setCurrentView('dashboard')}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-md font-medium transition-colors ${currentView === 'dashboard'
-                    ? 'bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 shadow-sm'
-                    : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100'
-                    }`}
-                >
-                  <BarChart3 className="w-4 h-4" />
-                  Dashboard
-                </button>
-                {/* New Dashboard - hidden while in development
-                <button
-                  onClick={() => setCurrentView('standalone_dashboard')}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-md font-medium transition-colors ${currentView === 'standalone_dashboard'
-                      ? 'bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 shadow-sm'
-                      : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100'
-                    }`}
-                >
-                  <BarChart3 className="w-4 h-4" />
-                  New Dashboard
-                </button>
-                */}
-                <button
-                  onClick={() => setCurrentView('appointments')}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-md font-medium transition-colors ${currentView === 'appointments'
-                    ? 'bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 shadow-sm'
-                    : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100'
-                    }`}
-                >
-                  <CalendarCheck className="w-4 h-4" />
-                  Appointment by AI
-                </button>
-                {/* <button
-                      onClick={() => setCurrentView('board')}
-                      className={`flex items-center gap-2 px-4 py-2 rounded-md font-medium transition-colors ${
-                        currentView === 'board'
-                          ? 'bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 shadow-sm'
-                          : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100'
-                      }`}
-                    >
-                      <Columns className="w-4 h-4" />
-                      Pipeline
-                    </button> */}
-                <button
-                  onClick={() => setCurrentView('recordings')}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-md font-medium transition-colors ${currentView === 'recordings'
-                    ? 'bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 shadow-sm'
-                    : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100'
-                    }`}
-                >
-                  <Mic className="w-4 h-4" />
-                  Recordings
-                </button>
-                <button
-                  onClick={() => setCurrentView('intent')}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-md font-medium transition-colors ${currentView === 'intent'
-                    ? 'bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 shadow-sm'
-                    : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100'
-                    }`}
-                >
-                  <Brain className="w-4 h-4" />
-                  Intent Analysis
-                </button>
-                <button
-                  onClick={() => setCurrentView('leads')}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-md font-medium transition-colors ${currentView === 'leads'
-                    ? 'bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 shadow-sm'
-                    : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100'
-                    }`}
-                >
-                  <Users className="w-4 h-4" />
-                  Outbound Campaign
-                </button>
-                {/* <button
-                      onClick={() => setCurrentView('livechat')}
-                      className={`flex items-center gap-2 px-4 py-2 rounded-md font-medium transition-colors ${
-                        currentView === 'livechat'
-                          ? 'bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 shadow-sm'
-                          : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100'
-                      }`}
-                    >
-                      <MessageCircle className="w-4 h-4" />
-                      Live Chat
-                    </button> */}
-                <button
-                  onClick={() => {
-                    setCurrentView('config');
-                    // Always clear selected agent when clicking Voice Agents tab to show the list
-                    setSelectedAgentId(undefined);
-                  }}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-md font-medium transition-colors ${currentView === 'config'
-                    ? 'bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 shadow-sm'
-                    : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100'
-                    }`}
-                >
-                  <Bot className="w-4 h-4" />
-                  Voice Agents
-                </button>
-                <button
-                  onClick={() => setCurrentView('settings')}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-md font-medium transition-colors ${currentView === 'settings'
-                    ? 'bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 shadow-sm'
-                    : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100'
-                    }`}
-                >
-                  <SettingsIcon className="w-4 h-4" />
-                  Settings
-                </button>
-                {embeddingSettings.isEnabled && embeddingSettings.buttonName && embeddingSettings.url && (
-                  <button
-                    onClick={() => setShowEmbeddingModal(true)}
-                    className="flex items-center gap-2 px-4 py-2 rounded-md font-medium transition-colors bg-blue-600 hover:bg-blue-700 text-white shadow-sm"
-                  >
-                    <Globe className="w-4 h-4" />
-                    {embeddingSettings.buttonName}
-                  </button>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      </nav>
-
-      {/* Scrollable Content Area */}
+      {/* Main Content Area */}
       <main className="flex-1 overflow-y-auto">
         <div className={`${wideView ? 'w-full' : 'max-w-7xl'} mx-auto px-4 sm:px-6 lg:px-8 py-8 transition-all duration-300`}>
           {currentView === 'dashboard' && (
             <div className="space-y-6">
+              {/* Dashboard Header */}
               <div className="flex items-center justify-between">
                 <div>
                   <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Performance Metrics</h2>
@@ -473,9 +352,11 @@ function App() {
                   </p>
                 </div>
 
+                {/* Only keep date range selector here */}
                 <div className="flex items-center gap-2">
                   <Calendar className="w-5 h-5 text-gray-400 dark:text-gray-500" />
                   <select
+                    aria-label="Date range"
                     defaultValue="14"
                     onChange={(e) => {
                       const days = parseInt(e.target.value);
@@ -585,16 +466,6 @@ function App() {
           <StandaloneDashboard />
         </div>
       )}
-
-      {/* Floating Dark Mode Toggle */}
-      <button
-        onClick={toggleDarkMode}
-        className="fixed bottom-6 right-6 p-3 rounded-full bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 shadow-lg hover:shadow-xl border border-gray-200 dark:border-gray-700 hover:scale-110 transition-all duration-200 z-50"
-        aria-label="Toggle dark mode"
-        type="button"
-      >
-        {darkMode ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
-      </button>
 
       {/* Create Agent Modal */}
       {showCreateAgentModal && (

@@ -1146,6 +1146,8 @@ class D1Client {
     assistant_id: string;
     phone_number_id: string;
     scheduled_at?: number;
+    prompt_template?: string | null;
+    first_message_template?: string | null;
   }): Promise<{ success: boolean; id: string; message: string }> {
     return this.request('/api/campaigns', {
       method: 'POST',
@@ -1183,7 +1185,11 @@ class D1Client {
    */
   async updateCampaign(campaignId: string, updates: {
     name?: string;
+    assistant_id?: string;
+    phone_number_id?: string;
     scheduled_at?: number | null;
+    prompt_template?: string | null;
+    first_message_template?: string | null;
   }): Promise<{ success: boolean; message: string }> {
     return this.request(`/api/campaigns/${campaignId}`, {
       method: 'PATCH',

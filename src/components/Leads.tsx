@@ -6,9 +6,9 @@
 import { useState, useEffect, useRef } from 'react';
 import { 
   Users, Upload, Link2, Trash2, RefreshCw, Search, 
-  CheckCircle2, X, Copy, ExternalLink, FileSpreadsheet,
-  ChevronLeft, ChevronRight, AlertCircle, Play, Pause, 
-  Square, Plus, Phone, Clock, BarChart3, Megaphone
+  CheckCircle2, X, Copy, FileSpreadsheet,
+  AlertCircle, Play, Pause, 
+  Square, Plus, Phone, Clock, Megaphone, Check
 } from 'lucide-react';
 import { d1Client } from '../lib/d1';
 
@@ -41,6 +41,8 @@ interface Campaign {
   calls_completed: number;
   calls_answered: number;
   calls_failed: number;
+  prompt_template: string | null;
+  first_message_template: string | null;
   created_at: number;
   updated_at: number;
 }
@@ -86,6 +88,9 @@ export function Leads() {
   const [leadsPage, setLeadsPage] = useState(1);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedLeadIds, setSelectedLeadIds] = useState<Set<string>>(new Set());
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
+  const tableContainerRef = useRef<HTMLDivElement>(null);
   const pageSize = 20;
 
   // Campaigns state
@@ -109,7 +114,7 @@ export function Leads() {
   const [selectedLeadsToAdd, setSelectedLeadsToAdd] = useState<Set<string>>(new Set());
   const [addingLeadsToCampaign, setAddingLeadsToCampaign] = useState(false);
   const [showEditCampaignModal, setShowEditCampaignModal] = useState(false);
-  const [editingCampaign, setEditingCampaign] = useState<{ name: string; assistant_id: string; phone_number_id: string }>({ name: '', assistant_id: '', phone_number_id: '' });
+  const [editingCampaign, setEditingCampaign] = useState<{ name: string; assistant_id: string; phone_number_id: string; prompt_template: string; first_message_template: string }>({ name: '', assistant_id: '', phone_number_id: '', prompt_template: '', first_message_template: '' });
   const [updatingCampaign, setUpdatingCampaign] = useState(false);
 
   // Upload state
@@ -138,9 +143,12 @@ export function Leads() {
     name: '',
     assistant_id: '',
     phone_number_id: '',
+    prompt_template: '',
+    first_message_template: '',
     scheduled_at: ''
   });
   const [creatingCampaign, setCreatingCampaign] = useState(false);
+  const [campaignStep, setCampaignStep] = useState(1); // 1: Basic Info, 2: Templates, 3: Schedule
 
   // Load both leads and campaigns count on initial mount
   useEffect(() => {
@@ -148,29 +156,68 @@ export function Leads() {
     loadCampaigns();
   }, []);
 
-  // Load data when tab changes or page changes
+  // Load data when tab changes
   useEffect(() => {
     if (activeTab === 'leads') {
-      loadLeads();
+      loadLeads(false);
     } else {
       loadCampaigns();
       loadAssistantsAndPhones();
     }
-  }, [activeTab, leadsPage]);
+  }, [activeTab]);
 
-  const loadLeads = async () => {
+  const loadLeads = async (append = false) => {
     try {
-      setLeadsLoading(true);
+      if (append) {
+        setLoadingMore(true);
+      } else {
+        setLeadsLoading(true);
+        setLeadsPage(1);
+      }
+      
+      const currentPage = append ? leadsPage : 1;
       const response = await d1Client.getLeads({
         limit: pageSize,
-        offset: (leadsPage - 1) * pageSize
+        offset: (currentPage - 1) * pageSize
       });
-      setLeads(response.leads || []);
+      
+      const newLeads = response.leads || [];
+      
+      if (append) {
+        setLeads(prev => [...prev, ...newLeads]);
+      } else {
+        setLeads(newLeads);
+      }
+      
       setLeadsTotal(response.total || 0);
+      setHasMore(newLeads.length === pageSize && (currentPage * pageSize) < (response.total || 0));
     } catch (error) {
       console.error('Error loading leads:', error);
     } finally {
       setLeadsLoading(false);
+      setLoadingMore(false);
+    }
+  };
+
+  const loadMoreLeads = async () => {
+    if (loadingMore || !hasMore) return;
+    setLeadsPage(prev => prev + 1);
+  };
+
+  // Load more when page changes (for infinite scroll)
+  useEffect(() => {
+    if (leadsPage > 1) {
+      loadLeads(true);
+    }
+  }, [leadsPage]);
+
+  // Handle scroll for infinite loading
+  const handleScroll = () => {
+    if (!tableContainerRef.current || loadingMore || !hasMore) return;
+    
+    const { scrollTop, scrollHeight, clientHeight } = tableContainerRef.current;
+    if (scrollHeight - scrollTop - clientHeight < 100) {
+      loadMoreLeads();
     }
   };
 
@@ -345,7 +392,9 @@ export function Leads() {
     setEditingCampaign({
       name: selectedCampaign.name,
       assistant_id: selectedCampaign.assistant_id,
-      phone_number_id: selectedCampaign.phone_number_id
+      phone_number_id: selectedCampaign.phone_number_id,
+      prompt_template: selectedCampaign.prompt_template || '',
+      first_message_template: selectedCampaign.first_message_template || ''
     });
     setShowEditCampaignModal(true);
   };
@@ -361,7 +410,9 @@ export function Leads() {
       await d1Client.updateCampaign(selectedCampaign.id, {
         name: editingCampaign.name,
         assistant_id: editingCampaign.assistant_id,
-        phone_number_id: editingCampaign.phone_number_id
+        phone_number_id: editingCampaign.phone_number_id,
+        prompt_template: editingCampaign.prompt_template || null,
+        first_message_template: editingCampaign.first_message_template || null
       });
       // Refresh campaigns and update selected campaign
       await loadCampaigns();
@@ -369,7 +420,9 @@ export function Leads() {
         ...selectedCampaign,
         name: editingCampaign.name,
         assistant_id: editingCampaign.assistant_id,
-        phone_number_id: editingCampaign.phone_number_id
+        phone_number_id: editingCampaign.phone_number_id,
+        prompt_template: editingCampaign.prompt_template || null,
+        first_message_template: editingCampaign.first_message_template || null
       });
       setShowEditCampaignModal(false);
     } catch (error: any) {
@@ -441,7 +494,9 @@ export function Leads() {
         name: newCampaign.name,
         assistant_id: newCampaign.assistant_id,
         phone_number_id: newCampaign.phone_number_id,
-        scheduled_at
+        scheduled_at,
+        prompt_template: newCampaign.prompt_template || null,
+        first_message_template: newCampaign.first_message_template || null
       });
 
       // Add selected leads to campaign
@@ -450,7 +505,8 @@ export function Leads() {
       }
 
       setShowCreateCampaignModal(false);
-      setNewCampaign({ name: '', assistant_id: '', phone_number_id: '', scheduled_at: '' });
+      setCampaignStep(1);
+      setNewCampaign({ name: '', assistant_id: '', phone_number_id: '', prompt_template: '', first_message_template: '', scheduled_at: '' });
       setSelectedLeadIds(new Set());
       await loadCampaigns();
       setActiveTab('campaigns');
@@ -608,8 +664,6 @@ export function Leads() {
     );
   });
 
-  const totalPages = Math.ceil(leadsTotal / pageSize);
-
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'draft': return 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300';
@@ -708,7 +762,7 @@ export function Leads() {
                 Upload CSV
               </button>
               <button
-                onClick={loadLeads}
+                onClick={() => loadLeads(false)}
                 className="p-2 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
                 title="Refresh"
               >
@@ -736,109 +790,123 @@ export function Leads() {
                 </button>
               </div>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead className="bg-gray-50 dark:bg-gray-700/50">
-                    <tr>
-                      <th className="px-4 py-3 text-left">
-                        <input
-                          type="checkbox"
-                          checked={selectedLeadIds.size === filteredLeads.length && filteredLeads.length > 0}
-                          onChange={toggleAllLeads}
-                          className="rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500"
-                        />
-                      </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Name</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Phone</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Email</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Source</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Product</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Status</th>
-                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                    {filteredLeads.map((lead) => (
-                      <tr key={lead.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/30">
-                        <td className="px-4 py-3">
+              <div className="flex flex-col">
+                {/* Sticky Header */}
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead className="bg-gray-50 dark:bg-gray-700/50">
+                      <tr>
+                        <th className="px-4 py-3 text-left w-10">
                           <input
                             type="checkbox"
-                            checked={selectedLeadIds.has(lead.id)}
-                            onChange={() => toggleLeadSelection(lead.id)}
+                            checked={selectedLeadIds.size === filteredLeads.length && filteredLeads.length > 0}
+                            onChange={toggleAllLeads}
                             className="rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500"
                           />
-                        </td>
-                        <td className="px-4 py-3 whitespace-nowrap">
-                          <span className="font-medium text-gray-900 dark:text-gray-100">
-                            {[lead.firstname, lead.lastname].filter(Boolean).join(' ') || '-'}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 whitespace-nowrap text-gray-600 dark:text-gray-400">
-                          {lead.phone}
-                        </td>
-                        <td className="px-4 py-3 whitespace-nowrap text-gray-600 dark:text-gray-400">
-                          {lead.email || '-'}
-                        </td>
-                        <td className="px-4 py-3 whitespace-nowrap text-gray-600 dark:text-gray-400">
-                          {lead.lead_source || '-'}
-                        </td>
-                        <td className="px-4 py-3 whitespace-nowrap text-gray-600 dark:text-gray-400">
-                          {lead.product || '-'}
-                        </td>
-                        <td className="px-4 py-3 whitespace-nowrap">
-                          <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${
-                            lead.status === 'new' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400' :
-                            lead.status === 'contacted' ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400' :
-                            lead.status === 'qualified' ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400' :
-                            'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-400'
-                          }`}>
-                            {lead.status}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 whitespace-nowrap text-right">
-                          <button
-                            onClick={() => handleDeleteLead(lead.id)}
-                            disabled={deletingId === lead.id}
-                            className="p-1 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors disabled:opacity-50"
-                            title="Delete"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </td>
+                        </th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider min-w-[120px]">Name</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider min-w-[130px]">Phone</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider min-w-[180px]">Email</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider min-w-[100px]">Source</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider min-w-[120px]">Product</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider min-w-[200px]">Notes</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider min-w-[80px]">Status</th>
+                        <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-20">Actions</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                  </table>
+                </div>
+                
+                {/* Scrollable Body */}
+                <div 
+                  ref={tableContainerRef}
+                  onScroll={handleScroll}
+                  className="overflow-y-auto overflow-x-auto max-h-[500px]"
+                >
+                  <table className="w-full">
+                    <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                      {filteredLeads.map((lead) => (
+                        <tr key={lead.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/30">
+                          <td className="px-4 py-3 w-10">
+                            <input
+                              type="checkbox"
+                              checked={selectedLeadIds.has(lead.id)}
+                              onChange={() => toggleLeadSelection(lead.id)}
+                              className="rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500"
+                            />
+                          </td>
+                          <td className="px-4 py-3 whitespace-nowrap min-w-[120px]">
+                            <span className="font-medium text-gray-900 dark:text-gray-100">
+                              {[lead.firstname, lead.lastname].filter(Boolean).join(' ') || '-'}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 whitespace-nowrap text-gray-600 dark:text-gray-400 min-w-[130px]">
+                            {lead.phone}
+                          </td>
+                          <td className="px-4 py-3 whitespace-nowrap text-gray-600 dark:text-gray-400 min-w-[180px]">
+                            {lead.email || '-'}
+                          </td>
+                          <td className="px-4 py-3 whitespace-nowrap text-gray-600 dark:text-gray-400 min-w-[100px]">
+                            {lead.lead_source || '-'}
+                          </td>
+                          <td className="px-4 py-3 whitespace-nowrap text-gray-600 dark:text-gray-400 min-w-[120px]">
+                            {lead.product || '-'}
+                          </td>
+                          <td className="px-4 py-3 text-gray-600 dark:text-gray-400 min-w-[200px] max-w-[250px]">
+                            <span className="truncate block" title={lead.notes || ''}>
+                              {lead.notes || '-'}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 whitespace-nowrap min-w-[80px]">
+                            <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${
+                              lead.status === 'new' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400' :
+                              lead.status === 'contacted' ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400' :
+                              lead.status === 'qualified' ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400' :
+                              'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-400'
+                            }`}>
+                              {lead.status}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 whitespace-nowrap text-right w-20">
+                            <button
+                              onClick={() => handleDeleteLead(lead.id)}
+                              disabled={deletingId === lead.id}
+                              className="p-1 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors disabled:opacity-50"
+                              title="Delete"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  
+                  {/* Loading More Indicator */}
+                  {loadingMore && (
+                    <div className="flex items-center justify-center py-4 border-t border-gray-200 dark:border-gray-700">
+                      <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600 mr-2"></div>
+                      <span className="text-sm text-gray-500 dark:text-gray-400">Loading more...</span>
+                    </div>
+                  )}
+                  
+                  {/* End of List */}
+                  {!hasMore && leads.length > 0 && (
+                    <div className="text-center py-3 text-sm text-gray-500 dark:text-gray-400 border-t border-gray-200 dark:border-gray-700">
+                      All {leadsTotal} leads loaded
+                    </div>
+                  )}
+                </div>
               </div>
             )}
 
-            {/* Pagination */}
-            {totalPages > 1 && (
-              <div className="flex items-center justify-between px-4 py-3 border-t border-gray-200 dark:border-gray-700">
-                <div className="text-sm text-gray-600 dark:text-gray-400">
-                  Showing {((leadsPage - 1) * pageSize) + 1} to {Math.min(leadsPage * pageSize, leadsTotal)} of {leadsTotal}
-                </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => setLeadsPage(p => Math.max(1, p - 1))}
-                    disabled={leadsPage === 1}
-                    className="p-2 rounded-lg border border-gray-300 dark:border-gray-600 disabled:opacity-50 hover:bg-gray-50 dark:hover:bg-gray-700"
-                  >
-                    <ChevronLeft className="w-4 h-4" />
-                  </button>
-                  <span className="text-sm text-gray-600 dark:text-gray-400">
-                    Page {leadsPage} of {totalPages}
-                  </span>
-                  <button
-                    onClick={() => setLeadsPage(p => Math.min(totalPages, p + 1))}
-                    disabled={leadsPage === totalPages}
-                    className="p-2 rounded-lg border border-gray-300 dark:border-gray-600 disabled:opacity-50 hover:bg-gray-50 dark:hover:bg-gray-700"
-                  >
-                    <ChevronRight className="w-4 h-4" />
-                  </button>
-                </div>
+            {/* Footer Stats */}
+            <div className="px-4 py-3 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-700/30">
+              <div className="text-sm text-gray-600 dark:text-gray-400">
+                Showing {leads.length} of {leadsTotal} leads
+                {hasMore && <span className="text-gray-400 dark:text-gray-500 ml-2">• Scroll down to load more</span>}
               </div>
-            )}
+            </div>
           </div>
         </>
       )}
@@ -1111,80 +1179,245 @@ export function Leads() {
         </div>
       )}
 
-      {/* Create Campaign Modal */}
+      {/* Create Campaign Modal - Stepper Design */}
       {showCreateCampaignModal && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 max-w-lg w-full p-6 shadow-2xl">
-            <div className="flex items-center justify-between mb-6">
+          <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 max-w-2xl w-full shadow-2xl overflow-hidden">
+            {/* Header with Close */}
+            <div className="flex items-center justify-between p-6 border-b border-gray-200 dark:border-gray-700">
               <h3 className="text-xl font-bold text-gray-900 dark:text-gray-100">Create Campaign</h3>
-              <button onClick={() => setShowCreateCampaignModal(false)} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors">
+              <button onClick={() => { setShowCreateCampaignModal(false); setCampaignStep(1); }} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors">
                 <X className="w-5 h-5 text-gray-600 dark:text-gray-400" />
               </button>
             </div>
 
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Campaign Name *</label>
-                <input
-                  type="text"
-                  value={newCampaign.name}
-                  onChange={(e) => setNewCampaign({ ...newCampaign, name: e.target.value })}
-                  placeholder="e.g., December Follow-ups"
-                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                />
+            {/* Stepper Indicator */}
+            <div className="px-6 pt-4">
+              <div className="flex items-center justify-between mb-2">
+                {[
+                  { step: 1, label: 'Basic Info' },
+                  { step: 2, label: 'Templates' },
+                  { step: 3, label: 'Review' }
+                ].map((item, idx) => (
+                  <div key={item.step} className="flex items-center flex-1">
+                    <div className="flex flex-col items-center flex-1">
+                      <div className={`w-10 h-10 rounded-full flex items-center justify-center font-semibold transition-colors ${
+                        campaignStep >= item.step 
+                          ? 'bg-blue-600 text-white' 
+                          : 'bg-gray-200 dark:bg-gray-700 text-gray-500 dark:text-gray-400'
+                      }`}>
+                        {campaignStep > item.step ? (
+                          <Check className="w-5 h-5" />
+                        ) : (
+                          item.step
+                        )}
+                      </div>
+                      <span className={`text-xs mt-1 ${campaignStep >= item.step ? 'text-blue-600 dark:text-blue-400 font-medium' : 'text-gray-500 dark:text-gray-400'}`}>
+                        {item.label}
+                      </span>
+                    </div>
+                    {idx < 2 && (
+                      <div className={`h-1 flex-1 mx-2 rounded ${campaignStep > item.step ? 'bg-blue-600' : 'bg-gray-200 dark:bg-gray-700'}`} />
+                    )}
+                  </div>
+                ))}
               </div>
+            </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Voice Agent *</label>
-                <select
-                  value={newCampaign.assistant_id}
-                  onChange={(e) => setNewCampaign({ ...newCampaign, assistant_id: e.target.value })}
-                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                >
-                  <option value="">Select an agent...</option>
-                  {assistants.map((a) => (
-                    <option key={a.id} value={a.vapi_assistant_id || a.id}>{a.name}</option>
-                  ))}
-                </select>
-              </div>
+            {/* Step Content - Scrollable */}
+            <div className="p-6 max-h-[400px] overflow-y-auto">
+              {/* Step 1: Basic Info */}
+              {campaignStep === 1 && (
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Campaign Name *</label>
+                    <input
+                      type="text"
+                      value={newCampaign.name}
+                      onChange={(e) => setNewCampaign({ ...newCampaign, name: e.target.value })}
+                      placeholder="e.g., December Follow-ups"
+                      className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                  </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Phone Number *</label>
-                <select
-                  value={newCampaign.phone_number_id}
-                  onChange={(e) => setNewCampaign({ ...newCampaign, phone_number_id: e.target.value })}
-                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                >
-                  <option value="">Select a phone number...</option>
-                  {phoneNumbers.map((p) => (
-                    <option key={p.id} value={p.id}>{p.number} {p.name ? `(${p.name})` : ''}</option>
-                  ))}
-                </select>
-              </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Voice Agent *</label>
+                    <select
+                      value={newCampaign.assistant_id}
+                      onChange={(e) => setNewCampaign({ ...newCampaign, assistant_id: e.target.value })}
+                      className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    >
+                      <option value="">Select an agent...</option>
+                      {assistants.map((a) => (
+                        <option key={a.id} value={a.vapi_assistant_id || a.id}>{a.name}</option>
+                      ))}
+                    </select>
+                  </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Schedule (Optional)</label>
-                <input
-                  type="datetime-local"
-                  value={newCampaign.scheduled_at}
-                  onChange={(e) => setNewCampaign({ ...newCampaign, scheduled_at: e.target.value })}
-                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                />
-                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Leave empty to start manually</p>
-              </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Phone Number *</label>
+                    <select
+                      value={newCampaign.phone_number_id}
+                      onChange={(e) => setNewCampaign({ ...newCampaign, phone_number_id: e.target.value })}
+                      className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    >
+                      <option value="">Select a phone number...</option>
+                      {phoneNumbers.map((p) => (
+                        <option key={p.id} value={p.id}>{p.number} {p.name ? `(${p.name})` : ''}</option>
+                      ))}
+                    </select>
+                  </div>
 
-              {selectedLeadIds.size > 0 && (
-                <div className="p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
-                  <p className="text-sm text-blue-800 dark:text-blue-200">
-                    <strong>{selectedLeadIds.size}</strong> leads selected for this campaign
-                  </p>
+                  {selectedLeadIds.size > 0 && (
+                    <div className="p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+                      <p className="text-sm text-blue-800 dark:text-blue-200">
+                        <strong>{selectedLeadIds.size}</strong> leads selected for this campaign
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Step 2: First Message Template */}
+              {campaignStep === 2 && (
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">First Message</label>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">How should the AI greet the lead? This personalizes the opening line only - the assistant's full prompt is preserved.</p>
+                    
+                    <div className="space-y-2 mb-3">
+                      {[
+                        { label: 'Simple Greeting', value: 'Hello, is this {firstname}?', desc: 'Quick and direct' },
+                        { label: 'Product Inquiry', value: 'Hi {firstname}, this is regarding your inquiry about {product}.', desc: 'Mention what they asked about' },
+                        { label: 'Professional Intro', value: "Hello {firstname}, I'm calling from our team about your recent interest. Do you have a moment?", desc: 'Polite and professional' },
+                        { label: 'With Notes Context', value: "Hi {firstname}, I'm reaching out because {notes}. Do you have a quick moment?", desc: 'Use lead notes in greeting' },
+                      ].map((t) => (
+                        <button
+                          key={t.label}
+                          type="button"
+                          onClick={() => setNewCampaign({ ...newCampaign, first_message_template: t.value })}
+                          className={`w-full p-3 text-left rounded-lg border transition-all ${
+                            newCampaign.first_message_template === t.value
+                              ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/30'
+                              : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600'
+                          }`}
+                        >
+                          <p className="font-medium text-sm text-gray-900 dark:text-gray-100">{t.label}</p>
+                          <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{t.desc}</p>
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className="relative">
+                      <input
+                        type="text"
+                        value={newCampaign.first_message_template}
+                        onChange={(e) => setNewCampaign({ ...newCampaign, first_message_template: e.target.value })}
+                        placeholder="Or write your own custom message..."
+                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                      />
+                    </div>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
+                      <span className="font-medium">Available placeholders:</span> {'{firstname}'}, {'{lastname}'}, {'{product}'}, {'{notes}'}, {'{lead_source}'}
+                    </p>
+                  </div>
+
+                  <div className="p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
+                    <p className="text-xs text-green-700 dark:text-green-300">
+                      <strong>✓ Assistant prompt preserved</strong> — Lead data (name, product, notes) is automatically passed to your assistant. Only the opening message is customized.
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Step 3: Review */}
+              {campaignStep === 3 && (
+                <div className="space-y-4">
+                  <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-4 space-y-2">
+                    <div className="flex justify-between">
+                      <span className="text-sm text-gray-500 dark:text-gray-400">Campaign</span>
+                      <span className="text-sm font-medium text-gray-900 dark:text-gray-100">{newCampaign.name}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-sm text-gray-500 dark:text-gray-400">Agent</span>
+                      <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                        {assistants.find(a => (a.vapi_assistant_id || a.id) === newCampaign.assistant_id)?.name || '-'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-sm text-gray-500 dark:text-gray-400">Phone</span>
+                      <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                        {phoneNumbers.find(p => p.id === newCampaign.phone_number_id)?.number || '-'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-sm text-gray-500 dark:text-gray-400">Leads</span>
+                      <span className="text-sm font-medium text-gray-900 dark:text-gray-100">{selectedLeadIds.size}</span>
+                    </div>
+                  </div>
+
+                  {newCampaign.first_message_template && (
+                    <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-3">
+                      <p className="text-xs font-medium text-blue-700 dark:text-blue-300 mb-1">Opening Message</p>
+                      <p className="text-sm text-blue-900 dark:text-blue-100">{newCampaign.first_message_template}</p>
+                    </div>
+                  )}
+
+                  <div className="bg-green-50 dark:bg-green-900/20 rounded-lg p-3">
+                    <p className="text-xs text-green-700 dark:text-green-300">
+                      ✓ Lead data (name, product, notes) will be passed to the assistant automatically
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Schedule (Optional)</label>
+                    <input
+                      type="datetime-local"
+                      value={newCampaign.scheduled_at}
+                      onChange={(e) => setNewCampaign({ ...newCampaign, scheduled_at: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Leave empty to start manually</p>
+                  </div>
                 </div>
               )}
             </div>
 
-            <div className="flex gap-3 mt-6">
-              <button onClick={() => setShowCreateCampaignModal(false)} className="flex-1 px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors">Cancel</button>
-              <button onClick={handleCreateCampaign} disabled={creatingCampaign || !newCampaign.name || !newCampaign.assistant_id || !newCampaign.phone_number_id} className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">{creatingCampaign ? 'Creating...' : 'Create Campaign'}</button>
+            {/* Footer with Navigation */}
+            <div className="flex gap-3 p-6 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50">
+              {campaignStep === 1 ? (
+                <button 
+                  onClick={() => { setShowCreateCampaignModal(false); setCampaignStep(1); }} 
+                  className="flex-1 px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+                >
+                  Cancel
+                </button>
+              ) : (
+                <button 
+                  onClick={() => setCampaignStep(campaignStep - 1)} 
+                  className="flex-1 px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+                >
+                  Back
+                </button>
+              )}
+              
+              {campaignStep < 3 ? (
+                <button 
+                  onClick={() => setCampaignStep(campaignStep + 1)} 
+                  disabled={campaignStep === 1 && (!newCampaign.name || !newCampaign.assistant_id || !newCampaign.phone_number_id)}
+                  className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Continue
+                </button>
+              ) : (
+                <button 
+                  onClick={handleCreateCampaign} 
+                  disabled={creatingCampaign}
+                  className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {creatingCampaign ? 'Creating...' : 'Create Campaign'}
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -1390,6 +1623,48 @@ export function Leads() {
                     <option key={p.id} value={p.id}>{p.number} {p.name && `(${p.name})`}</option>
                   ))}
                 </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">First Message Template</label>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">Personalize the AI's opening line. Assistant's full prompt is preserved.</p>
+                <div className="flex flex-wrap gap-2 mb-2">
+                  {[
+                    { label: 'Simple', value: 'Hello, is this {firstname}?' },
+                    { label: 'Product', value: 'Hi {firstname}, this is regarding your inquiry about {product}.' },
+                    { label: 'Professional', value: "Hello {firstname}, I'm calling from our team about your recent interest. Do you have a moment?" },
+                    { label: 'With Notes', value: "Hi {firstname}, I'm reaching out because {notes}. Do you have a quick moment?" },
+                  ].map((t) => (
+                    <button
+                      key={t.label}
+                      type="button"
+                      onClick={() => setEditingCampaign({ ...editingCampaign, first_message_template: t.value })}
+                      className={`px-3 py-1.5 text-xs rounded-full transition-all ${
+                        editingCampaign.first_message_template === t.value
+                          ? 'bg-blue-600 text-white'
+                          : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+                      }`}
+                    >
+                      {t.label}
+                    </button>
+                  ))}
+                </div>
+                <input
+                  type="text"
+                  value={editingCampaign.first_message_template}
+                  onChange={(e) => setEditingCampaign({ ...editingCampaign, first_message_template: e.target.value })}
+                  placeholder="Or write a custom message..."
+                  className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 dark:text-gray-100"
+                />
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                  Placeholders: {'{firstname}'}, {'{lastname}'}, {'{product}'}, {'{notes}'}, {'{lead_source}'}
+                </p>
+              </div>
+
+              <div className="p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
+                <p className="text-xs text-green-700 dark:text-green-300">
+                  ✓ Lead data (name, product, notes) is automatically passed to your assistant
+                </p>
               </div>
             </div>
 

@@ -313,13 +313,13 @@ export function Settings({ wideView = false, onWideViewChange }: SettingsProps =
 
       {/* Tab Navigation */}
       <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
-        <div className="border-b border-gray-200 dark:border-gray-700">
-          <nav className="flex space-x-8 px-6">
+        <div className="border-b border-gray-200 dark:border-gray-700 overflow-hidden">
+          <nav className="flex space-x-6 px-6 overflow-x-auto scrollbar-hide">
             {/* Owner-only tabs */}
             {isWorkspaceOwner && (
               <button
                 onClick={() => setActiveTab('api')}
-                className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${activeTab === 'api'
+                className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors whitespace-nowrap ${activeTab === 'api'
                   ? 'border-blue-500 text-blue-600 dark:text-blue-400'
                   : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
                   }`}
@@ -334,7 +334,7 @@ export function Settings({ wideView = false, onWideViewChange }: SettingsProps =
               <>
                 <button
                   onClick={() => setActiveTab('apiKeys')}
-                  className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${activeTab === 'apiKeys'
+                  className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors whitespace-nowrap ${activeTab === 'apiKeys'
                     ? 'border-blue-500 text-blue-600 dark:text-blue-400'
                     : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
                     }`}
@@ -346,7 +346,7 @@ export function Settings({ wideView = false, onWideViewChange }: SettingsProps =
                 </button>
                 <button
                   onClick={() => setActiveTab('integrations')}
-                  className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${activeTab === 'integrations'
+                  className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors whitespace-nowrap ${activeTab === 'integrations'
                     ? 'border-blue-500 text-blue-600 dark:text-blue-400'
                     : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
                     }`}
@@ -358,7 +358,7 @@ export function Settings({ wideView = false, onWideViewChange }: SettingsProps =
                 </button>
                 <button
                   onClick={() => setActiveTab('webhooks')}
-                  className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${activeTab === 'webhooks'
+                  className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors whitespace-nowrap ${activeTab === 'webhooks'
                     ? 'border-blue-500 text-blue-600 dark:text-blue-400'
                     : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
                     }`}
@@ -370,7 +370,7 @@ export function Settings({ wideView = false, onWideViewChange }: SettingsProps =
                 </button>
                 <button
                   onClick={() => setActiveTab('addons')}
-                  className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${activeTab === 'addons'
+                  className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors whitespace-nowrap ${activeTab === 'addons'
                     ? 'border-blue-500 text-blue-600 dark:text-blue-400'
                     : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
                     }`}
@@ -382,7 +382,7 @@ export function Settings({ wideView = false, onWideViewChange }: SettingsProps =
                 </button>
                 <button
                   onClick={() => setActiveTab('scheduling')}
-                  className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${activeTab === 'scheduling'
+                  className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors whitespace-nowrap ${activeTab === 'scheduling'
                     ? 'border-blue-500 text-blue-600 dark:text-blue-400'
                     : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
                     }`}
@@ -394,7 +394,7 @@ export function Settings({ wideView = false, onWideViewChange }: SettingsProps =
                 </button>
                 <button
                   onClick={() => setActiveTab('phoneNumbers')}
-                  className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${activeTab === 'phoneNumbers'
+                  className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors whitespace-nowrap ${activeTab === 'phoneNumbers'
                     ? 'border-blue-500 text-blue-600 dark:text-blue-400'
                     : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
                     }`}
@@ -406,7 +406,7 @@ export function Settings({ wideView = false, onWideViewChange }: SettingsProps =
                 </button>
                 <button
                   onClick={() => setActiveTab('logs')}
-                  className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${activeTab === 'logs'
+                  className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors whitespace-nowrap ${activeTab === 'logs'
                     ? 'border-blue-500 text-blue-600 dark:text-blue-400'
                     : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
                     }`}
@@ -420,7 +420,7 @@ export function Settings({ wideView = false, onWideViewChange }: SettingsProps =
             )}
             <button
               onClick={() => setActiveTab('team')}
-              className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${activeTab === 'team'
+              className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors whitespace-nowrap ${activeTab === 'team'
                 ? 'border-blue-500 text-blue-600 dark:text-blue-400'
                 : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
                 }`}
@@ -432,7 +432,7 @@ export function Settings({ wideView = false, onWideViewChange }: SettingsProps =
             </button>
             <button
               onClick={() => setActiveTab('preferences')}
-              className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${activeTab === 'preferences'
+              className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors whitespace-nowrap ${activeTab === 'preferences'
                 ? 'border-blue-500 text-blue-600 dark:text-blue-400'
                 : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
                 }`}
