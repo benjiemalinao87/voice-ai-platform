@@ -57,7 +57,8 @@ function App() {
   });
   const [wideView, setWideView] = useState(() => {
     const saved = localStorage.getItem('wideView');
-    return saved === 'true';
+    // Default to true (wide mode) if not set
+    return saved === null ? true : saved === 'true';
   });
   const [dateRange, setDateRange] = useState({
     from: new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString(),
