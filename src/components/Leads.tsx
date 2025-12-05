@@ -142,6 +142,13 @@ export function Leads() {
   });
   const [creatingCampaign, setCreatingCampaign] = useState(false);
 
+  // Load both leads and campaigns count on initial mount
+  useEffect(() => {
+    loadLeads();
+    loadCampaigns();
+  }, []);
+
+  // Load data when tab changes or page changes
   useEffect(() => {
     if (activeTab === 'leads') {
       loadLeads();
