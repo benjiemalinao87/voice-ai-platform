@@ -1678,27 +1678,97 @@ async function executeCampaignCalls(env: Env, campaignId: string, vapiKey: strin
         // Add personalized first message if template exists
         if (campaign.first_message_template) {
           assistantOverrides.firstMessage = replaceLeadPlaceholders(campaign.first_message_template, lead);
+          // Force assistant-speaks-first mode to ensure firstMessage is used (not model-generated)
+          assistantOverrides.firstMessageMode = 'assistant-speaks-first';
           console.log(`[Campaign ${campaignId}] Using personalized first message: "${assistantOverrides.firstMessage.substring(0, 50)}..."`);
         }
         
         // Note: We no longer override the system prompt to preserve the assistant's original instructions
         // Lead data is passed via variableValues which the assistant can use if its prompt has placeholders
-        // The first message is still personalized via firstMessage override above
         console.log(`[Campaign ${campaignId}] Lead context passed via variableValues (assistant prompt preserved)`);
-        
-        const callPayload = {
-          assistantId: campaign.assistant_id,
-          phoneNumberId: campaign.phone_number_id,
-          customer: {
-            number: lead.phone,
-            name: customerName
-          },
-          assistantOverrides
-        };
+
+        // Build call payload - use inline assistant with custom firstMessage if template exists
+        // This works around VAPI's assistantOverrides.firstMessage not being applied correctly
+        let callPayload: any;
+
+        if (campaign.first_message_template) {
+          // Fetch the original assistant config to create an inline copy with modified firstMessage
+          const assistantResponse = await fetch(`https://api.vapi.ai/assistant/${campaign.assistant_id}`, {
+            headers: { 'Authorization': `Bearer ${vapiKey}` }
+          });
+
+          if (assistantResponse.ok) {
+            const assistantConfig = await assistantResponse.json() as any;
+            // Remove read-only fields that can't be used in inline assistant
+            delete assistantConfig.id;
+            delete assistantConfig.orgId;
+            delete assistantConfig.createdAt;
+            delete assistantConfig.updatedAt;
+            delete assistantConfig.isServerUrlSecretSet;
+            delete assistantConfig.squad;
+            delete assistantConfig.analysisPlan;
+            delete assistantConfig.artifactPlan;
+            delete assistantConfig.messagePlan;
+            delete assistantConfig.startSpeakingPlan;
+            delete assistantConfig.stopSpeakingPlan;
+            delete assistantConfig.monitorPlan;
+            delete assistantConfig.credentialIds;
+
+            // Set the personalized first message
+            assistantConfig.firstMessage = replaceLeadPlaceholders(campaign.first_message_template, lead);
+            assistantConfig.firstMessageMode = 'assistant-speaks-first';
+
+            // Also update the system prompt to remove hardcoded greeting (step 2) since we have a custom first message
+            if (assistantConfig.model?.messages) {
+              assistantConfig.model.messages = assistantConfig.model.messages.map((msg: any) => {
+                if (msg.role === 'system' && msg.content) {
+                  // Remove the hardcoded greeting instruction from the flow
+                  msg.content = msg.content
+                    .replace(/\d+\.\s*\[SAY\]\s*["']Welcome to.*?["']\s*/gi, '')
+                    .replace(/\d+\.\s*\[SAY\]\s*["']Hello.*?["']\s*/gi, '');
+                }
+                return msg;
+              });
+            }
+
+            callPayload = {
+              assistant: assistantConfig,
+              phoneNumberId: campaign.phone_number_id,
+              customer: {
+                number: lead.phone,
+                name: customerName
+              }
+            };
+            console.log(`[Campaign ${campaignId}] Using inline assistant with firstMessage: "${assistantConfig.firstMessage.substring(0, 50)}..."`);
+          } else {
+            // Fallback to assistantId with overrides if fetch fails
+            console.warn(`[Campaign ${campaignId}] Failed to fetch assistant config, using assistantId with overrides`);
+            callPayload = {
+              assistantId: campaign.assistant_id,
+              phoneNumberId: campaign.phone_number_id,
+              customer: {
+                number: lead.phone,
+                name: customerName
+              },
+              assistantOverrides
+            };
+          }
+        } else {
+          // No template, use assistantId directly
+          callPayload = {
+            assistantId: campaign.assistant_id,
+            phoneNumberId: campaign.phone_number_id,
+            customer: {
+              number: lead.phone,
+              name: customerName
+            },
+            assistantOverrides
+          };
+        }
         
         console.log(`[Campaign ${campaignId}] Calling ${lead.phone} (${customerName})`);
-        console.log(`[Campaign ${campaignId}] Using VAPI key: ${vapiKey.substring(0, 10)}...`);
-        
+        console.log(`[Campaign ${campaignId}] Full call payload:`, JSON.stringify(callPayload, null, 2));
+
         const response = await fetch('https://api.vapi.ai/call/phone', {
           method: 'POST',
           headers: {
@@ -6150,6 +6220,275 @@ export default {
           message: 'Failed leads reset to pending',
           resetCount: result.meta?.changes || 0
         });
+      }
+
+      // ============================================
+      // PARTNER SINGLE-CALL ENDPOINT
+      // ============================================
+
+      // Partner single-call endpoint - creates/finds lead, adds to campaign, and initiates call
+      if (url.pathname === '/api/partner/call' && request.method === 'POST') {
+        const userId = await getUserFromToken(request, env);
+        if (!userId) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        const workspaceId = await getWorkspaceIdForUser(env, userId);
+        if (!workspaceId) {
+          return jsonResponse({ error: 'No workspace found' }, 404);
+        }
+
+        const body = await request.json() as any;
+
+        // Validate required fields (only phone and campaign_id are required)
+        if (!body.phone || !body.campaign_id) {
+          return jsonResponse({ 
+            error: 'phone and campaign_id are required' 
+          }, 400);
+        }
+
+        // Verify campaign exists and belongs to workspace
+        const campaign = await env.DB.prepare(
+          'SELECT * FROM campaigns WHERE id = ? AND workspace_id = ?'
+        ).bind(body.campaign_id, workspaceId).first() as any;
+
+        if (!campaign) {
+          return jsonResponse({ error: 'Campaign not found' }, 404);
+        }
+
+        // Use provided assistant_id/phone_number_id or fall back to campaign's values
+        const assistantId = body.assistant_id || campaign.assistant_id;
+        const phoneNumberId = body.phone_number_id || campaign.phone_number_id;
+
+        if (!assistantId || !phoneNumberId) {
+          return jsonResponse({ 
+            error: 'Campaign is missing assistant_id or phone_number_id configuration' 
+          }, 400);
+        }
+
+        // Get workspace settings for VAPI key
+        const settings = await getWorkspaceSettingsForUser(env, userId);
+        if (!settings?.private_key) {
+          return jsonResponse({ error: 'VAPI API key not configured in workspace settings' }, 400);
+        }
+
+        const timestamp = now();
+        let leadId: string;
+        let leadCreated = false;
+
+        // Find or create lead based on phone number
+        const existingLead = await env.DB.prepare(
+          'SELECT id FROM leads WHERE workspace_id = ? AND phone = ?'
+        ).bind(workspaceId, body.phone).first() as any;
+
+        if (existingLead) {
+          leadId = existingLead.id;
+          console.log(`[Partner Call] Found existing lead: ${leadId}`);
+        } else {
+          // Create new lead
+          leadId = generateId();
+          await env.DB.prepare(
+            `INSERT INTO leads (id, workspace_id, firstname, lastname, phone, email, lead_source, product, notes, status, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          ).bind(
+            leadId,
+            workspaceId,
+            body.firstname || null,
+            body.lastname || null,
+            body.phone,
+            body.email || null,
+            body.lead_source || 'partner_api',
+            body.product || null,
+            body.notes || null,
+            'new',
+            timestamp,
+            timestamp
+          ).run();
+          leadCreated = true;
+          console.log(`[Partner Call] Created new lead: ${leadId}`);
+        }
+
+        // Check if there's already an active call for this phone number
+        const activeCall = await env.DB.prepare(
+          `SELECT cl.id FROM campaign_leads cl
+           JOIN leads l ON cl.lead_id = l.id
+           WHERE l.phone = ? AND l.workspace_id = ? AND cl.call_status = 'calling'`
+        ).bind(body.phone, workspaceId).first();
+
+        if (activeCall) {
+          return jsonResponse({ 
+            error: 'Call already in progress for this phone number' 
+          }, 400);
+        }
+
+        // Add lead to campaign (ignore if already exists)
+        let campaignLeadId: string;
+        const existingCampaignLead = await env.DB.prepare(
+          'SELECT id FROM campaign_leads WHERE campaign_id = ? AND lead_id = ?'
+        ).bind(body.campaign_id, leadId).first() as any;
+
+        if (existingCampaignLead) {
+          campaignLeadId = existingCampaignLead.id;
+          // Reset status to pending if it was previously completed/failed
+          await env.DB.prepare(
+            `UPDATE campaign_leads SET call_status = 'pending', vapi_call_id = NULL, called_at = NULL WHERE id = ?`
+          ).bind(campaignLeadId).run();
+          console.log(`[Partner Call] Reset existing campaign lead: ${campaignLeadId}`);
+        } else {
+          campaignLeadId = generateId();
+          await env.DB.prepare(
+            `INSERT INTO campaign_leads (id, campaign_id, lead_id, call_status, created_at)
+             VALUES (?, ?, ?, 'pending', ?)`
+          ).bind(campaignLeadId, body.campaign_id, leadId, timestamp).run();
+
+          // Update campaign total_leads count
+          await env.DB.prepare(
+            'UPDATE campaigns SET total_leads = total_leads + 1, updated_at = ? WHERE id = ?'
+          ).bind(timestamp, body.campaign_id).run();
+          console.log(`[Partner Call] Added lead to campaign: ${campaignLeadId}`);
+        }
+
+        // Get lead data for the call
+        const lead = await env.DB.prepare(
+          'SELECT * FROM leads WHERE id = ?'
+        ).bind(leadId).first() as any;
+
+        // Update campaign lead status to calling
+        await env.DB.prepare(
+          'UPDATE campaign_leads SET call_status = ?, called_at = ? WHERE id = ?'
+        ).bind('calling', timestamp, campaignLeadId).run();
+
+        try {
+          // Build customer name
+          const customerName = [lead.firstname, lead.lastname].filter(Boolean).join(' ') || 'Customer';
+
+          // Fetch assistant config from VAPI
+          const assistantResponse = await fetch(`https://api.vapi.ai/assistant/${assistantId}`, {
+            headers: { 'Authorization': `Bearer ${settings.private_key}` }
+          });
+
+          if (!assistantResponse.ok) {
+            throw new Error(`Failed to fetch assistant config: ${assistantResponse.status}`);
+          }
+
+          const assistantConfig = await assistantResponse.json() as any;
+
+          // Remove read-only fields
+          delete assistantConfig.id;
+          delete assistantConfig.orgId;
+          delete assistantConfig.createdAt;
+          delete assistantConfig.updatedAt;
+          delete assistantConfig.isServerUrlSecretSet;
+          delete assistantConfig.squad;
+          delete assistantConfig.analysisPlan;
+          delete assistantConfig.artifactPlan;
+          delete assistantConfig.messagePlan;
+          delete assistantConfig.startSpeakingPlan;
+          delete assistantConfig.stopSpeakingPlan;
+          delete assistantConfig.monitorPlan;
+          delete assistantConfig.credentialIds;
+
+          // Inject lead context into system prompt
+          const leadContextBlock = `
+
+[LEAD CONTEXT - Use this information naturally in the conversation]
+- Name: ${lead.firstname || ''} ${lead.lastname || ''}
+- Product Interest: ${lead.product || 'Not specified'}
+- Lead Source: ${lead.lead_source || 'Not specified'}
+- Additional Notes: ${lead.notes || 'None'}
+[END LEAD CONTEXT]`;
+
+          if (assistantConfig.model?.messages) {
+            const systemMsgIndex = assistantConfig.model.messages.findIndex((m: any) => m.role === 'system');
+            if (systemMsgIndex >= 0) {
+              assistantConfig.model.messages[systemMsgIndex].content += leadContextBlock;
+              console.log(`[Partner Call] Injected lead context into system prompt`);
+            }
+          }
+
+          // Apply first message template if campaign has one
+          if (campaign.first_message_template) {
+            assistantConfig.firstMessage = replaceLeadPlaceholders(campaign.first_message_template, lead);
+            assistantConfig.firstMessageMode = 'assistant-speaks-first';
+            console.log(`[Partner Call] Using personalized first message: "${assistantConfig.firstMessage.substring(0, 50)}..."`);
+          }
+
+          // Build call payload
+          const callPayload = {
+            assistant: assistantConfig,
+            phoneNumberId: phoneNumberId,
+            customer: {
+              number: body.phone,
+              name: customerName
+            }
+          };
+
+          console.log(`[Partner Call] Initiating call to ${body.phone} (${customerName})`);
+
+          // Make VAPI call
+          const vapiResponse = await fetch('https://api.vapi.ai/call/phone', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${settings.private_key}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(callPayload)
+          });
+
+          if (!vapiResponse.ok) {
+            const errorText = await vapiResponse.text();
+            throw new Error(`VAPI call failed: ${vapiResponse.status} - ${errorText}`);
+          }
+
+          const vapiResult = await vapiResponse.json() as any;
+          const vapiCallId = vapiResult.id;
+
+          // Update campaign lead with VAPI call ID
+          await env.DB.prepare(
+            'UPDATE campaign_leads SET vapi_call_id = ? WHERE id = ?'
+          ).bind(vapiCallId, campaignLeadId).run();
+
+          console.log(`[Partner Call] Call initiated successfully, VAPI call ID: ${vapiCallId}`);
+
+          // Store callback URL if provided (for later notification)
+          if (body.callback_url) {
+            await env.DB.prepare(
+              `INSERT OR REPLACE INTO partner_call_callbacks (id, campaign_lead_id, callback_url, created_at)
+               VALUES (?, ?, ?, ?)`
+            ).bind(generateId(), campaignLeadId, body.callback_url, timestamp).run().catch(() => {
+              // Table might not exist yet, that's ok - we'll create it in a migration
+              console.log(`[Partner Call] Note: callback_url provided but callbacks table may not exist`);
+            });
+          }
+
+          return jsonResponse({
+            success: true,
+            lead_id: leadId,
+            lead_created: leadCreated,
+            campaign_lead_id: campaignLeadId,
+            vapi_call_id: vapiCallId,
+            call_status: 'initiated',
+            message: 'Call initiated successfully'
+          });
+
+        } catch (error: any) {
+          console.error(`[Partner Call] Error initiating call:`, error);
+
+          // Update campaign lead status to failed
+          await env.DB.prepare(
+            'UPDATE campaign_leads SET call_status = ?, call_outcome = ? WHERE id = ?'
+          ).bind('failed', error.message || 'Unknown error', campaignLeadId).run();
+
+          // Update campaign failed count
+          await env.DB.prepare(
+            'UPDATE campaigns SET calls_failed = calls_failed + 1, updated_at = ? WHERE id = ?'
+          ).bind(now(), body.campaign_id).run();
+
+          return jsonResponse({ 
+            error: 'Failed to initiate call', 
+            details: error.message || 'Unknown error'
+          }, 500);
+        }
       }
 
       // ============================================

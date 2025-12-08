@@ -995,3 +995,29 @@ Campaigns can now store prompt templates with placeholders (`{firstname}`, `{pro
 4. Each call automatically personalizes the prompt with that lead's data
 5. AI says: "Hello, is this John?" instead of generic greeting
 
+---
+
+## Partner Single-Call Endpoint - December 8, 2025
+
+**Feature:** Single API endpoint for external partners to trigger AI outbound calls with one request.
+
+**Endpoint:** `POST /api/partner/call`
+
+**Purpose:** External partners can now trigger AI calls without calling multiple endpoints. The endpoint handles:
+- Lead creation/lookup (by phone number)
+- Adding lead to campaign
+- Initiating the AI call via VAPI
+
+**Key Features:**
+- Uses existing API key system (`sk_live_xxx`) for authentication
+- Finds existing lead by phone OR creates new lead
+- Blocks duplicate calls (if phone is already being called)
+- Injects lead context into AI system prompt
+- Applies first_message_template personalization
+- Optional callback_url for call result notification
+
+**Files Changed:**
+- `workers/index.ts` - Added `/api/partner/call` endpoint
+- `src/components/ApiDocs.tsx` - Added Partner Integration documentation section
+- `docs/lesson_learn.md` - Documented the feature
+

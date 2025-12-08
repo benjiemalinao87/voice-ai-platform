@@ -1,0 +1,1028 @@
+{
+  "info": {
+    "name": "CHAU Voice AI API",
+    "description": "Complete API collection for CHAU Voice AI Platform",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "YOUR_API_KEY",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "https://api.voice-config.channelautomation.com",
+      "type": "string"
+    },
+    {
+      "key": "apiKey",
+      "value": "YOUR_API_KEY",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Partner Integration",
+      "description": "Single endpoint for external partners to trigger AI calls",
+      "item": [
+        {
+          "name": "Partner Call - Trigger AI Call",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"campaign_id\": \"YOUR_CAMPAIGN_ID\",\n  \"phone\": \"+14155551234\",\n  \"firstname\": \"John\",\n  \"lastname\": \"Doe\",\n  \"email\": \"john@example.com\",\n  \"product\": \"Enterprise Plan\",\n  \"notes\": \"Interested in demo, located in San Francisco\",\n  \"lead_source\": \"partner_api\",\n  \"callback_url\": \"https://your-webhook.com/callback\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/partner/call",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "partner", "call"]
+            },
+            "description": "Create/find lead, add to campaign, and initiate AI call in one request. The notes field is flexible - use it for any custom context."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Voice Assistants",
+      "description": "Create and manage AI voice assistants",
+      "item": [
+        {
+          "name": "List Assistants",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/assistants?limit=50&offset=0",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "assistants"],
+              "query": [
+                {"key": "limit", "value": "50"},
+                {"key": "offset", "value": "0"}
+              ]
+            }
+          }
+        },
+        {
+          "name": "Create Assistant",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Sales Assistant\",\n  \"model\": {\n    \"provider\": \"openai\",\n    \"model\": \"gpt-4\"\n  },\n  \"voice\": {\n    \"provider\": \"11labs\",\n    \"voiceId\": \"your-voice-id\"\n  },\n  \"firstMessage\": \"Hello! How can I help you today?\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/assistants",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "assistants"]
+            }
+          }
+        },
+        {
+          "name": "Get Assistant",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/assistants/:id",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "assistants", ":id"],
+              "variable": [{"key": "id", "value": "ASSISTANT_ID"}]
+            }
+          }
+        },
+        {
+          "name": "Update Assistant",
+          "request": {
+            "method": "PATCH",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Updated Assistant Name\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/assistants/:id",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "assistants", ":id"],
+              "variable": [{"key": "id", "value": "ASSISTANT_ID"}]
+            }
+          }
+        },
+        {
+          "name": "Delete Assistant",
+          "request": {
+            "method": "DELETE",
+            "url": {
+              "raw": "{{baseUrl}}/api/assistants/:id",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "assistants", ":id"],
+              "variable": [{"key": "id", "value": "ASSISTANT_ID"}]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Outbound Campaigns",
+      "description": "Manage outbound calling campaigns",
+      "item": [
+        {
+          "name": "List Campaigns",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/campaigns",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "campaigns"]
+            }
+          }
+        },
+        {
+          "name": "Create Campaign",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Sales Outreach Campaign\",\n  \"assistant_id\": \"YOUR_ASSISTANT_ID\",\n  \"phone_number_id\": \"YOUR_PHONE_NUMBER_ID\",\n  \"first_message_template\": \"Hi {firstname}, this is about {product}.\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/campaigns",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "campaigns"]
+            }
+          }
+        },
+        {
+          "name": "Get Campaign",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/campaigns/:id",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "campaigns", ":id"],
+              "variable": [{"key": "id", "value": "CAMPAIGN_ID"}]
+            }
+          }
+        },
+        {
+          "name": "Add Leads to Campaign",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lead_ids\": [\"lead_id_1\", \"lead_id_2\"]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/campaigns/:id/leads",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "campaigns", ":id", "leads"],
+              "variable": [{"key": "id", "value": "CAMPAIGN_ID"}]
+            }
+          }
+        },
+        {
+          "name": "Start Campaign",
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{baseUrl}}/api/campaigns/:id/start",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "campaigns", ":id", "start"],
+              "variable": [{"key": "id", "value": "CAMPAIGN_ID"}]
+            }
+          }
+        },
+        {
+          "name": "Pause Campaign",
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{baseUrl}}/api/campaigns/:id/pause",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "campaigns", ":id", "pause"],
+              "variable": [{"key": "id", "value": "CAMPAIGN_ID"}]
+            }
+          }
+        },
+        {
+          "name": "Cancel Campaign",
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{baseUrl}}/api/campaigns/:id/cancel",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "campaigns", ":id", "cancel"],
+              "variable": [{"key": "id", "value": "CAMPAIGN_ID"}]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Leads",
+      "description": "Manage leads for outbound campaigns",
+      "item": [
+        {
+          "name": "List Leads",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/leads?limit=50&offset=0",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "leads"],
+              "query": [
+                {"key": "limit", "value": "50"},
+                {"key": "offset", "value": "0"}
+              ]
+            }
+          }
+        },
+        {
+          "name": "Create Lead",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"firstname\": \"John\",\n  \"lastname\": \"Doe\",\n  \"phone\": \"+14155551234\",\n  \"email\": \"john@example.com\",\n  \"product\": \"Enterprise Plan\",\n  \"notes\": \"Interested in demo\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/leads",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "leads"]
+            }
+          }
+        },
+        {
+          "name": "Bulk Upload Leads",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"leads\": [\n    {\"firstname\": \"John\", \"phone\": \"+14155551234\"},\n    {\"firstname\": \"Jane\", \"phone\": \"+14155551235\"}\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/leads/upload",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "leads", "upload"]
+            }
+          }
+        },
+        {
+          "name": "Update Lead",
+          "request": {
+            "method": "PATCH",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"notes\": \"Updated notes\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/leads/:id",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "leads", ":id"],
+              "variable": [{"key": "id", "value": "LEAD_ID"}]
+            }
+          }
+        },
+        {
+          "name": "Delete Lead",
+          "request": {
+            "method": "DELETE",
+            "url": {
+              "raw": "{{baseUrl}}/api/leads/:id",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "leads", ":id"],
+              "variable": [{"key": "id", "value": "LEAD_ID"}]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Call Management",
+      "description": "Monitor and control live voice calls",
+      "item": [
+        {
+          "name": "Get Active Calls",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/active-calls",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "active-calls"]
+            }
+          }
+        },
+        {
+          "name": "Get Call Listen URL",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/calls/:id/listen",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "calls", ":id", "listen"],
+              "variable": [{"key": "id", "value": "CALL_ID"}]
+            }
+          }
+        },
+        {
+          "name": "Say Message in Call",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"message\": \"Hello, this is an important message.\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/calls/:id/control/say",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "calls", ":id", "control", "say"],
+              "variable": [{"key": "id", "value": "CALL_ID"}]
+            }
+          }
+        },
+        {
+          "name": "End Call",
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{baseUrl}}/api/calls/:id/end",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "calls", ":id", "end"],
+              "variable": [{"key": "id", "value": "CALL_ID"}]
+            }
+          }
+        },
+        {
+          "name": "Transfer Call",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"destination\": \"+14155551234\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/calls/:id/transfer",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "calls", ":id", "transfer"],
+              "variable": [{"key": "id", "value": "CALL_ID"}]
+            }
+          }
+        },
+        {
+          "name": "Warm Transfer Call",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"agentNumber\": \"+14155551234\",\n  \"announcement\": \"Transferring a customer interested in Enterprise plan.\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/calls/:id/warm-transfer",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "calls", ":id", "warm-transfer"],
+              "variable": [{"key": "id", "value": "CALL_ID"}]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Analytics",
+      "description": "Call analytics and performance metrics",
+      "item": [
+        {
+          "name": "Dashboard Summary",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/dashboard-summary?days=30",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "dashboard-summary"],
+              "query": [{"key": "days", "value": "30"}]
+            }
+          }
+        },
+        {
+          "name": "Agent Distribution",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/agent-distribution",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "agent-distribution"]
+            }
+          }
+        },
+        {
+          "name": "Call Ended Reasons",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/call-ended-reasons",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "call-ended-reasons"]
+            }
+          }
+        },
+        {
+          "name": "Keywords",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/keywords",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "keywords"]
+            }
+          }
+        },
+        {
+          "name": "Intent Analysis",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/intent-analysis?days=30",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "intent-analysis"],
+              "query": [{"key": "days", "value": "30"}]
+            }
+          }
+        },
+        {
+          "name": "Appointments",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/appointments",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "appointments"]
+            }
+          }
+        },
+        {
+          "name": "Concurrent Calls Timeseries",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/concurrent-calls/timeseries?hours=24",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "concurrent-calls", "timeseries"],
+              "query": [{"key": "hours", "value": "24"}]
+            }
+          }
+        },
+        {
+          "name": "Call Analytics Report",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/reports/call-analytics",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "reports", "call-analytics"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Webhooks",
+      "description": "Configure incoming and outgoing webhooks",
+      "item": [
+        {
+          "name": "List Inbound Webhooks",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/webhooks",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "webhooks"]
+            }
+          }
+        },
+        {
+          "name": "Create Inbound Webhook",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"My Webhook\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/webhooks",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "webhooks"]
+            }
+          }
+        },
+        {
+          "name": "Delete Inbound Webhook",
+          "request": {
+            "method": "DELETE",
+            "url": {
+              "raw": "{{baseUrl}}/api/webhooks/:id",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "webhooks", ":id"],
+              "variable": [{"key": "id", "value": "WEBHOOK_ID"}]
+            }
+          }
+        },
+        {
+          "name": "List Outbound Webhooks",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/outbound-webhooks",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "outbound-webhooks"]
+            }
+          }
+        },
+        {
+          "name": "Create Outbound Webhook",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Call Events Webhook\",\n  \"destination_url\": \"https://your-server.com/webhook\",\n  \"events\": \"call.started,call.ended\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/outbound-webhooks",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "outbound-webhooks"]
+            }
+          }
+        },
+        {
+          "name": "Update Outbound Webhook",
+          "request": {
+            "method": "PATCH",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Updated Webhook Name\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/outbound-webhooks/:id",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "outbound-webhooks", ":id"],
+              "variable": [{"key": "id", "value": "WEBHOOK_ID"}]
+            }
+          }
+        },
+        {
+          "name": "Delete Outbound Webhook",
+          "request": {
+            "method": "DELETE",
+            "url": {
+              "raw": "{{baseUrl}}/api/outbound-webhooks/:id",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "outbound-webhooks", ":id"],
+              "variable": [{"key": "id", "value": "WEBHOOK_ID"}]
+            }
+          }
+        },
+        {
+          "name": "Get Outbound Webhook Logs",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/outbound-webhooks/:id/logs",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "outbound-webhooks", ":id", "logs"],
+              "variable": [{"key": "id", "value": "WEBHOOK_ID"}]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Phone Numbers",
+      "description": "Manage phone numbers for voice calls",
+      "item": [
+        {
+          "name": "List Twilio Phone Numbers",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/twilio/phone-numbers",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "twilio", "phone-numbers"]
+            }
+          }
+        },
+        {
+          "name": "List VAPI Phone Numbers",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/vapi/phone-numbers",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "vapi", "phone-numbers"]
+            }
+          }
+        },
+        {
+          "name": "Import Phone Number",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"provider\": \"twilio\",\n  \"twilioPhoneNumber\": \"+14155551234\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/vapi/phone-number",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "vapi", "phone-number"]
+            }
+          }
+        },
+        {
+          "name": "Assign Assistant to Phone Number",
+          "request": {
+            "method": "PATCH",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"assistantId\": \"YOUR_ASSISTANT_ID\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/vapi/phone-number/:id/assistant",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "vapi", "phone-number", ":id", "assistant"],
+              "variable": [{"key": "id", "value": "PHONE_NUMBER_ID"}]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "CRM Integrations",
+      "description": "Salesforce, HubSpot, and Dynamics 365 integrations",
+      "item": [
+        {
+          "name": "Salesforce - Initiate OAuth",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/salesforce/oauth/initiate",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "salesforce", "oauth", "initiate"]
+            }
+          }
+        },
+        {
+          "name": "Salesforce - Status",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/salesforce/status",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "salesforce", "status"]
+            }
+          }
+        },
+        {
+          "name": "Salesforce - Disconnect",
+          "request": {
+            "method": "DELETE",
+            "url": {
+              "raw": "{{baseUrl}}/api/salesforce/disconnect",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "salesforce", "disconnect"]
+            }
+          }
+        },
+        {
+          "name": "Salesforce - Sync Logs",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/salesforce/sync-logs",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "salesforce", "sync-logs"]
+            }
+          }
+        },
+        {
+          "name": "HubSpot - Initiate OAuth",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/hubspot/oauth/initiate",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "hubspot", "oauth", "initiate"]
+            }
+          }
+        },
+        {
+          "name": "HubSpot - Status",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/hubspot/status",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "hubspot", "status"]
+            }
+          }
+        },
+        {
+          "name": "HubSpot - Disconnect",
+          "request": {
+            "method": "DELETE",
+            "url": {
+              "raw": "{{baseUrl}}/api/hubspot/disconnect",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "hubspot", "disconnect"]
+            }
+          }
+        },
+        {
+          "name": "Dynamics - Initiate OAuth",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/dynamics/oauth/initiate?instanceUrl=https://your-org.crm.dynamics.com",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "dynamics", "oauth", "initiate"],
+              "query": [{"key": "instanceUrl", "value": "https://your-org.crm.dynamics.com"}]
+            }
+          }
+        },
+        {
+          "name": "Dynamics - Status",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/dynamics/status",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "dynamics", "status"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Workspaces & Teams",
+      "description": "Manage workspaces and team members",
+      "item": [
+        {
+          "name": "List Workspaces",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/workspaces",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "workspaces"]
+            }
+          }
+        },
+        {
+          "name": "Create Workspace",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"New Workspace\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/workspaces",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "workspaces"]
+            }
+          }
+        },
+        {
+          "name": "Invite Team Member",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"teammate@example.com\",\n  \"role\": \"member\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/workspaces/:id/invite",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "workspaces", ":id", "invite"],
+              "variable": [{"key": "id", "value": "WORKSPACE_ID"}]
+            }
+          }
+        },
+        {
+          "name": "List Workspace Members",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/workspaces/:id/members",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "workspaces", ":id", "members"],
+              "variable": [{"key": "id", "value": "WORKSPACE_ID"}]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Settings",
+      "description": "Workspace settings and API keys",
+      "item": [
+        {
+          "name": "Get Settings",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/settings",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "settings"]
+            }
+          }
+        },
+        {
+          "name": "Update Settings",
+          "request": {
+            "method": "PUT",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"workspace_name\": \"My Workspace\",\n  \"private_key\": \"your-vapi-private-key\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/settings",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "settings"]
+            }
+          }
+        },
+        {
+          "name": "List API Keys",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/api-keys",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "api-keys"]
+            }
+          }
+        },
+        {
+          "name": "Create API Key",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Partner API Key\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/api-keys",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "api-keys"]
+            }
+          }
+        },
+        {
+          "name": "Revoke API Key",
+          "request": {
+            "method": "DELETE",
+            "url": {
+              "raw": "{{baseUrl}}/api/api-keys/:id",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "api-keys", ":id"],
+              "variable": [{"key": "id", "value": "API_KEY_ID"}]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Agent Flows",
+      "description": "Visual flow builder for voice agents",
+      "item": [
+        {
+          "name": "Create Agent Flow",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"assistant_id\": \"YOUR_ASSISTANT_ID\",\n  \"flow_data\": {},\n  \"config_data\": {}\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/agent-flows",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "agent-flows"]
+            }
+          }
+        },
+        {
+          "name": "Get Agent Flow",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/agent-flows/:assistantId",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "agent-flows", ":assistantId"],
+              "variable": [{"key": "assistantId", "value": "ASSISTANT_ID"}]
+            }
+          }
+        },
+        {
+          "name": "Update Agent Flow",
+          "request": {
+            "method": "PUT",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"flow_data\": {}\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/agent-flows/:id",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "agent-flows", ":id"],
+              "variable": [{"key": "id", "value": "FLOW_ID"}]
+            }
+          }
+        },
+        {
+          "name": "Delete Agent Flow",
+          "request": {
+            "method": "DELETE",
+            "url": {
+              "raw": "{{baseUrl}}/api/agent-flows/:id",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "agent-flows", ":id"],
+              "variable": [{"key": "id", "value": "FLOW_ID"}]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Webhook Calls (Recordings)",
+      "description": "Access call recordings and history",
+      "item": [
+        {
+          "name": "Get Webhook Calls",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/webhook-calls?limit=50&offset=0",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "webhook-calls"],
+              "query": [
+                {"key": "limit", "value": "50"},
+                {"key": "offset", "value": "0"}
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Call Details",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/webhook-calls/:id",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "webhook-calls", ":id"],
+              "variable": [{"key": "id", "value": "CALL_ID"}]
+            }
+          }
+        },
+        {
+          "name": "Delete Call Recording",
+          "request": {
+            "method": "DELETE",
+            "url": {
+              "raw": "{{baseUrl}}/api/webhook-calls/:id",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "webhook-calls", ":id"],
+              "variable": [{"key": "id", "value": "CALL_ID"}]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

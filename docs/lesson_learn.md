@@ -4781,3 +4781,70 @@ draft → (start) → running → (pause) → paused → (start) → running →
                (cancel) → cancelled                    (cancel) → cancelled
 ```
 
+## Partner Single-Call Endpoint - December 8, 2025
+
+**Feature:** Single API endpoint for external partners to trigger AI calls without managing multiple API requests.
+
+**What was done:**
+
+1. Created `POST /api/partner/call` endpoint in `workers/index.ts`:
+   - Authenticates using existing API key system (`sk_live_xxx`)
+   - Validates required fields (campaign_id, assistant_id, phone_number_id, phone)
+   - Finds existing lead by phone OR creates new lead
+   - Adds lead to campaign (or resets if already exists)
+   - Checks for duplicate active calls (blocks if call already in progress)
+   - Injects lead context into AI system prompt
+   - Applies first_message_template personalization
+   - Initiates VAPI call
+   - Supports optional callback_url for call result notification
+
+2. Added API documentation in `src/components/ApiDocs.tsx`:
+   - New "Partner Integration" section with endpoint documentation
+   - Documents all request body fields and their template usage
+
+**Key Implementation Details:**
+
+- **Lead Lookup Logic:** If phone exists in workspace, uses existing lead (doesn't overwrite data). If new, creates lead.
+- **Duplicate Call Protection:** Blocks calls if the same phone number has `call_status = 'calling'`
+- **AI Context Injection:** Appends lead context block to system prompt so AI knows about lead data during conversation
+- **Template Personalization:** Uses existing `replaceLeadPlaceholders()` for `{firstname}`, `{notes}`, etc.
+
+**Request Payload:**
+```json
+{
+  "campaign_id": "camp_123",
+  "assistant_id": "asst_456",
+  "phone_number_id": "pn_789",
+  "phone": "+14155551234",
+  "firstname": "John",
+  "lastname": "Doe",
+  "email": "john@example.com",
+  "product": "Enterprise Plan",
+  "notes": "Custom context - city, company, etc.",
+  "lead_source": "partner_api",
+  "callback_url": "https://partner.com/webhook"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "lead_id": "lead_abc",
+  "lead_created": false,
+  "campaign_lead_id": "cl_xyz",
+  "vapi_call_id": "call_123",
+  "call_status": "initiated"
+}
+```
+
+**What NOT to do:**
+- Don't allow calls to phone numbers currently being called (duplicate protection)
+- Don't overwrite existing lead data when phone already exists
+- Don't forget to inject lead context into system prompt (AI needs this for conversation)
+- Don't skip VAPI assistant fetch - needed to modify inline config
+
+**The `notes` field is flexible:** Partners can pass any custom data (city, company, address, etc.) in the `notes` field. This data is:
+1. Used in `{notes}` template placeholder for first message
+2. Injected into AI system prompt so AI can reference it during conversation
+
