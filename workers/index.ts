@@ -6348,10 +6348,23 @@ export default {
           console.log(`[Partner Call] Added lead to campaign: ${campaignLeadId}`);
         }
 
-        // Get lead data for the call
-        const lead = await env.DB.prepare(
+        // Get lead data from database
+        const dbLead = await env.DB.prepare(
           'SELECT * FROM leads WHERE id = ?'
         ).bind(leadId).first() as any;
+
+        // For the call, use REQUEST data (fresh) over database data (might be stale)
+        // This allows partners to pass updated info without us needing to update the lead record
+        const lead = {
+          firstname: body.firstname || dbLead?.firstname || '',
+          lastname: body.lastname || dbLead?.lastname || '',
+          phone: body.phone || dbLead?.phone || '',
+          email: body.email || dbLead?.email || '',
+          product: body.product || dbLead?.product || '',
+          notes: body.notes || dbLead?.notes || '',
+          lead_source: body.lead_source || dbLead?.lead_source || 'partner_api'
+        };
+        console.log(`[Partner Call] Using lead data - firstname: ${lead.firstname}, product: ${lead.product}`);
 
         // Update campaign lead status to calling
         await env.DB.prepare(
@@ -6362,7 +6375,7 @@ export default {
           // Build customer name
           const customerName = [lead.firstname, lead.lastname].filter(Boolean).join(' ') || 'Customer';
 
-          // Fetch assistant config from VAPI
+          // Fetch assistant config from VAPI to get model settings for overrides
           const assistantResponse = await fetch(`https://api.vapi.ai/assistant/${assistantId}`, {
             headers: { 'Authorization': `Bearer ${settings.private_key}` }
           });
@@ -6372,64 +6385,73 @@ export default {
           }
 
           const assistantConfig = await assistantResponse.json() as any;
+          console.log(`[Partner Call] Fetched assistant config for: ${assistantConfig.name}`);
 
-          // Remove read-only fields
-          delete assistantConfig.id;
-          delete assistantConfig.orgId;
-          delete assistantConfig.createdAt;
-          delete assistantConfig.updatedAt;
-          delete assistantConfig.isServerUrlSecretSet;
-          delete assistantConfig.squad;
-          delete assistantConfig.analysisPlan;
-          delete assistantConfig.artifactPlan;
-          delete assistantConfig.messagePlan;
-          delete assistantConfig.startSpeakingPlan;
-          delete assistantConfig.stopSpeakingPlan;
-          delete assistantConfig.monitorPlan;
-          delete assistantConfig.credentialIds;
-
-          // Inject lead context into system prompt
+          // Build the lead context block to inject into the system prompt
           const leadContextBlock = `
 
-[LEAD CONTEXT - Use this information naturally in the conversation]
-- Name: ${lead.firstname || ''} ${lead.lastname || ''}
+=== IMPORTANT: OUTBOUND CALL INSTRUCTIONS ===
+This is an OUTBOUND call to a lead. DO NOT use any default greeting like "Thank you for calling..." or introduce yourself as a scheduling assistant.
+
+CURRENT LEAD INFORMATION (use this throughout the conversation):
+- Customer Name: ${lead.firstname || 'Customer'} ${lead.lastname || ''}
 - Product Interest: ${lead.product || 'Not specified'}
 - Lead Source: ${lead.lead_source || 'Not specified'}
 - Additional Notes: ${lead.notes || 'None'}
-[END LEAD CONTEXT]`;
 
+CRITICAL: Remember the customer's name is ${lead.firstname || 'Customer'}. If they ask "what's my name?" respond with "${lead.firstname || 'Customer'}".
+Always stay in context of THIS outbound call about "${lead.product || 'their inquiry'}".
+=== END OUTBOUND CALL INSTRUCTIONS ===`;
+
+          // Get the original system prompt and modify it
+          let modifiedSystemPrompt = '';
           if (assistantConfig.model?.messages) {
-            const systemMsgIndex = assistantConfig.model.messages.findIndex((m: any) => m.role === 'system');
-            if (systemMsgIndex >= 0) {
-              assistantConfig.model.messages[systemMsgIndex].content += leadContextBlock;
-              console.log(`[Partner Call] Injected lead context into system prompt`);
+            const systemMsg = assistantConfig.model.messages.find((m: any) => m.role === 'system');
+            if (systemMsg) {
+              // Start with the original prompt
+              let basePrompt = systemMsg.content;
+              
+              // Remove default greeting instructions that conflict with outbound calls
+              basePrompt = basePrompt
+                // Remove "Start with: ..." instructions
+                .replace(/Start with:\s*["'][^"']*["']/gi, '[DO NOT USE - this is an outbound call]')
+                // Remove "Begin with: ..." instructions  
+                .replace(/Begin with:\s*["'][^"']*["']/gi, '[DO NOT USE - this is an outbound call]')
+                // Replace Introduction section greeting
+                .replace(/### Introduction[\s\S]*?(?=###|\n## )/gi, `### Introduction
+[For this OUTBOUND call, use only the configured first message. Do not say "Thank you for calling" or any default greeting.]
+
+`);
+              
+              modifiedSystemPrompt = basePrompt + leadContextBlock;
+              console.log(`[Partner Call] Modified system prompt for outbound call`);
             }
+          }
+
+          // Build assistantOverrides - this is the correct way to override assistant config per-call
+          const assistantOverrides: any = {};
+
+          // Override the model with modified system prompt
+          if (modifiedSystemPrompt) {
+            assistantOverrides.model = {
+              ...assistantConfig.model,
+              messages: [
+                { role: 'system', content: modifiedSystemPrompt }
+              ]
+            };
           }
 
           // Apply first message template if campaign has one
           if (campaign.first_message_template) {
-            assistantConfig.firstMessage = replaceLeadPlaceholders(campaign.first_message_template, lead);
-            assistantConfig.firstMessageMode = 'assistant-speaks-first';
-            console.log(`[Partner Call] Using personalized first message: "${assistantConfig.firstMessage}"`);
-
-            // Also update the system prompt to remove hardcoded greeting since we have a custom first message
-            if (assistantConfig.model?.messages) {
-              assistantConfig.model.messages = assistantConfig.model.messages.map((msg: any) => {
-                if (msg.role === 'system' && msg.content) {
-                  // Remove the hardcoded greeting instruction from the flow
-                  msg.content = msg.content
-                    .replace(/\d+\.\s*\[SAY\]\s*["']Welcome to.*?["']\s*/gi, '')
-                    .replace(/\d+\.\s*\[SAY\]\s*["']Hello.*?["']\s*/gi, '')
-                    .replace(/\d+\.\s*\[SAY\]\s*["']Thank you for calling.*?["']\s*/gi, '');
-                }
-                return msg;
-              });
-            }
+            const personalizedFirstMessage = replaceLeadPlaceholders(campaign.first_message_template, lead);
+            assistantOverrides.firstMessage = personalizedFirstMessage;
+            assistantOverrides.firstMessageMode = 'assistant-speaks-first';
+            console.log(`[Partner Call] Using personalized first message: "${personalizedFirstMessage}"`);
           }
 
-          // Build call payload
-          const callPayload = {
-            assistant: assistantConfig,
+          // Build call payload using assistantId + assistantOverrides (correct VAPI approach)
+          const callPayload: any = {
+            assistantId: assistantId,
             phoneNumberId: phoneNumberId,
             customer: {
               number: body.phone,
@@ -6437,9 +6459,14 @@ export default {
             }
           };
 
+          // Only add overrides if we have any
+          if (Object.keys(assistantOverrides).length > 0) {
+            callPayload.assistantOverrides = assistantOverrides;
+          }
+
           console.log(`[Partner Call] Initiating call to ${body.phone} (${customerName})`);
-          console.log(`[Partner Call] firstMessage: "${assistantConfig.firstMessage}"`);
-          console.log(`[Partner Call] firstMessageMode: "${assistantConfig.firstMessageMode}"`);
+          console.log(`[Partner Call] Using assistantId: ${assistantId}`);
+          console.log(`[Partner Call] assistantOverrides:`, JSON.stringify(assistantOverrides, null, 2));
 
           // Make VAPI call
           const vapiResponse = await fetch('https://api.vapi.ai/call/phone', {
