@@ -1350,9 +1350,28 @@ export function Leads() {
                     </p>
                   </div>
 
+                  {/* Custom Prompt Template (Advanced) */}
+                  <div className="pt-4 border-t border-gray-200 dark:border-gray-700">
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Custom AI Prompt (Optional)</label>
+                      <span className="text-xs px-2 py-0.5 bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 rounded-full">Advanced</span>
+                    </div>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">Override the assistant's default prompt for outbound calls. Leave empty to use the assistant's original prompt.</p>
+                    <textarea
+                      value={newCampaign.prompt_template}
+                      onChange={(e) => setNewCampaign({ ...newCampaign, prompt_template: e.target.value })}
+                      placeholder="You are a friendly sales representative for {product}. The customer's name is {firstname}. Use the notes provided for context: {notes}"
+                      rows={4}
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-purple-500 focus:border-transparent text-sm"
+                    />
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
+                      <span className="font-medium">Available placeholders:</span> {'{firstname}'}, {'{lastname}'}, {'{product}'}, {'{notes}'}, {'{lead_source}'}
+                    </p>
+                  </div>
+
                   <div className="p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
                     <p className="text-xs text-green-700 dark:text-green-300">
-                      <strong>✓ Assistant prompt preserved</strong> — Lead data (name, product, notes) is automatically passed to your assistant. Only the opening message is customized.
+                      <strong>✓ Lead data injected automatically</strong> — Name, product, and notes are passed to the AI whether you use a custom prompt or the assistant's default.
                     </p>
                   </div>
                 </div>
@@ -1683,6 +1702,25 @@ export function Leads() {
                   onChange={(e) => setEditingCampaign({ ...editingCampaign, first_message_template: e.target.value })}
                   placeholder="Or write a custom message..."
                   className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 dark:text-gray-100"
+                />
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                  Placeholders: {'{firstname}'}, {'{lastname}'}, {'{product}'}, {'{notes}'}, {'{lead_source}'}
+                </p>
+              </div>
+
+              {/* Custom Prompt Template (Advanced) */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Custom AI Prompt (Optional)</label>
+                  <span className="text-xs px-2 py-0.5 bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 rounded-full">Advanced</span>
+                </div>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">Override the assistant's default prompt for this campaign. Leave empty to use the assistant's original prompt.</p>
+                <textarea
+                  value={editingCampaign.prompt_template}
+                  onChange={(e) => setEditingCampaign({ ...editingCampaign, prompt_template: e.target.value })}
+                  placeholder="You are a friendly sales representative for {product}. The customer's name is {firstname}. Use the notes provided for context: {notes}"
+                  rows={4}
+                  className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent text-gray-900 dark:text-gray-100 text-sm"
                 />
                 <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                   Placeholders: {'{firstname}'}, {'{lastname}'}, {'{product}'}, {'{notes}'}, {'{lead_source}'}

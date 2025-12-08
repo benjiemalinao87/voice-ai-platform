@@ -6387,44 +6387,54 @@ export default {
           const assistantConfig = await assistantResponse.json() as any;
           console.log(`[Partner Call] Fetched assistant config for: ${assistantConfig.name}`);
 
-          // Build the lead context block to inject into the system prompt
+          // Build the lead context block
           const leadContextBlock = `
 
-=== IMPORTANT: OUTBOUND CALL INSTRUCTIONS ===
-This is an OUTBOUND call to a lead. DO NOT use any default greeting like "Thank you for calling..." or introduce yourself as a scheduling assistant.
+=== CURRENT CALL CONTEXT ===
+Customer Name: ${lead.firstname || 'Customer'} ${lead.lastname || ''}
+Product Interest: ${lead.product || 'Not specified'}
+Lead Source: ${lead.lead_source || 'Not specified'}
+Notes: ${lead.notes || 'None'}
 
-CURRENT LEAD INFORMATION (use this throughout the conversation):
-- Customer Name: ${lead.firstname || 'Customer'} ${lead.lastname || ''}
-- Product Interest: ${lead.product || 'Not specified'}
-- Lead Source: ${lead.lead_source || 'Not specified'}
-- Additional Notes: ${lead.notes || 'None'}
+IMPORTANT: Remember the customer's name is "${lead.firstname || 'Customer'}". Use it naturally in conversation.
+=== END CONTEXT ===`;
 
-CRITICAL: Remember the customer's name is ${lead.firstname || 'Customer'}. If they ask "what's my name?" respond with "${lead.firstname || 'Customer'}".
-Always stay in context of THIS outbound call about "${lead.product || 'their inquiry'}".
-=== END OUTBOUND CALL INSTRUCTIONS ===`;
-
-          // Get the original system prompt and modify it
+          // Determine which prompt to use
           let modifiedSystemPrompt = '';
-          if (assistantConfig.model?.messages) {
-            const systemMsg = assistantConfig.model.messages.find((m: any) => m.role === 'system');
-            if (systemMsg) {
-              // Start with the original prompt
-              let basePrompt = systemMsg.content;
-              
-              // Remove default greeting instructions that conflict with outbound calls
-              basePrompt = basePrompt
-                // Remove "Start with: ..." instructions
-                .replace(/Start with:\s*["'][^"']*["']/gi, '[DO NOT USE - this is an outbound call]')
-                // Remove "Begin with: ..." instructions  
-                .replace(/Begin with:\s*["'][^"']*["']/gi, '[DO NOT USE - this is an outbound call]')
-                // Replace Introduction section greeting
-                .replace(/### Introduction[\s\S]*?(?=###|\n## )/gi, `### Introduction
+          
+          if (campaign.prompt_template) {
+            // USE CAMPAIGN'S CUSTOM PROMPT (recommended for outbound)
+            // Replace placeholders in the campaign prompt template
+            let campaignPrompt = replaceLeadPlaceholders(campaign.prompt_template, lead);
+            modifiedSystemPrompt = campaignPrompt + leadContextBlock;
+            console.log(`[Partner Call] Using campaign's custom prompt template`);
+          } else {
+            // FALLBACK: Use assistant's prompt with modifications for outbound
+            if (assistantConfig.model?.messages) {
+              const systemMsg = assistantConfig.model.messages.find((m: any) => m.role === 'system');
+              if (systemMsg) {
+                let basePrompt = systemMsg.content;
+                
+                // Remove default greeting instructions that conflict with outbound calls
+                basePrompt = basePrompt
+                  .replace(/Start with:\s*["'][^"']*["']/gi, '[Use the configured first message instead]')
+                  .replace(/Begin with:\s*["'][^"']*["']/gi, '[Use the configured first message instead]')
+                  .replace(/### Introduction[\s\S]*?(?=###|\n## )/gi, `### Introduction
 [For this OUTBOUND call, use only the configured first message. Do not say "Thank you for calling" or any default greeting.]
 
 `);
-              
-              modifiedSystemPrompt = basePrompt + leadContextBlock;
-              console.log(`[Partner Call] Modified system prompt for outbound call`);
+                
+                // Add outbound call instruction
+                const outboundInstruction = `
+
+=== OUTBOUND CALL MODE ===
+This is an OUTBOUND call. DO NOT use default greetings like "Thank you for calling...".
+Stay focused on the lead's product interest and notes provided below.
+=== END OUTBOUND MODE ===`;
+                
+                modifiedSystemPrompt = basePrompt + outboundInstruction + leadContextBlock;
+                console.log(`[Partner Call] Using assistant's prompt (modified for outbound)`);
+              }
             }
           }
 
