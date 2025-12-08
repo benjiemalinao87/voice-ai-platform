@@ -1749,36 +1749,37 @@ export function Leads() {
                   <span className="text-xs px-2 py-0.5 bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 rounded-full">Advanced</span>
                 </div>
                 <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">Override the assistant's default prompt for this campaign. Leave empty to use the assistant's original prompt.</p>
-                <div className="flex flex-wrap gap-2 mb-2">
+                <div className="grid grid-cols-2 gap-2 mb-3">
                   {[
-                    { label: 'Sales Rep', value: 'You are a friendly sales representative. The customer\'s name is {firstname}. They are interested in {product}. Context: {notes}\n\nBe conversational, helpful, and focus on understanding their needs. Keep responses brief and natural.' },
-                    { label: 'Follow-up', value: 'You are following up with {firstname} about their interest in {product}. Notes from previous conversation: {notes}\n\nBe warm and reference any previous interactions. Ask if they have questions or need more information.' },
-                    { label: 'Appointment', value: 'You are calling {firstname} to schedule an appointment regarding {product}. Context: {notes}\n\nBe professional and efficient. Offer available time slots and confirm their contact details.' },
-                    { label: 'Support', value: 'You are a customer support representative helping {firstname} with {product}. Issue details: {notes}\n\nBe empathetic and solution-focused. Listen carefully and resolve their concerns.' },
+                    { label: 'Sales Rep', desc: 'Friendly sales conversation', value: 'You are a friendly sales representative. The customer\'s name is {firstname}. They are interested in {product}. Context: {notes}\n\nBe conversational, helpful, and focus on understanding their needs. Keep responses brief and natural.' },
+                    { label: 'Follow-up', desc: 'Check in on interest', value: 'You are following up with {firstname} about their interest in {product}. Notes from previous conversation: {notes}\n\nBe warm and reference any previous interactions. Ask if they have questions or need more information.' },
+                    { label: 'Appointment', desc: 'Schedule a meeting', value: 'You are calling {firstname} to schedule an appointment regarding {product}. Context: {notes}\n\nBe professional and efficient. Offer available time slots and confirm their contact details.' },
+                    { label: 'Support', desc: 'Help with an issue', value: 'You are a customer support representative helping {firstname} with {product}. Issue details: {notes}\n\nBe empathetic and solution-focused. Listen carefully and resolve their concerns.' },
                   ].map((t) => (
                     <button
                       key={t.label}
                       type="button"
                       onClick={() => setEditingCampaign({ ...editingCampaign, prompt_template: t.value })}
-                      className={`px-3 py-1.5 text-xs rounded-full transition-all ${
+                      className={`p-2 text-left rounded-lg border transition-all ${
                         editingCampaign.prompt_template === t.value
-                          ? 'bg-purple-600 text-white'
-                          : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+                          ? 'border-purple-500 bg-purple-50 dark:bg-purple-900/30'
+                          : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600'
                       }`}
                     >
-                      {t.label}
+                      <p className="font-medium text-xs text-gray-900 dark:text-gray-100">{t.label}</p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">{t.desc}</p>
                     </button>
                   ))}
-                  {editingCampaign.prompt_template && (
-                    <button
-                      type="button"
-                      onClick={() => setEditingCampaign({ ...editingCampaign, prompt_template: '' })}
-                      className="px-3 py-1.5 text-xs rounded-full bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 hover:bg-red-200 dark:hover:bg-red-900/50"
-                    >
-                      Clear
-                    </button>
-                  )}
                 </div>
+                {editingCampaign.prompt_template && (
+                  <button
+                    type="button"
+                    onClick={() => setEditingCampaign({ ...editingCampaign, prompt_template: '' })}
+                    className="mb-2 px-3 py-1 text-xs rounded-full bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 hover:bg-red-200 dark:hover:bg-red-900/50"
+                  >
+                    Clear prompt
+                  </button>
+                )}
                 <textarea
                   value={editingCampaign.prompt_template}
                   onChange={(e) => setEditingCampaign({ ...editingCampaign, prompt_template: e.target.value })}
