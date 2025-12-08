@@ -6410,7 +6410,21 @@ export default {
           if (campaign.first_message_template) {
             assistantConfig.firstMessage = replaceLeadPlaceholders(campaign.first_message_template, lead);
             assistantConfig.firstMessageMode = 'assistant-speaks-first';
-            console.log(`[Partner Call] Using personalized first message: "${assistantConfig.firstMessage.substring(0, 50)}..."`);
+            console.log(`[Partner Call] Using personalized first message: "${assistantConfig.firstMessage}"`);
+
+            // Also update the system prompt to remove hardcoded greeting since we have a custom first message
+            if (assistantConfig.model?.messages) {
+              assistantConfig.model.messages = assistantConfig.model.messages.map((msg: any) => {
+                if (msg.role === 'system' && msg.content) {
+                  // Remove the hardcoded greeting instruction from the flow
+                  msg.content = msg.content
+                    .replace(/\d+\.\s*\[SAY\]\s*["']Welcome to.*?["']\s*/gi, '')
+                    .replace(/\d+\.\s*\[SAY\]\s*["']Hello.*?["']\s*/gi, '')
+                    .replace(/\d+\.\s*\[SAY\]\s*["']Thank you for calling.*?["']\s*/gi, '');
+                }
+                return msg;
+              });
+            }
           }
 
           // Build call payload
@@ -6424,6 +6438,8 @@ export default {
           };
 
           console.log(`[Partner Call] Initiating call to ${body.phone} (${customerName})`);
+          console.log(`[Partner Call] firstMessage: "${assistantConfig.firstMessage}"`);
+          console.log(`[Partner Call] firstMessageMode: "${assistantConfig.firstMessageMode}"`);
 
           // Make VAPI call
           const vapiResponse = await fetch('https://api.vapi.ai/call/phone', {
