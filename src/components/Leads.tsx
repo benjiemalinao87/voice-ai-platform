@@ -137,6 +137,15 @@ export function Leads() {
   // Delete/Action states
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [copiedCampaignId, setCopiedCampaignId] = useState<string | null>(null);
+
+  // Helper to copy campaign ID
+  const handleCopyCampaignId = async (e: React.MouseEvent, campaignId: string) => {
+    e.stopPropagation();
+    await navigator.clipboard.writeText(campaignId);
+    setCopiedCampaignId(campaignId);
+    setTimeout(() => setCopiedCampaignId(null), 2000);
+  };
 
   // Create campaign state
   const [newCampaign, setNewCampaign] = useState({
@@ -966,9 +975,28 @@ export function Leads() {
                   <div className="flex items-start justify-between mb-4">
                     <div>
                       <h3 className="font-semibold text-gray-900 dark:text-gray-100">{campaign.name}</h3>
-                      <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full mt-1 ${getStatusColor(campaign.status)}`}>
-                        {campaign.status}
-                      </span>
+                      <div className="flex items-center gap-2 mt-1">
+                        <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(campaign.status)}`}>
+                          {campaign.status}
+                        </span>
+                        <button
+                          onClick={(e) => handleCopyCampaignId(e, campaign.id)}
+                          className="inline-flex items-center gap-1 px-2 py-0.5 text-xs text-gray-500 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 bg-gray-100 dark:bg-gray-700 rounded transition-colors"
+                          title="Copy Campaign ID for API"
+                        >
+                          {copiedCampaignId === campaign.id ? (
+                            <>
+                              <Check className="w-3 h-3 text-green-500" />
+                              <span className="text-green-600 dark:text-green-400">Copied!</span>
+                            </>
+                          ) : (
+                            <>
+                              <Copy className="w-3 h-3" />
+                              <span>ID</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
                     </div>
                     <button
                       onClick={(e) => { e.stopPropagation(); handleDeleteCampaign(campaign.id); }}
