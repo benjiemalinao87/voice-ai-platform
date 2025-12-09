@@ -1024,6 +1024,16 @@ export default function ApiDocs() {
                   </div>
                 </div>
                 <div className="flex items-center gap-3">
+                  {section.id === 'partner' && (
+                    <a
+                      href="/partner-api"
+                      onClick={(e) => e.stopPropagation()}
+                      className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 rounded-lg text-xs text-white font-medium transition-colors flex items-center gap-1.5"
+                    >
+                      <Book className="w-3.5 h-3.5" />
+                      View Detailed Docs
+                    </a>
+                  )}
                   <span className="px-2.5 py-1 bg-gray-800 rounded-lg text-xs text-gray-400">
                     {section.endpoints.length} endpoints
                   </span>
