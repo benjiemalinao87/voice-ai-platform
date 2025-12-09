@@ -14,6 +14,7 @@ import { LiveCallFeed } from './components/LiveCallFeed';
 import { VoiceAgentsList } from './components/VoiceAgentsList';
 import { CreateAgentModal } from './components/CreateAgentModal';
 import { WhatsNew } from './components/WhatsNew';
+import { AssistantDashboard } from './components/AssistantDashboard';
 import { AppointmentsByAI } from './components/AppointmentsByAI';
 import { EmbeddingModal } from './components/EmbeddingModal';
 import { StandaloneDashboard } from './components/StandaloneDashboard';
@@ -21,6 +22,7 @@ import { AgentFlowCreator } from './components/AgentFlowCreator';
 import { Leads } from './components/Leads';
 import { Sidebar, View } from './components/Sidebar';
 import ApiDocs from './components/ApiDocs';
+import PartnerApiDocs from './components/PartnerApiDocs';
 import { useAuth } from './contexts/AuthContext';
 import { useVapi } from './contexts/VapiContext';
 import { agentApi } from './lib/api';
@@ -34,6 +36,7 @@ function App() {
   // Check URL for special routes
   const isLandingPage = window.location.pathname === '/landing';
   const isApiDocs = window.location.pathname === '/api-docs';
+  const isPartnerDocs = window.location.pathname === '/partner-api';
   const isFlowBuilder = window.location.pathname === '/flow-builder';
   const isAgentCreator = window.location.pathname === '/agents/create';
   const isAgentEditor = window.location.pathname.startsWith('/agents/edit/');
@@ -244,6 +247,11 @@ function App() {
     return <ApiDocs />;
   }
 
+  // Partner API docs page is public
+  if (isPartnerDocs) {
+    return <PartnerApiDocs />;
+  }
+
   // Show login if not authenticated
   if (!isAuthenticated) {
     return <Login />;
@@ -329,7 +337,7 @@ function App() {
       <WhatsNew />
 
       {/* Sidebar */}
-      <Sidebar 
+      <Sidebar
         currentView={currentView}
         setCurrentView={setCurrentView}
         darkMode={darkMode}
@@ -439,6 +447,13 @@ function App() {
               onCreateAgent={() => setShowCreateAgentModal(true)}
               onDeleteAgent={handleDeleteAgent}
             />
+          )}
+
+          {/* Assistant Dashboard Route - handling manually since we don't have react-router-dom top level routing yet */}
+          {window.location.pathname.startsWith('/assistants/') && (
+            <div className="space-y-6">
+              <AssistantDashboard />
+            </div>
           )}
 
           {currentView === 'settings' && (

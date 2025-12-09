@@ -1,17 +1,13 @@
 import { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
 import {
     Bot,
     ArrowLeft,
     Phone,
     Clock,
-    MessageSquare,
     BarChart2,
     Calendar,
-    PhoneIncoming,
     Play,
-    Pause,
-    Filter
+    Pause
 } from 'lucide-react';
 import { d1Client } from '../lib/d1';
 import { VapiClient, createVapiClient } from '../lib/vapi';
@@ -39,8 +35,8 @@ interface DashboardCall {
 }
 
 export function AssistantDashboard() {
-    const { id } = useParams<{ id: string }>();
-    const navigate = useNavigate();
+    // Manual URL parsing since we don't use react-router-dom
+    const id = window.location.pathname.split('/assistants/')[1];
 
     const [assistant, setAssistant] = useState<Agent | null>(null);
     const [calls, setCalls] = useState<DashboardCall[]>([]);
@@ -170,7 +166,7 @@ export function AssistantDashboard() {
             <div className="text-center p-12">
                 <h3 className="text-xl font-semibold text-gray-900 dark:text-gray-100">Assistant Not Found</h3>
                 <button
-                    onClick={() => navigate('/')}
+                    onClick={() => window.location.href = '/'}
                     className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
                 >
                     Go Back
@@ -184,7 +180,7 @@ export function AssistantDashboard() {
             {/* Header */}
             <div className="flex items-center gap-4">
                 <button
-                    onClick={() => navigate('/')}
+                    onClick={() => window.location.href = '/'}
                     className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors"
                 >
                     <ArrowLeft className="w-5 h-5 text-gray-600 dark:text-gray-400" />
@@ -275,8 +271,8 @@ export function AssistantDashboard() {
                                         onClick={() => call.recordingUrl && handlePlayPause(call.id)}
                                         disabled={!call.recordingUrl}
                                         className={`flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center transition-colors ${call.recordingUrl
-                                                ? 'bg-blue-600 hover:bg-blue-700 text-white'
-                                                : 'bg-gray-200 dark:bg-gray-700 text-gray-400 cursor-not-allowed'
+                                            ? 'bg-blue-600 hover:bg-blue-700 text-white'
+                                            : 'bg-gray-200 dark:bg-gray-700 text-gray-400 cursor-not-allowed'
                                             }`}
                                     >
                                         {playingId === call.id ? (
@@ -317,8 +313,8 @@ export function AssistantDashboard() {
                                                     <div className="flex items-center gap-2 mt-2">
                                                         <span className="text-xs font-medium uppercase text-gray-500">Sentiment:</span>
                                                         <span className={`capitalize ${call.analysis.sentiment === 'positive' ? 'text-green-600' :
-                                                                call.analysis.sentiment === 'negative' ? 'text-red-600' :
-                                                                    'text-gray-600'
+                                                            call.analysis.sentiment === 'negative' ? 'text-red-600' :
+                                                                'text-gray-600'
                                                             }`}>{call.analysis.sentiment}</span>
                                                     </div>
                                                 )}
