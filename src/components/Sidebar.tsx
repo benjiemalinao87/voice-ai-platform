@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { 
+import {
   LayoutDashboard,
   CalendarRange,
   PhoneCall,
@@ -7,20 +7,19 @@ import {
   Megaphone,
   Headset,
   SlidersHorizontal,
-  Globe, 
-  Moon, 
-  Sun, 
-  LogOut, 
+  Globe,
+  Moon,
+  Sun,
+  LogOut,
   User,
   ChevronRight,
   ChevronLeft,
   Book,
-  ExternalLink,
-  BarChart2
+  ExternalLink
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
-export type View = 'dashboard' | 'config' | 'recordings' | 'settings' | 'flow' | 'intent' | 'livechat' | 'board' | 'appointments' | 'standalone_dashboard' | 'leads' | 'assistant_analytics';
+export type View = 'dashboard' | 'config' | 'recordings' | 'settings' | 'flow' | 'intent' | 'livechat' | 'board' | 'appointments' | 'standalone_dashboard' | 'leads';
 
 interface SidebarProps {
   currentView: View;
@@ -64,14 +63,13 @@ export function Sidebar({
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'appointments', label: 'Appointment by AI', icon: CalendarRange },
     { id: 'recordings', label: 'Recordings', icon: PhoneCall },
-    { id: 'assistant_analytics', label: 'Assistant Analytics', icon: BarChart2 },
     { id: 'intent', label: 'Intent Analysis', icon: Sparkles },
     { id: 'leads', label: 'Outbound Campaign', icon: Megaphone },
-    { 
-      id: 'config', 
-      label: 'Voice Agents', 
+    {
+      id: 'config',
+      label: 'Voice Agents',
       icon: Headset,
-      onClick: () => setSelectedAgentId(undefined) 
+      onClick: () => setSelectedAgentId(undefined)
     },
     { id: 'settings', label: 'Settings', icon: SlidersHorizontal },
   ];
@@ -112,6 +110,13 @@ export function Sidebar({
           <button
             key={item.id}
             onClick={() => {
+              // If on a special route (like /assistants), navigate to home first
+              const isOnSpecialRoute = window.location.pathname !== '/';
+              if (isOnSpecialRoute) {
+                localStorage.setItem('currentView', item.id);
+                window.location.href = '/';
+                return;
+              }
               setCurrentView(item.id as View);
               item.onClick?.();
             }}

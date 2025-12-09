@@ -14,17 +14,14 @@ import { LiveCallFeed } from './components/LiveCallFeed';
 import { VoiceAgentsList } from './components/VoiceAgentsList';
 import { CreateAgentModal } from './components/CreateAgentModal';
 import { WhatsNew } from './components/WhatsNew';
-import { AssistantDashboard } from './components/AssistantDashboard';
-import { AssistantAnalytics } from './components/AssistantAnalytics';
 import { AppointmentsByAI } from './components/AppointmentsByAI';
 import { EmbeddingModal } from './components/EmbeddingModal';
 import { StandaloneDashboard } from './components/StandaloneDashboard';
 import { AgentFlowCreator } from './components/AgentFlowCreator';
 import { Leads } from './components/Leads';
 import { Sidebar, View } from './components/Sidebar';
+import { AssistantAnalytics } from './components/AssistantAnalytics';
 import ApiDocs from './components/ApiDocs';
-import PartnerApiDocs from './components/PartnerApiDocs';
-import WarmTransferDocs from './components/WarmTransferDocs';
 import { useAuth } from './contexts/AuthContext';
 import { useVapi } from './contexts/VapiContext';
 import { agentApi } from './lib/api';
@@ -38,12 +35,11 @@ function App() {
   // Check URL for special routes
   const isLandingPage = window.location.pathname === '/landing';
   const isApiDocs = window.location.pathname === '/api-docs';
-  const isPartnerDocs = window.location.pathname === '/partner-api';
-  const isWarmTransferDocs = window.location.pathname === '/warm-transfer-docs';
   const isFlowBuilder = window.location.pathname === '/flow-builder';
   const isAgentCreator = window.location.pathname === '/agents/create';
   const isAgentEditor = window.location.pathname.startsWith('/agents/edit/');
   const editAgentId = isAgentEditor ? window.location.pathname.split('/agents/edit/')[1] : undefined;
+  const isAssistantAnalytics = window.location.pathname === '/assistants';
 
   const [currentView, setCurrentView] = useState<View>(() => {
     // Always default to dashboard on initial mount
@@ -135,7 +131,7 @@ function App() {
         if (hadTokenOnMount.current) {
           // Page refresh scenario - restore saved view if exists
           const savedView = localStorage.getItem('currentView');
-          if (savedView && ['dashboard', 'config', 'recordings', 'settings', 'intent', 'livechat', 'board', 'appointments', 'standalone_dashboard', 'leads', 'assistant_analytics'].includes(savedView) && currentView !== savedView) {
+          if (savedView && ['dashboard', 'config', 'recordings', 'settings', 'intent', 'livechat', 'board', 'appointments', 'standalone_dashboard', 'leads'].includes(savedView) && currentView !== savedView) {
             setCurrentView(savedView as View);
           }
         } else {
@@ -250,16 +246,6 @@ function App() {
     return <ApiDocs />;
   }
 
-  // Partner API docs page is public
-  if (isPartnerDocs) {
-    return <PartnerApiDocs />;
-  }
-
-  // Warm Transfer docs page is public
-  if (isWarmTransferDocs) {
-    return <WarmTransferDocs />;
-  }
-
   // Show login if not authenticated
   if (!isAuthenticated) {
     return <Login />;
@@ -339,6 +325,26 @@ function App() {
     );
   }
 
+  // If assistant analytics route, render the analytics page
+  if (isAssistantAnalytics) {
+    return (
+      <div className={`h-screen flex bg-gray-50 dark:bg-gray-900 overflow-hidden ${darkMode ? 'dark' : ''}`}>
+        <Sidebar
+          currentView={currentView}
+          setCurrentView={setCurrentView}
+          darkMode={darkMode}
+          toggleDarkMode={toggleDarkMode}
+          embeddingSettings={embeddingSettings}
+          setShowEmbeddingModal={setShowEmbeddingModal}
+          setSelectedAgentId={setSelectedAgentId}
+        />
+        <main className="flex-1 overflow-y-auto">
+          <AssistantAnalytics />
+        </main>
+      </div>
+    );
+  }
+
   return (
     <div className="h-screen flex bg-gray-50 dark:bg-gray-900 overflow-hidden">
       {/* What's New Announcement */}
@@ -407,10 +413,6 @@ function App() {
             <Recordings />
           )}
 
-          {currentView === 'assistant_analytics' && (
-            <AssistantAnalytics />
-          )}
-
           {currentView === 'intent' && (
             <div className="space-y-6">
               <IntentDashboard />
@@ -459,13 +461,6 @@ function App() {
               onCreateAgent={() => setShowCreateAgentModal(true)}
               onDeleteAgent={handleDeleteAgent}
             />
-          )}
-
-          {/* Assistant Dashboard Route - handling manually since we don't have react-router-dom top level routing yet */}
-          {window.location.pathname.startsWith('/assistants/') && (
-            <div className="space-y-6">
-              <AssistantDashboard />
-            </div>
           )}
 
           {currentView === 'settings' && (

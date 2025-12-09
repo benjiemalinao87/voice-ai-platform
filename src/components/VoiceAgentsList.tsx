@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Bot, Volume2, Power, Settings, ChevronRight, Phone, Plus, Trash2, Workflow } from 'lucide-react';
+import { Bot, Volume2, Power, Settings, ChevronRight, Phone, Plus, Trash2, Workflow, BarChart3 } from 'lucide-react';
 import type { Agent } from '../types';
 import { d1Client } from '../lib/d1';
 
@@ -87,6 +87,11 @@ export function VoiceAgentsList({ agents, onSelectAgent, onCreateAgent, onDelete
     e.stopPropagation(); // Prevent triggering onSelectAgent
     window.location.href = `/agents/edit/${agentId}`;
   };
+
+  const handleViewAnalytics = (e: React.MouseEvent, agentId: string) => {
+    e.stopPropagation(); // Prevent triggering onSelectAgent
+    window.location.href = `/assistants?agent=${agentId}`;
+  };
   if (agents.length === 0) {
     return (
       <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-12 text-center">
@@ -153,12 +158,7 @@ export function VoiceAgentsList({ agents, onSelectAgent, onCreateAgent, onDelete
         {agents.map((agent) => (
           <div
             key={agent.id}
-            onClick={(e) => {
-              // Be careful not to trigger if clicking action buttons
-              if ((e.target as HTMLElement).closest('button')) return;
-              // Navigate to dashboard instead of just selecting
-              window.location.href = `/assistants/${agent.id}`;
-            }}
+            onClick={() => onSelectAgent(agent.id)}
             className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6 hover:shadow-lg hover:border-blue-500 dark:hover:border-blue-400 transition-all duration-200 text-left group cursor-pointer"
           >
             <div className="flex items-start justify-between mb-4">
@@ -189,23 +189,20 @@ export function VoiceAgentsList({ agents, onSelectAgent, onCreateAgent, onDelete
                   </div>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={(e) => handleViewAnalytics(e, agent.id)}
+                  className="p-1.5 rounded-lg text-gray-400 dark:text-gray-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+                  title="View analytics"
+                >
+                  <BarChart3 className="w-4 h-4" />
+                </button>
                 <button
                   onClick={(e) => handleEditFlow(e, agent.id)}
                   className="p-1.5 rounded-lg text-gray-400 dark:text-gray-500 hover:bg-purple-50 dark:hover:bg-purple-900/20 hover:text-purple-600 dark:hover:text-purple-400 transition-colors"
                   title={agentFlowStatus[agent.id] ? "Edit as visual flow" : "Create visual flow for this agent"}
                 >
                   <Workflow className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onSelectAgent(agent.id);
-                  }}
-                  className="p-1.5 rounded-lg text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-900 dark:hover:text-gray-100 transition-colors"
-                  title="Agent Settings"
-                >
-                  <Settings className="w-4 h-4" />
                 </button>
                 <button
                   onClick={(e) => handleDelete(e, agent.id, agent.name)}
