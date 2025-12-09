@@ -2,6 +2,54 @@
 
 ## Completed Features
 
+### Assistant Analytics Dashboard (December 9, 2025)
+✅ **Implemented dedicated Assistant Analytics page for viewing calls per assistant**
+
+**Feature Description:**
+A new split-panel dashboard page that allows users to easily see and listen to calls for each assistant with quick stats, filters, and prominent audio playback controls.
+
+**Key Components:**
+
+1. **Split-Panel Layout:**
+   - Left sidebar: List of all assistants with search functionality
+   - Right panel: Selected assistant's stats and call history
+
+2. **Quick Stats Cards:**
+   - Total Calls count
+   - Average Duration
+   - Total Cost
+   - Last Active date
+
+3. **Calls List Features:**
+   - Large, prominent play/pause button for each call
+   - Customer name and phone number clearly displayed
+   - Call type badges (Inbound blue, Outbound green, Web purple)
+   - Date, duration, and status information
+   - Audio progress bar with time display
+   - Download recording button
+   - Expandable call summary with sentiment analysis
+
+4. **Filters:**
+   - Call type filter (All, Inbound, Outbound)
+   - Search within call list
+
+**Files Added:**
+- `src/components/AssistantAnalytics.tsx` - Complete split-panel dashboard component
+
+**Files Modified:**
+- `src/components/Sidebar.tsx` - Added `assistant_analytics` view type and BarChart2 menu item
+- `src/App.tsx` - Added AssistantAnalytics import and view handling
+
+**User Experience:**
+- Easy assistant selection from left panel
+- One-click audio playback with visible progress
+- Clear customer identification (name + phone)
+- Quick overview stats per assistant
+- Filter by call type
+- Dark mode support
+
+---
+
 ### Settings Page Performance Optimization (December 5, 2024)
 ✅ **Optimized Settings page loading by parallelizing API calls and implementing skeleton loading**
 

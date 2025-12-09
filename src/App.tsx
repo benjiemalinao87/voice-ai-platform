@@ -15,6 +15,7 @@ import { VoiceAgentsList } from './components/VoiceAgentsList';
 import { CreateAgentModal } from './components/CreateAgentModal';
 import { WhatsNew } from './components/WhatsNew';
 import { AssistantDashboard } from './components/AssistantDashboard';
+import { AssistantAnalytics } from './components/AssistantAnalytics';
 import { AppointmentsByAI } from './components/AppointmentsByAI';
 import { EmbeddingModal } from './components/EmbeddingModal';
 import { StandaloneDashboard } from './components/StandaloneDashboard';
@@ -23,6 +24,7 @@ import { Leads } from './components/Leads';
 import { Sidebar, View } from './components/Sidebar';
 import ApiDocs from './components/ApiDocs';
 import PartnerApiDocs from './components/PartnerApiDocs';
+import WarmTransferDocs from './components/WarmTransferDocs';
 import { useAuth } from './contexts/AuthContext';
 import { useVapi } from './contexts/VapiContext';
 import { agentApi } from './lib/api';
@@ -37,6 +39,7 @@ function App() {
   const isLandingPage = window.location.pathname === '/landing';
   const isApiDocs = window.location.pathname === '/api-docs';
   const isPartnerDocs = window.location.pathname === '/partner-api';
+  const isWarmTransferDocs = window.location.pathname === '/warm-transfer-docs';
   const isFlowBuilder = window.location.pathname === '/flow-builder';
   const isAgentCreator = window.location.pathname === '/agents/create';
   const isAgentEditor = window.location.pathname.startsWith('/agents/edit/');
@@ -132,7 +135,7 @@ function App() {
         if (hadTokenOnMount.current) {
           // Page refresh scenario - restore saved view if exists
           const savedView = localStorage.getItem('currentView');
-          if (savedView && ['dashboard', 'config', 'recordings', 'settings', 'intent', 'livechat', 'board', 'appointments', 'standalone_dashboard', 'leads'].includes(savedView) && currentView !== savedView) {
+          if (savedView && ['dashboard', 'config', 'recordings', 'settings', 'intent', 'livechat', 'board', 'appointments', 'standalone_dashboard', 'leads', 'assistant_analytics'].includes(savedView) && currentView !== savedView) {
             setCurrentView(savedView as View);
           }
         } else {
@@ -250,6 +253,11 @@ function App() {
   // Partner API docs page is public
   if (isPartnerDocs) {
     return <PartnerApiDocs />;
+  }
+
+  // Warm Transfer docs page is public
+  if (isWarmTransferDocs) {
+    return <WarmTransferDocs />;
   }
 
   // Show login if not authenticated
@@ -397,6 +405,10 @@ function App() {
 
           {currentView === 'recordings' && (
             <Recordings />
+          )}
+
+          {currentView === 'assistant_analytics' && (
+            <AssistantAnalytics />
           )}
 
           {currentView === 'intent' && (

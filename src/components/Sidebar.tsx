@@ -15,11 +15,12 @@ import {
   ChevronRight,
   ChevronLeft,
   Book,
-  ExternalLink
+  ExternalLink,
+  BarChart2
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
-export type View = 'dashboard' | 'config' | 'recordings' | 'settings' | 'flow' | 'intent' | 'livechat' | 'board' | 'appointments' | 'standalone_dashboard' | 'leads';
+export type View = 'dashboard' | 'config' | 'recordings' | 'settings' | 'flow' | 'intent' | 'livechat' | 'board' | 'appointments' | 'standalone_dashboard' | 'leads' | 'assistant_analytics';
 
 interface SidebarProps {
   currentView: View;
@@ -63,6 +64,7 @@ export function Sidebar({
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'appointments', label: 'Appointment by AI', icon: CalendarRange },
     { id: 'recordings', label: 'Recordings', icon: PhoneCall },
+    { id: 'assistant_analytics', label: 'Assistant Analytics', icon: BarChart2 },
     { id: 'intent', label: 'Intent Analysis', icon: Sparkles },
     { id: 'leads', label: 'Outbound Campaign', icon: Megaphone },
     { 

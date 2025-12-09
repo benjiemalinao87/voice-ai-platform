@@ -1034,6 +1034,16 @@ export default function ApiDocs() {
                       View Detailed Docs
                     </a>
                   )}
+                  {section.id === 'calls' && (
+                    <a
+                      href="/warm-transfer-docs"
+                      onClick={(e) => e.stopPropagation()}
+                      className="px-3 py-1.5 bg-orange-600 hover:bg-orange-700 rounded-lg text-xs text-white font-medium transition-colors flex items-center gap-1.5"
+                    >
+                      <Book className="w-3.5 h-3.5" />
+                      Warm Transfer Guide
+                    </a>
+                  )}
                   <span className="px-2.5 py-1 bg-gray-800 rounded-lg text-xs text-gray-400">
                     {section.endpoints.length} endpoints
                   </span>
