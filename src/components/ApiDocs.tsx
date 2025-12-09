@@ -265,6 +265,8 @@ const apiSections: ApiSection[] = [
           { name: 'product', type: 'string', required: false, description: 'Product interest - used in {product} template' },
           { name: 'lead_source', type: 'string', required: false, description: 'Lead source - used in {lead_source} template' },
           { name: 'notes', type: 'string', required: false, description: 'Additional context (flexible field) - used in {notes} template and injected into AI context' },
+          { name: 'system_prompt', type: 'string', required: false, description: 'Override AI system prompt for this call (highest priority, overrides campaign & assistant prompts)' },
+          { name: 'first_message', type: 'string', required: false, description: 'Override first message for this call (highest priority, supports {firstname}, {product}, etc. placeholders)' },
           { name: 'callback_url', type: 'string', required: false, description: 'Webhook URL to receive call result when complete' },
         ],
         response: '{ "success": true, "lead_id": "...", "lead_created": true, "campaign_lead_id": "...", "vapi_call_id": "...", "call_status": "initiated" }',

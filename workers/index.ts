@@ -6399,12 +6399,16 @@ Notes: ${lead.notes || 'None'}
 IMPORTANT: Remember the customer's name is "${lead.firstname || 'Customer'}". Use it naturally in conversation.
 === END CONTEXT ===`;
 
-          // Determine which prompt to use
+          // Determine which prompt to use (Priority: API request > Campaign > Assistant)
           let modifiedSystemPrompt = '';
           
-          if (campaign.prompt_template) {
-            // USE CAMPAIGN'S CUSTOM PROMPT (recommended for outbound)
-            // Replace placeholders in the campaign prompt template
+          if (body.system_prompt) {
+            // HIGHEST PRIORITY: Use system_prompt from API request
+            let apiPrompt = replaceLeadPlaceholders(body.system_prompt, lead);
+            modifiedSystemPrompt = apiPrompt + leadContextBlock;
+            console.log(`[Partner Call] Using system_prompt from API request`);
+          } else if (campaign.prompt_template) {
+            // MEDIUM PRIORITY: Use campaign's custom prompt
             let campaignPrompt = replaceLeadPlaceholders(campaign.prompt_template, lead);
             modifiedSystemPrompt = campaignPrompt + leadContextBlock;
             console.log(`[Partner Call] Using campaign's custom prompt template`);
@@ -6451,12 +6455,19 @@ Stay focused on the lead's product interest and notes provided below.
             };
           }
 
-          // Apply first message template if campaign has one
-          if (campaign.first_message_template) {
+          // Apply first message (Priority: API request > Campaign > Assistant default)
+          if (body.first_message) {
+            // HIGHEST PRIORITY: Use first_message from API request
+            const personalizedFirstMessage = replaceLeadPlaceholders(body.first_message, lead);
+            assistantOverrides.firstMessage = personalizedFirstMessage;
+            assistantOverrides.firstMessageMode = 'assistant-speaks-first';
+            console.log(`[Partner Call] Using first_message from API request: "${personalizedFirstMessage}"`);
+          } else if (campaign.first_message_template) {
+            // MEDIUM PRIORITY: Use campaign's first_message_template
             const personalizedFirstMessage = replaceLeadPlaceholders(campaign.first_message_template, lead);
             assistantOverrides.firstMessage = personalizedFirstMessage;
             assistantOverrides.firstMessageMode = 'assistant-speaks-first';
-            console.log(`[Partner Call] Using personalized first message: "${personalizedFirstMessage}"`);
+            console.log(`[Partner Call] Using campaign's first message: "${personalizedFirstMessage}"`);
           }
 
           // Build call payload using assistantId + assistantOverrides (correct VAPI approach)
