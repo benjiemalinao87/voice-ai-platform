@@ -43,14 +43,14 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"campaign_id\": \"YOUR_CAMPAIGN_ID\",\n  \"phone\": \"+14155551234\",\n  \"firstname\": \"John\",\n  \"lastname\": \"Doe\",\n  \"email\": \"john@example.com\",\n  \"product\": \"Enterprise Plan\",\n  \"notes\": \"Interested in demo, located in San Francisco\",\n  \"lead_source\": \"partner_api\",\n  \"callback_url\": \"https://your-webhook.com/callback\"\n}"
+              "raw": "{\n  \"campaign_id\": \"YOUR_CAMPAIGN_ID\",\n  \"phone\": \"+14155551234\",\n  \"firstname\": \"John\",\n  \"lastname\": \"Doe\",\n  \"email\": \"john@example.com\",\n  \"product\": \"Enterprise Plan\",\n  \"notes\": \"Interested in demo, located in San Francisco\",\n  \"lead_source\": \"partner_api\",\n  \"system_prompt\": \"You are a friendly sales representative. Customer name is {firstname}. They are interested in {product}. Context: {notes}\",\n  \"first_message\": \"Hi {firstname}, this is regarding your interest in {product}. Do you have a moment?\",\n  \"callback_url\": \"https://your-webhook.com/callback\"\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/api/partner/call",
               "host": ["{{baseUrl}}"],
               "path": ["api", "partner", "call"]
             },
-            "description": "Create/find lead, add to campaign, and initiate AI call in one request. The notes field is flexible - use it for any custom context."
+            "description": "Create/find lead, add to campaign, and initiate AI call in one request.\n\nOptional fields:\n- system_prompt: Override AI prompt for this call (highest priority)\n- first_message: Override greeting for this call (highest priority)\n- Both support placeholders: {firstname}, {lastname}, {product}, {notes}, {lead_source}"
           }
         }
       ]
